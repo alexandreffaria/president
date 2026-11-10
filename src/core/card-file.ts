@@ -5,7 +5,7 @@
  * result is either a card or a list of problems phrased so the agent can fix the file.
  * Writing lives in card-writer.ts.
  */
-import { type Document, LineCounter, parseDocument } from "yaml";
+import { type Document, isCollection, isMap, LineCounter, parseDocument } from "yaml";
 import {
   CARD_FILENAME_PATTERN,
   type Frontmatter,
@@ -142,7 +142,9 @@ function parseNamedCard(
   }
 
   const lineCounter = new LineCounter();
-  const doc = parseDocument(split.yaml, { lineCounter });
+  // logLevel "error": the library's warnings (a list or mapping used as a key) would go to
+  // stderr on every read; such keys are reported as a card error below instead.
+  const doc = parseDocument(split.yaml, { lineCounter, logLevel: "error" });
   const fileLine = (offset: number) => lineCounter.linePos(offset).line + split.yamlStartLine - 1;
   if (doc.errors.length > 0) {
     return fail(
@@ -156,6 +158,14 @@ function parseNamedCard(
         return `YAML error${where}: ${message}`;
       }),
     );
+  }
+  if (isMap(doc.contents)) {
+    const odd = doc.contents.items.find((pair) => isCollection(pair.key));
+    if (odd) {
+      const offset = (odd.key as { range?: [number, number, number] }).range?.[0];
+      const where = offset === undefined ? "" : ` (line ${fileLine(offset)})`;
+      return fail([`frontmatter keys must be plain names, not lists or mappings${where}`]);
+    }
   }
   let raw: unknown;
   try {

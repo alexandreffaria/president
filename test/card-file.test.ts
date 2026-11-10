@@ -284,6 +284,15 @@ describe("parseCard never throws", () => {
     expect(expectErrors(huge)[0]).toMatch(/cards must be under 1024 kB/);
   });
 
+  it("says a list or mapping can't be a key, without printing a warning (R3-12)", () => {
+    const errors = expectErrors(cardText().replace("\n---\n", "\n? [a, b]\n: c\n---\n"));
+    expect(errors).toEqual([
+      expect.stringMatching(
+        /^frontmatter keys must be plain names, not lists or mappings \(line \d+\)$/,
+      ),
+    ]);
+  });
+
   it("survives hostile and odd YAML", () => {
     const inputs = [
       "---\n!!binary x: 1\n---\n",
