@@ -582,6 +582,25 @@ describe("who wrote a card (R3-6)", () => {
     expect((await detail(request, read.revision)).writtenByPresident).toBe(false);
     expect((await detail(request, agent.revision)).writtenByPresident).toBe(true);
   });
+
+  it("says an agent's change that sits between two of president's writes (R4-3)", async () => {
+    const { act, request, demo } = await setup();
+    const read = await detail(request);
+    await act("0002", { type: "note", note: "first" });
+    const afterNote = await detail(request);
+    const file = join(demo, "decisions", "0002-api-errors.md");
+    await writeFile(
+      file,
+      (await readFile(file, "utf8")).replace("title: Throw typed errors", "title: Raise them"),
+    );
+    const agent = await detail(request);
+    await act("0002", { type: "note", note: "second" });
+    // Both notes are president's, but the chain from either earlier revision breaks at the
+    // agent's edit.
+    expect((await detail(request, read.revision)).writtenByPresident).toBe(false);
+    expect((await detail(request, afterNote.revision)).writtenByPresident).toBe(false);
+    expect((await detail(request, agent.revision)).writtenByPresident).toBe(true);
+  });
 });
 
 describe("local-only guard", () => {
