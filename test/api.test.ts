@@ -601,6 +601,16 @@ describe("who wrote a card (R3-6)", () => {
     expect((await detail(request, afterNote.revision)).writtenByPresident).toBe(false);
     expect((await detail(request, agent.revision)).writtenByPresident).toBe(true);
   });
+
+  it("forgets its writes when the hub restarts, as the README says (R4-4)", async () => {
+    const { act, request, registry } = await setup();
+    const read = await detail(request);
+    await act("0002", { type: "note", note: "before the restart" });
+    expect((await detail(request, read.revision)).writtenByPresident).toBe(true);
+    const restarted = createApp({ registry, bus: new EventBus(), staticDir: undefined });
+    const again = async (path: string) => restarted.request(`http://127.0.0.1:4747${path}`);
+    expect((await detail(again, read.revision)).writtenByPresident).toBe(false);
+  });
 });
 
 describe("local-only guard", () => {

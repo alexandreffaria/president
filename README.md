@@ -171,8 +171,9 @@ How it fits together:
   lists what changed. Undo sends the revision its action returned, and restores the file only if
   it is still at that revision. The server remembers the revisions it wrote; a page asks for a
   card with the revision it last read (`?since=`), and the answer says whether only president's
-  own writes happened since, so a change made in another tab, even one this tab missed while
-  its connection was down, is never blamed on an agent.
+  own writes happened since, so a change made in another tab, even one this tab missed, is not
+  blamed on an agent. That memory is kept nowhere but in the running hub: after the hub
+  restarts, a change from another tab that this tab missed is reported as an agent's change.
 - A watcher on every `decisions/` folder and on the registry pushes changes to the UI over a
   WebSocket (`/api/events`), one per tab, hidden or not. Browsers keep WebSockets out of the 6
   connections per host that HTTP requests share, so any number of tabs and windows can be live
