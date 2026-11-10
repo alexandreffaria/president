@@ -1,14 +1,16 @@
 /**
- * Card files on disk: loading every card of a project, finding one by id and applying
- * actions to it.
+ * Card files on disk: loading every card of a project, finding one by id, applying
+ * actions to it and undoing the last one.
  *
  * Path safety: cards are only ever addressed by (project name, card id). The project
  * comes from the registry, the id must match CARD_ID_PATTERN, and the file is found by
- * listing the project's decisions/ folder, so no request can reach outside it.
+ * listing the project's decisions/ folder. Symlinked card files are not followed, and a
+ * decisions/ folder that resolves outside the project is refused, so no request can reach
+ * outside the project.
  */
 import { createHash } from "node:crypto";
-import { lstat, readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { lstat, readdir, readFile, realpath } from "node:fs/promises";
+import { join, sep } from "node:path";
 import { applyAction, type CardAction } from "../core/actions.ts";
 import type {
   BrokenCardDto,
@@ -18,12 +20,13 @@ import type {
   ProjectDto,
 } from "../core/api.ts";
 import {
+  MAX_CARD_BYTES,
   type ParsedCard,
   parseCard,
   parseCardFileName,
-  updateCardText,
 } from "../core/card-file.ts";
-import { CARD_ID_PATTERN } from "../core/schema.ts";
+import { updateCardText } from "../core/card-writer.ts";
+import { CARD_ID_PATTERN, sameCardId } from "../core/schema.ts";
 import { UserError } from "./errors.ts";
 import { isNotFound, KeyedMutex, writeFileAtomic } from "./fs-utils.ts";
 import { decisionsDirOf, type Project } from "./registry.ts";
@@ -34,9 +37,17 @@ export interface LoadedCard extends ParsedCard {
   revision: string;
 }
 
+/** Something odd about a valid card that an agent should look at. */
+export interface CardWarning {
+  fileName: string;
+  id: string;
+  message: string;
+}
+
 export interface ProjectCards {
   cards: LoadedCard[];
   broken: BrokenCardDto[];
+  warnings: CardWarning[];
   /** Set when the decisions folder itself can't be read. */
   error: string | undefined;
 }
@@ -55,19 +66,55 @@ export function revisionOf(text: string): string {
   return createHash("sha256").update(text).digest("hex").slice(0, 16);
 }
 
-export async function loadProjectCards(project: Project): Promise<ProjectCards> {
+/**
+ * The project's decisions/ folder, after checking that it really is inside the project
+ * (a symlink pointing elsewhere is refused). Returns an error message instead when it isn't
+ * usable.
+ */
+async function decisionsDir(project: Project): Promise<{ dir: string } | { error: string }> {
   const dir = decisionsDirOf(project);
+  try {
+    const [realProject, realDir] = await Promise.all([realpath(project.path), realpath(dir)]);
+    if (!realDir.startsWith(realProject + sep)) {
+      return {
+        error: `${dir} links to ${realDir}, outside the project; president doesn't follow it. Move the cards into the project.`,
+      };
+    }
+    return { dir };
+  } catch (error) {
+    return {
+      error: isNotFound(error)
+        ? `${dir} does not exist`
+        : `cannot read ${dir}: ${(error as Error).message}`,
+    };
+  }
+}
+
+async function cardFileNames(dir: string): Promise<string[]> {
+  return (await readdir(dir)).filter((n) => !isIgnoredFile(n)).sort();
+}
+
+export async function loadProjectCards(project: Project): Promise<ProjectCards> {
+  const empty = { cards: [], broken: [], warnings: [] };
+  const located = await decisionsDir(project);
+  if ("error" in located) return { ...empty, error: located.error };
   let names: string[];
   try {
-    names = (await readdir(dir)).filter((n) => !isIgnoredFile(n)).sort();
+    names = await cardFileNames(located.dir);
   } catch (error) {
-    const reason = isNotFound(error)
-      ? `${dir} does not exist`
-      : `cannot read ${dir}: ${(error as Error).message}`;
-    return { cards: [], broken: [], error: reason };
+    return { ...empty, error: `cannot read ${located.dir}: ${(error as Error).message}` };
   }
+  pruneCache(located.dir, names);
+  const results = await Promise.all(names.map((name) => loadFile(project, name, true)));
+  const { cards, broken } = collect(project, results);
+  return { cards, broken, warnings: dependencyWarnings(cards, broken), error: undefined };
+}
 
-  const results = await Promise.all(names.map((name) => loadFile(project, name)));
+/** Separates cards from broken files; two files with the same id are both broken. */
+function collect(
+  project: Project,
+  results: (LoadedCard | BrokenCardDto | undefined)[],
+): { cards: LoadedCard[]; broken: BrokenCardDto[] } {
   const cards: LoadedCard[] = [];
   const broken: BrokenCardDto[] = [];
   for (const result of results) {
@@ -76,7 +123,6 @@ export async function loadProjectCards(project: Project): Promise<ProjectCards> 
     else cards.push(result);
   }
 
-  // Two files with the same id make the id ambiguous: show both as broken.
   const byId = new Map<string, LoadedCard[]>();
   for (const card of cards) byId.set(card.id, [...(byId.get(card.id) ?? []), card]);
   const unique: LoadedCard[] = [];
@@ -95,39 +141,109 @@ export async function loadProjectCards(project: Project): Promise<ProjectCards> 
     }
   }
   broken.sort((a, b) => a.fileName.localeCompare(b.fileName));
-  return { cards: unique, broken, error: undefined };
+  return { cards: unique, broken };
+}
+
+/** `depends_on` entries that don't name another card of the project. */
+function dependencyWarnings(cards: LoadedCard[], broken: BrokenCardDto[]): CardWarning[] {
+  const ids = [...cards.map((c) => c.id), ...broken.flatMap((b) => (b.id ? [b.id] : []))];
+  const warnings: CardWarning[] = [];
+  for (const card of cards) {
+    for (const dep of card.frontmatter.depends_on) {
+      if (sameCardId(dep, card.id)) {
+        warnings.push({ fileName: card.fileName, id: card.id, message: "depends_on lists itself" });
+      } else if (!ids.some((id) => sameCardId(dep, id))) {
+        warnings.push({
+          fileName: card.fileName,
+          id: card.id,
+          message: `depends_on "${dep}" is not a card in this project`,
+        });
+      }
+    }
+  }
+  return warnings;
+}
+
+/**
+ * Parsed cards by path, reused while the file is unchanged. Only used for listings; a
+ * single card (and every write) is always read fresh.
+ */
+const cache = new Map<string, { stamp: string; result: LoadedCard | BrokenCardDto }>();
+
+function pruneCache(dir: string, names: string[]): void {
+  const keep = new Set(names.map((name) => join(dir, name)));
+  for (const path of cache.keys()) {
+    if (path.startsWith(dir + sep) && !keep.has(path)) cache.delete(path);
+  }
 }
 
 async function loadFile(
   project: Project,
   fileName: string,
+  useCache: boolean,
 ): Promise<LoadedCard | BrokenCardDto | undefined> {
   const path = join(decisionsDirOf(project), fileName);
-  let text: string;
+  const broken = (errors: string[]): BrokenCardDto => ({
+    project: project.name,
+    fileName,
+    id: parseCardFileName(fileName)?.id,
+    errors,
+  });
   try {
-    // Only regular files: a symlink could point anywhere on disk.
-    if (!(await lstat(path)).isFile()) return undefined;
-    text = await readFile(path, "utf8");
+    const info = await lstat(path, { bigint: true });
+    if (info.isSymbolicLink()) {
+      return broken([
+        "this is a symlink; president doesn't follow symlinks. Replace it with the card file itself.",
+      ]);
+    }
+    if (!info.isFile()) return undefined;
+    if (info.size > MAX_CARD_BYTES) {
+      return broken([
+        `the file is ${info.size / 1024n} kB; cards must be under ${MAX_CARD_BYTES / 1024} kB`,
+      ]);
+    }
+    const stamp = `${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
+    const cached = cache.get(path);
+    if (useCache && cached?.stamp === stamp) {
+      return { ...cached.result, project: project.name };
+    }
+
+    const text = await readFile(path, "utf8");
+    const parsed = parseCard(text, fileName);
+    const result: LoadedCard | BrokenCardDto = parsed.ok
+      ? { ...parsed.card, project: project.name, path, revision: revisionOf(text) }
+      : { project: project.name, ...parsed.problem };
+    // Like git's "racily clean" rule: a file modified in the last couple of seconds could
+    // change again without its timestamp moving, so only settled files are cached.
+    const settled = Date.now() - Number(info.mtimeNs / 1_000_000n) > 2000;
+    if (settled) cache.set(path, { stamp, result });
+    else cache.delete(path);
+    return result;
   } catch (error) {
     if (isNotFound(error)) return undefined; // deleted while we were listing
-    return {
-      project: project.name,
-      fileName,
-      id: parseCardFileName(fileName)?.id,
-      errors: [`cannot read file: ${(error as Error).message}`],
-    };
+    // One unreadable file must never fail the whole project.
+    return broken([`cannot read file: ${(error as Error).message}`]);
   }
-  const result = parseCard(text, fileName);
-  if (!result.ok) return { project: project.name, ...result.problem };
-  return { ...result.card, project: project.name, path, revision: revisionOf(text) };
 }
 
 export type FindCardResult = { ok: true; card: LoadedCard } | { ok: false; broken: BrokenCardDto };
 
+/** Finds one card by id, reading only the files whose name starts with that id. */
 export async function findCard(project: Project, id: string): Promise<FindCardResult> {
   if (!CARD_ID_PATTERN.test(id)) throw new UserError(`"${id}" is not a valid card id`);
-  const { cards, broken, error } = await loadProjectCards(project);
-  if (error) throw new UserError(error, { status: 404 });
+  const located = await decisionsDir(project);
+  if ("error" in located) throw new UserError(located.error, { status: 404 });
+  let names: string[];
+  try {
+    names = await cardFileNames(located.dir);
+  } catch (error) {
+    throw new UserError(`cannot read ${located.dir}: ${(error as Error).message}`, {
+      status: 404,
+    });
+  }
+  const mine = names.filter((name) => parseCardFileName(name)?.id === id);
+  const results = await Promise.all(mine.map((name) => loadFile(project, name, false)));
+  const { cards, broken } = collect(project, results);
   const card = cards.find((c) => c.id === id);
   if (card) return { ok: true, card };
   const problem = broken.find((b) => b.id === id);
@@ -137,52 +253,114 @@ export async function findCard(project: Project, id: string): Promise<FindCardRe
 
 const writeLock = new KeyedMutex();
 
+/** What the last action on each card replaced, so the human can undo it. */
+interface UndoEntry {
+  before: string;
+  /** The revision the action produced; undo only works while the file is still at it. */
+  after: string;
+  at: number;
+}
+const undoJournal = new Map<string, UndoEntry>();
+const UNDO_TTL_MS = 30 * 60 * 1000;
+const UNDO_MAX_ENTRIES = 200;
+
+function remember(path: string, entry: UndoEntry): void {
+  undoJournal.delete(path);
+  undoJournal.set(path, entry);
+  const now = Date.now();
+  for (const [key, value] of undoJournal) {
+    if (undoJournal.size <= UNDO_MAX_ENTRIES && now - value.at < UNDO_TTL_MS) break;
+    undoJournal.delete(key);
+  }
+}
+
+const conflict = (message: string) => new UserError(message, { status: 409, code: "conflict" });
+
+async function lockedCard(project: Project, id: string): Promise<LoadedCard> {
+  const found = await findCard(project, id);
+  if (!found.ok) {
+    throw new UserError(`card "${id}" is broken and can't be changed until it is fixed`, {
+      status: 422,
+      details: found.broken.errors,
+    });
+  }
+  return found.card;
+}
+
 /**
  * Applies an action to a card and writes it back atomically.
- * If `revision` is given and the file changed since, nothing is written (409 conflict).
+ *
+ * `revision` is the revision the caller saw; if the file changed since, nothing is written
+ * (409 conflict). Pass `null` only when the caller has not shown the card to anyone (the
+ * CLI's `applied` and `seen`, which act on whatever is on disk).
  */
 export async function actOnCard(
   project: Project,
   id: string,
   action: CardAction,
-  options: { revision?: string | undefined; now?: Date } = {},
+  options: { revision: string | null; now?: Date },
 ): Promise<LoadedCard> {
-  const key = `${project.path}\0${id}`;
-  return writeLock.run(key, async () => {
-    const found = await findCard(project, id);
-    if (!found.ok) {
-      throw new UserError(`card "${id}" is broken and can't be changed until it is fixed`, {
-        status: 422,
-        details: found.broken.errors,
-      });
-    }
-    const { card } = found;
-    if (options.revision && options.revision !== card.revision) {
-      throw new UserError("the card changed on disk since you opened it; review it again", {
-        status: 409,
-        code: "conflict",
-      });
+  return writeLock.run(`${project.path}\0${id}`, async () => {
+    const card = await lockedCard(project, id);
+    if (options.revision !== null && options.revision !== card.revision) {
+      throw conflict("the card changed on disk since you opened it; review it again");
     }
     const result = applyAction(card, action, options.now ?? new Date());
-    if (!result.ok) throw new UserError(result.error, { status: 409, code: "invalid_transition" });
-
+    if (!result.ok) {
+      throw result.reason === "transition"
+        ? new UserError(result.error, { status: 409, code: "invalid_transition" })
+        : new UserError(result.error, { status: 422, code: "invalid_action" });
+    }
     const original = await readFile(card.path, "utf8");
     if (revisionOf(original) !== card.revision) {
-      throw new UserError("the card changed on disk while saving; try again", {
-        status: 409,
-        code: "conflict",
-      });
+      throw conflict("the card changed on disk while saving; try again");
     }
     const text = updateCardText(original, result.raw);
-    await writeFileAtomic(card.path, text);
-
-    const reparsed = parseCard(text, card.fileName);
-    if (!reparsed.ok) {
-      // applyAction validated the frontmatter, so this means a bug, not bad input.
-      throw new Error(`wrote an invalid card: ${reparsed.problem.errors.join("; ")}`);
-    }
-    return { ...reparsed.card, project: project.name, path: card.path, revision: revisionOf(text) };
+    const written = await writeChecked(project, card, text);
+    remember(card.path, { before: original, after: written.revision, at: Date.now() });
+    return written;
   });
+}
+
+/**
+ * Puts a card back exactly as it was before the last action taken through this server
+ * (byte for byte: no feedback entry, nothing lost). `revision` is the revision that action
+ * returned; if anything changed the card since (an agent applied it, another tab acted),
+ * the undo is refused with a 409.
+ */
+export async function undoLastAction(
+  project: Project,
+  id: string,
+  revision: string,
+): Promise<LoadedCard> {
+  return writeLock.run(`${project.path}\0${id}`, async () => {
+    const card = await lockedCard(project, id);
+    if (card.revision !== revision) {
+      throw conflict(
+        "the card changed after your action (an agent may have acted on it), so it can't be undone; review it and reopen it if needed",
+      );
+    }
+    const entry = undoJournal.get(card.path);
+    if (!entry || entry.after !== revision || Date.now() - entry.at > UNDO_TTL_MS) {
+      throw new UserError(
+        "there is nothing to undo on this card any more (president may have restarted)",
+        { status: 409, code: "undo_unavailable" },
+      );
+    }
+    const written = await writeChecked(project, card, entry.before);
+    undoJournal.delete(card.path);
+    return written;
+  });
+}
+
+async function writeChecked(project: Project, card: LoadedCard, text: string): Promise<LoadedCard> {
+  // Parse before writing: a write must never turn a valid card into a broken one.
+  const reparsed = parseCard(text, card.fileName);
+  if (!reparsed.ok) {
+    throw new Error(`refusing to write an invalid card: ${reparsed.problem.errors.join("; ")}`);
+  }
+  await writeFileAtomic(card.path, text);
+  return { ...reparsed.card, project: project.name, path: card.path, revision: revisionOf(text) };
 }
 
 export function toCardDto(card: LoadedCard): CardDto {
@@ -205,8 +383,7 @@ export function countCards(cards: ProjectCards): ProjectCounts {
   return counts;
 }
 
-export async function describeProject(project: Project): Promise<ProjectDto> {
-  const cards = await loadProjectCards(project);
+export function projectDto(project: Project, cards: ProjectCards): ProjectDto {
   return {
     name: project.name,
     path: project.path,
@@ -214,4 +391,8 @@ export async function describeProject(project: Project): Promise<ProjectDto> {
     error: cards.error,
     counts: countCards(cards),
   };
+}
+
+export async function describeProject(project: Project): Promise<ProjectDto> {
+  return projectDto(project, await loadProjectCards(project));
 }

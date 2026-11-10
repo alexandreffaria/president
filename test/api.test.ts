@@ -1,4 +1,4 @@
-import { readFile, symlink, writeFile } from "node:fs/promises";
+import { chmod, readFile, rename, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type {
@@ -26,11 +26,20 @@ async function setup() {
   const post = (path: string, body: unknown) =>
     request(path, {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+      headers: { "content-type": "application/json", origin: ORIGIN },
+      body: typeof body === "string" ? body : JSON.stringify(body),
     });
-  return { app, registry, demo, events, request, post };
+  const remove = (path: string) => request(path, { method: "DELETE", headers: { origin: ORIGIN } });
+  /** Acts on a card with the revision it has right now, like the UI does. */
+  const act = async (id: string, body: object) => {
+    const card = await json<CardResponse>(request(`/api/cards/demo/${id}`));
+    const revision = card.ok ? card.card.revision : "none";
+    return post(`/api/cards/demo/${id}/actions`, { revision, ...body });
+  };
+  return { app, registry, demo, events, request, post, remove, act };
 }
+
+const ORIGIN = "http://127.0.0.1:4747";
 
 async function json<T = { error: string; code?: string; details: string[] }>(
   response: Response | Promise<Response>,
@@ -53,7 +62,7 @@ describe("projects API", () => {
   });
 
   it("adds and removes projects and announces the change", async () => {
-    const { request, post, events } = await setup();
+    const { post, remove, events } = await setup();
     const dir = await tempDir();
     const missing = await post("/api/projects", { path: dir });
     expect(missing.status).toBe(400);
@@ -67,8 +76,8 @@ describe("projects API", () => {
     });
     expect(events).toContainEqual({ type: "projects" });
 
-    expect((await request("/api/projects/fresh", { method: "DELETE" })).status).toBe(200);
-    expect((await request("/api/projects/fresh", { method: "DELETE" })).status).toBe(404);
+    expect((await remove("/api/projects/fresh")).status).toBe(200);
+    expect((await remove("/api/projects/fresh")).status).toBe(404);
   });
 
   it("validates the request body", async () => {
@@ -141,19 +150,95 @@ describe("cards API", () => {
     expect(list.broken.map((b) => b.fileName)).toEqual(["0002-api-errors.md", "0002-copy.md"]);
   });
 
-  it("ignores readme, hidden, underscore and non-markdown files, and symlinks", async () => {
+  it("ignores readme, hidden, underscore and non-markdown files", async () => {
     const { request, demo } = await setup();
     const dir = join(demo, "decisions");
     await writeFile(join(dir, "README.md"), "# About these cards\n");
     await writeFile(join(dir, "_template.md"), "draft");
     await writeFile(join(dir, ".0005-x.md.tmp"), "partial");
     await writeFile(join(dir, "notes.txt"), "x");
-    const outside = join(await tempDir(), "0007-outside.md");
-    await writeFile(outside, cardText({ id: '"0007"' }));
-    await symlink(outside, join(dir, "0007-outside.md"));
     const list = await json<CardListResponse>(request("/api/cards"));
     expect(list.cards).toHaveLength(4);
     expect(list.broken).toEqual([]);
+  });
+
+  it("shows a symlinked card as broken instead of following it", async () => {
+    const { request, demo } = await setup();
+    const outside = join(await tempDir(), "0007-outside.md");
+    await writeFile(outside, cardText({ id: '"0007"' }));
+    await symlink(outside, join(demo, "decisions", "0007-outside.md"));
+    const list = await json<CardListResponse>(request("/api/cards"));
+    expect(list.cards).toHaveLength(4);
+    expect(list.broken).toEqual([
+      {
+        project: "demo",
+        fileName: "0007-outside.md",
+        id: "0007",
+        errors: [expect.stringMatching(/symlink; president doesn't follow symlinks/)],
+      },
+    ]);
+  });
+
+  it("refuses a decisions folder that links outside the project", async () => {
+    const { request, post, demo } = await setup();
+    const outside = join(await tempDir(), "elsewhere");
+    await rename(join(demo, "decisions"), outside);
+    await symlink(outside, join(demo, "decisions"));
+    const list = await json<CardListResponse>(request("/api/cards"));
+    expect(list.cards).toEqual([]);
+    expect(list.projectErrors[0]?.error).toMatch(
+      /outside the project; president doesn't follow it/,
+    );
+    const res = await post("/api/cards/demo/0002/actions", { type: "defer", revision: "x" });
+    expect(res.status).toBe(404);
+    expect((await readFile(join(outside, "0002-api-errors.md"), "utf8")).includes("deferred")).toBe(
+      false,
+    );
+  });
+
+  it("keeps serving the project when one card is hostile YAML", async () => {
+    const { request, demo } = await setup();
+    const lines = ['a: &a ["x","x","x","x","x","x","x","x","x","x"]'];
+    const names = "abcdefgh";
+    for (let i = 1; i < names.length; i++) {
+      lines.push(
+        `${names[i]}: &${names[i]} [${Array(10)
+          .fill(`*${names[i - 1]}`)
+          .join(",")}]`,
+      );
+    }
+    await writeFile(join(demo, "decisions", "0009-aliases.md"), `---\n${lines.join("\n")}\n---\n`);
+    const list = await request("/api/cards");
+    expect(list.status).toBe(200);
+    const body = (await list.json()) as CardListResponse;
+    expect(body.cards).toHaveLength(4);
+    expect(body.broken[0]?.errors[0]).toMatch(/Excessive alias count/);
+    expect((await request("/api/projects")).status).toBe(200);
+    expect((await request("/api/cards/demo/0001")).status).toBe(200);
+  });
+
+  it("returns the projects with their counts along with the cards", async () => {
+    const { request, demo } = await setup();
+    const list = await json<CardListResponse>(request("/api/cards"));
+    expect(list.projects).toEqual([
+      {
+        name: "demo",
+        path: demo,
+        decisionsDir: join(demo, "decisions"),
+        counts: { open: 2, deferred: 1, resolved: 1, broken: 0 },
+      },
+    ]);
+  });
+
+  it("explains an invalid registry file instead of a bare 500", async () => {
+    const { request, registry } = await setup();
+    await writeFile(registry.file, JSON.stringify({ projects: [{ name: "bad name", path: "/" }] }));
+    const res = await request("/api/cards");
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({
+      code: "invalid_config",
+      error: expect.stringMatching(/projects\.json is invalid: projects\[0\]\.name/),
+    });
   });
 
   it("refuses path traversal and odd ids", async () => {
@@ -198,38 +283,61 @@ describe("card actions API", () => {
   });
 
   it("supports neither, note, defer and reopen", async () => {
-    const { post } = await setup();
-    const act = async (id: string, body: object) => {
-      const res = await post(`/api/cards/demo/${id}/actions`, body);
+    const { act } = await setup();
+    const frontmatter = async (id: string, body: object) => {
+      const res = await act(id, body);
       expect(res.status, JSON.stringify(await res.clone().json())).toBe(200);
       return ((await res.json()) as { card: CardDetailDto }).card.frontmatter;
     };
-    expect(await act("0001", { type: "neither", note: "Too heavy." })).toMatchObject({
+    expect(await frontmatter("0001", { type: "neither", note: "Too heavy." })).toMatchObject({
       status: "open",
       needs_new_options: true,
     });
-    expect((await act("0001", { type: "note", note: "Ask Sam." })).feedback).toHaveLength(3);
-    expect((await act("0002", { type: "defer" })).status).toBe("deferred");
-    expect((await act("0002", { type: "reopen" })).status).toBe("open");
+    expect((await frontmatter("0001", { type: "note", note: "Ask Sam." })).feedback).toHaveLength(
+      3,
+    );
+    expect((await frontmatter("0002", { type: "defer" })).status).toBe("deferred");
+    expect((await frontmatter("0002", { type: "reopen" })).status).toBe("open");
     expect(
-      (await act("0004", { type: "reopen", note: "Costs changed." })).resolution,
+      (await frontmatter("0004", { type: "reopen", note: "Costs changed." })).resolution,
     ).toBeUndefined();
   });
 
   it("rejects invalid actions with a reason", async () => {
-    const { post } = await setup();
+    const { act } = await setup();
     const cases: [string, object, number, RegExp][] = [
-      ["0002", { type: "resolve", choice: "nope" }, 409, /not an option/],
+      ["0002", { type: "resolve", choice: "nope" }, 422, /not an option/],
+      ["0001", { type: "resolve", choice: "custom" }, 422, /needs a note/],
+      ["0002", { type: "resolve", choice: "x".repeat(41) }, 400, /invalid request/],
       ["0002", { type: "neither" }, 400, /invalid request/],
       ["0002", { type: "explode" }, 400, /invalid request/],
       ["0004", { type: "defer" }, 409, /cannot defer a card while it is resolved/],
       ["9999", { type: "defer" }, 404, /no card "9999"/],
     ];
     for (const [id, body, status, message] of cases) {
-      const res = await post(`/api/cards/demo/${id}/actions`, body);
+      const res = await act(id, body);
       expect(res.status, JSON.stringify(body)).toBe(status);
       expect((await json(res)).error).toMatch(message);
     }
+  });
+
+  it("requires the revision the client saw", async () => {
+    const { post } = await setup();
+    for (const revision of [undefined, ""]) {
+      const res = await post("/api/cards/demo/0002/actions", { type: "note", note: "x", revision });
+      expect(res.status).toBe(400);
+      expect((await json(res)).details).toEqual([expect.stringMatching(/^revision: is required/)]);
+    }
+  });
+
+  it("refuses an oversized request body", async () => {
+    const { post } = await setup();
+    const res = await post("/api/cards/demo/0002/actions", {
+      type: "note",
+      note: "x".repeat(200_000),
+      revision: "x",
+    });
+    expect(res.status).toBe(413);
   });
 
   it("refuses to act on a card that changed on disk", async () => {
@@ -254,25 +362,112 @@ describe("card actions API", () => {
       join(demo, "decisions", "0009-broken.md"),
       cardText({ id: '"0009"', kind: "ab", options: "[]" }),
     );
-    const res = await post("/api/cards/demo/0009/actions", { type: "defer" });
+    const res = await post("/api/cards/demo/0009/actions", { type: "defer", revision: "x" });
     expect(res.status).toBe(422);
     expect((await json(res)).details[0]).toMatch(/exactly 2 options/);
   });
 
-  it("serializes concurrent actions on one card", async () => {
+  it("lets exactly one of two concurrent actions on the same revision win", async () => {
     const { post, request } = await setup();
+    const { revision } = await card(request, "0001");
     const notes = ["one", "two", "three", "four", "five"];
     const results = await Promise.all(
-      notes.map((note) => post("/api/cards/demo/0001/actions", { type: "note", note })),
+      notes.map((note) => post("/api/cards/demo/0001/actions", { type: "note", note, revision })),
     );
-    expect(results.map((r) => r.status)).toEqual([200, 200, 200, 200, 200]);
+    const statuses = results.map((r) => r.status).sort();
+    expect(statuses).toEqual([200, 409, 409, 409, 409]);
     const after = await card(request, "0001");
-    expect(
-      after.frontmatter.feedback
-        .map((f) => f.note)
-        .slice(1)
-        .sort(),
-    ).toEqual([...notes].sort());
+    expect(after.frontmatter.feedback).toHaveLength(2);
+  });
+
+  it("serializes concurrent actions that each saw the latest revision", async () => {
+    const { act, request } = await setup();
+    const results = await Promise.all(
+      ["one", "two", "three"].map(async (note) => {
+        // Retry on conflict, like a client that reloads and tries again.
+        for (;;) {
+          const res = await act("0001", { type: "note", note });
+          if (res.status !== 409) return res.status;
+        }
+      }),
+    );
+    expect(results).toEqual([200, 200, 200]);
+    const notes = (await card(request, "0001")).frontmatter.feedback.map((f) => f.note);
+    expect(notes.slice(1).sort()).toEqual(["one", "three", "two"]);
+  });
+
+  it("keeps the file's permissions and line endings", async () => {
+    const { act, demo } = await setup();
+    const file = join(demo, "decisions", "0002-api-errors.md");
+    await writeFile(file, (await readFile(file, "utf8")).replaceAll("\n", "\r\n"));
+    await chmod(file, 0o600);
+    expect((await act("0002", { type: "note", note: "Private." })).status).toBe(200);
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    const text = await readFile(file, "utf8");
+    expect(text.replaceAll("\r\n", "")).not.toContain("\n");
+    expect(text).toContain("note: Private.\r\n");
+  });
+});
+
+describe("undo", () => {
+  async function resolved() {
+    const env = await setup();
+    const file = join(env.demo, "decisions", "0002-api-errors.md");
+    const original = await readFile(file, "utf8");
+    const res = await env.act("0002", { type: "resolve", choice: "result" });
+    const { card } = (await res.json()) as { card: CardDetailDto };
+    return { ...env, file, original, revision: card.revision };
+  }
+
+  it("puts the card back exactly as it was", async () => {
+    const { post, file, original, revision, events } = await resolved();
+    events.length = 0;
+    const res = await post("/api/cards/demo/0002/undo", { revision });
+    expect(res.status).toBe(200);
+    const { card } = (await res.json()) as { card: CardDetailDto };
+    expect(card.frontmatter.status).toBe("open");
+    expect(card.frontmatter.feedback).toEqual([]);
+    expect(await readFile(file, "utf8")).toBe(original);
+    expect(events).toContainEqual({ type: "cards", project: "demo" });
+    // Once is enough.
+    expect((await post("/api/cards/demo/0002/undo", { revision })).status).toBe(409);
+  });
+
+  it("has nothing to undo on a card no action changed", async () => {
+    const { post, request } = await setup();
+    const current = await json<CardResponse>(request("/api/cards/demo/0001"));
+    const revision = current.ok ? current.card.revision : "";
+    const res = await post("/api/cards/demo/0001/undo", { revision });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "undo_unavailable" });
+  });
+
+  it("refuses when the card changed after the action (an agent applied it)", async () => {
+    const { post, act, file, revision } = await resolved();
+    expect((await act("0002", { type: "applied" })).status).toBe(200);
+    const res = await post("/api/cards/demo/0002/undo", { revision });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "conflict" });
+    expect(await readFile(file, "utf8")).toMatch(/^applied_at: /m);
+  });
+
+  it("needs the revision the action returned", async () => {
+    const { post, request } = await resolved();
+    expect((await post("/api/cards/demo/0002/undo", {})).status).toBe(400);
+    const wrong = await post("/api/cards/demo/0002/undo", { revision: "0000000000000000" });
+    expect(wrong.status).toBe(409);
+    const card = await json<CardResponse>(request("/api/cards/demo/0002"));
+    expect(card.ok && card.card.frontmatter.status).toBe("resolved");
+  });
+
+  it("restores the state before a reopen, including applied_at", async () => {
+    const { act, post, demo } = await setup();
+    const file = join(demo, "decisions", "0004-map-tiles.md");
+    const original = await readFile(file, "utf8");
+    const res = await act("0004", { type: "reopen" });
+    const { card } = (await res.json()) as { card: CardDetailDto };
+    expect((await post("/api/cards/demo/0004/undo", { revision: card.revision })).status).toBe(200);
+    expect(await readFile(file, "utf8")).toBe(original);
   });
 });
 
@@ -287,26 +482,29 @@ describe("local-only guard", () => {
     expect(viaHeader.status).toBe(403);
   });
 
-  it("rejects cross-origin writes and non-JSON bodies", async () => {
+  it("only accepts writes from the hub's own origin", async () => {
     const { request } = await setup();
-    const crossOrigin = await request("/api/cards/demo/0002/actions", {
-      method: "POST",
-      headers: { "content-type": "application/json", origin: "https://evil.example" },
-      body: JSON.stringify({ type: "defer" }),
-    });
-    expect(crossOrigin.status).toBe(403);
-    const formPost = await request("/api/cards/demo/0002/actions", {
-      method: "POST",
-      headers: { "content-type": "text/plain" },
-      body: JSON.stringify({ type: "defer" }),
-    });
-    expect(formPost.status).toBe(415);
-    const sameOrigin = await request("/api/cards/demo/0002/actions", {
-      method: "POST",
-      headers: { "content-type": "application/json", origin: "http://localhost:5173" },
-      body: JSON.stringify({ type: "defer" }),
-    });
-    expect(sameOrigin.status).toBe(200);
+    const write = (headers: Record<string, string>, type = "application/json") =>
+      request("/api/projects", {
+        method: "POST",
+        headers: { "content-type": type, ...headers },
+        body: JSON.stringify({ path: 42 }),
+      });
+    // Reaching validation (400) means the guard let the request through.
+    expect((await write({ origin: "https://evil.example" })).status).toBe(403);
+    expect((await write({ origin: "http://localhost:3000" })).status).toBe(403);
+    expect((await write({ origin: "http://127.0.0.1:5173" })).status).toBe(403);
+    expect((await write({ origin: "null" })).status).toBe(403);
+    expect((await write({})).status).toBe(403);
+    expect((await write({ origin: ORIGIN, "sec-fetch-site": "cross-site" })).status).toBe(403);
+    expect((await write({ origin: ORIGIN }, "text/plain")).status).toBe(415);
+    expect((await write({ origin: ORIGIN })).status).toBe(400);
+    expect((await write({ "sec-fetch-site": "same-origin" })).status).toBe(400);
+    // The Vite dev server proxies with the browser's Host, so its origin matches.
+    expect((await write({ host: "127.0.0.1:5173", origin: "http://127.0.0.1:5173" })).status).toBe(
+      400,
+    );
+    expect((await request("/api/projects/demo", { method: "DELETE" })).status).toBe(403);
   });
 });
 

@@ -10,7 +10,7 @@ import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { formatIssues } from "../core/schema.ts";
-import { UserError } from "./errors.ts";
+import { fileError, UserError } from "./errors.ts";
 import { isNotFound, KeyedMutex, writeFileAtomic } from "./fs-utils.ts";
 
 export const DECISIONS_DIR = "decisions";
@@ -55,17 +55,17 @@ export class Registry {
       text = await readFile(this.file, "utf8");
     } catch (error) {
       if (isNotFound(error)) return [];
-      throw error;
+      throw configError(`cannot read ${this.file}: ${(error as Error).message}`);
     }
     let data: unknown;
     try {
       data = JSON.parse(text);
     } catch (error) {
-      throw new Error(`${this.file} is not valid JSON: ${(error as Error).message}`);
+      throw configError(`${this.file} is not valid JSON: ${(error as Error).message}`);
     }
     const parsed = RegistrySchema.safeParse(data);
     if (!parsed.success) {
-      throw new Error(`${this.file} is invalid: ${formatIssues(parsed.error).join("; ")}`);
+      throw configError(`${this.file} is invalid: ${formatIssues(parsed.error).join("; ")}`);
     }
     return parsed.data.projects;
   }
@@ -124,9 +124,21 @@ export class Registry {
   }
 
   async #save(projects: Project[]): Promise<void> {
-    await mkdir(join(this.file, ".."), { recursive: true });
-    await writeFileAtomic(this.file, `${JSON.stringify({ projects }, null, 2)}\n`);
+    try {
+      await mkdir(join(this.file, ".."), { recursive: true });
+      await writeFileAtomic(this.file, `${JSON.stringify({ projects }, null, 2)}\n`);
+    } catch (error) {
+      throw fileError("save", this.file, error);
+    }
   }
+}
+
+/** The registry file is broken: every request needs it, so say how to fix it. */
+function configError(message: string): UserError {
+  return new UserError(`${message}. Fix or delete the file; it lists the registered projects.`, {
+    status: 500,
+    code: "invalid_config",
+  });
 }
 
 async function realDirectory(path: string): Promise<string> {
@@ -135,7 +147,7 @@ async function realDirectory(path: string): Promise<string> {
     real = await realpath(path);
   } catch (error) {
     if (isNotFound(error)) throw new UserError(`"${path}" does not exist`);
-    throw error;
+    throw fileError("open", path, error);
   }
   if (!(await stat(real)).isDirectory()) throw new UserError(`"${path}" is not a directory`);
   return real;
@@ -156,7 +168,8 @@ async function ensureDecisionsDir(project: Project, create: boolean | undefined)
     if ((await stat(dir)).isDirectory()) return;
     throw new UserError(`"${dir}" exists but is not a directory`);
   } catch (error) {
-    if (!isNotFound(error)) throw error;
+    if (error instanceof UserError) throw error;
+    if (!isNotFound(error)) throw fileError("open", dir, error);
   }
   if (!create) {
     throw new UserError(
@@ -164,7 +177,11 @@ async function ensureDecisionsDir(project: Project, create: boolean | undefined)
       { code: "no_decisions_dir" },
     );
   }
-  await mkdir(dir);
+  try {
+    await mkdir(dir);
+  } catch (error) {
+    throw fileError("create", dir, error);
+  }
 }
 
 /** A registry name derived from the folder name. */

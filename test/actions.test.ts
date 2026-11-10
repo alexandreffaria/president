@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyAction, type CardAction, canApply, timestamp } from "../src/core/actions.ts";
-import { type ParsedCard, parseCard, updateCardText } from "../src/core/card-file.ts";
+import { type ParsedCard, parseCard } from "../src/core/card-file.ts";
+import { updateCardText } from "../src/core/card-writer.ts";
 import { CARD_STATUSES, type CardStatus } from "../src/core/schema.ts";
 import { cardText } from "./helpers.ts";
 
@@ -141,6 +142,7 @@ describe("reopen", () => {
       type: "reopen",
       note: 'Reopened; it was resolved as "a" (warm). Changed my mind.',
       previous_resolution: { choice: "a", note: "warm" },
+      previous_applied_at: "2026-11-09T09:00:00Z",
     });
   });
 
@@ -156,9 +158,10 @@ describe("reopen", () => {
 });
 
 describe("applied", () => {
-  it("stamps applied_at on a resolved card", () => {
+  it("stamps applied_at on a resolved card, and seen_at since the agent read it", () => {
     const { raw } = act(card({ ...RESOLVED, applied_at: "" }), { type: "applied" });
     expect(raw.applied_at).toBe(AT);
+    expect(raw.seen_at).toBe(AT);
   });
 
   it("is only for resolved cards", () => {
@@ -168,15 +171,39 @@ describe("applied", () => {
   });
 });
 
+describe("seen", () => {
+  it("stamps seen_at in any state without changing anything else", () => {
+    const cases: Record<string, string>[] = [{}, { status: "deferred" }, RESOLVED];
+    for (const overrides of cases) {
+      const before = card(overrides);
+      const { raw } = act(before, { type: "seen" });
+      expect(raw).toEqual({ ...before.raw, seen_at: AT });
+    }
+  });
+});
+
+describe("error reasons", () => {
+  it("tells a state conflict from a bad action", () => {
+    const fail = (from: ParsedCard, action: CardAction) => {
+      const result = applyAction(from, action, NOW);
+      return result.ok ? "ok" : result.reason;
+    };
+    expect(fail(card(RESOLVED), { type: "defer" })).toBe("transition");
+    expect(fail(card(), { type: "resolve", choice: "z" })).toBe("input");
+    expect(fail(card(), { type: "resolve", choice: "custom" })).toBe("input");
+    expect(fail(card({ kind: "open", options: "" }), { type: "neither", note: "x" })).toBe("input");
+  });
+});
+
 describe("transition table", () => {
   const table: Record<CardStatus, string[]> = {
-    open: ["resolve", "neither", "note", "defer"],
-    deferred: ["resolve", "neither", "note", "reopen"],
-    resolved: ["reopen", "applied"],
+    open: ["resolve", "neither", "note", "defer", "seen"],
+    deferred: ["resolve", "neither", "note", "reopen", "seen"],
+    resolved: ["reopen", "applied", "seen"],
   };
   for (const status of CARD_STATUSES) {
     it(`allows exactly ${table[status].join(", ")} from ${status}`, () => {
-      const all = ["resolve", "neither", "note", "defer", "reopen", "applied"] as const;
+      const all = ["resolve", "neither", "note", "defer", "reopen", "applied", "seen"] as const;
       expect(all.filter((t) => canApply(status, t))).toEqual(table[status]);
     });
   }

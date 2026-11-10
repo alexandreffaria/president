@@ -1,7 +1,6 @@
 /**
  * Shapes exchanged between the server and the web UI. Types only.
  */
-import type { CardActionType } from "./actions.ts";
 import type { Frontmatter } from "./schema.ts";
 import type { BodySections } from "./sections.ts";
 
@@ -50,6 +49,8 @@ export interface CardListResponse {
   broken: BrokenCardDto[];
   /** Projects that could not be read, with the reason. */
   projectErrors: { project: string; error: string }[];
+  /** Every registered project (or the one asked for), with counts. */
+  projects: ProjectDto[];
 }
 
 export type CardResponse = { ok: true; card: CardDetailDto } | { ok: false; broken: BrokenCardDto };
@@ -71,8 +72,6 @@ export interface AddProjectResponse {
   project: ProjectDto;
   alreadyRegistered: boolean;
 }
-
-export type { CardActionType };
 
 /** Server-sent event payloads on /api/events. */
 export type HubEvent = { type: "cards"; project: string } | { type: "projects" };

@@ -8,7 +8,8 @@
  *    ├──note─────▶ open (feedback appended)
  *    └──defer────▶ deferred ──reopen──▶ open
  *
- * `resolve`, `neither` and `note` also work on deferred cards.
+ * `resolve`, `neither` and `note` also work on deferred cards. `seen` (an agent has read the
+ * human's feedback) works in any state; `applied` implies it.
  *
  * New actions (for example the chat panel's "teach me" or "research") belong here too,
  * so the API, the CLI and future agent runners share one set of rules.
@@ -16,6 +17,7 @@
 import { z } from "zod";
 import type { ParsedCard } from "./card-file.ts";
 import {
+  CARD_STATUSES,
   type CardStatus,
   CUSTOM_CHOICE,
   type FeedbackType,
@@ -28,18 +30,25 @@ const Note = z.string().trim().min(1, { error: "a note is required" }).max(20_00
 const OptionalNote = z.string().trim().max(20_000).optional();
 
 export const CardActionSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("resolve"), choice: z.string().min(1), note: OptionalNote }),
+  z.object({ type: z.literal("resolve"), choice: z.string().min(1).max(40), note: OptionalNote }),
   z.object({ type: z.literal("neither"), note: Note }),
   z.object({ type: z.literal("note"), note: Note }),
   z.object({ type: z.literal("defer"), note: OptionalNote }),
   z.object({ type: z.literal("reopen"), note: OptionalNote }),
   z.object({ type: z.literal("applied") }),
+  z.object({ type: z.literal("seen") }),
 ]);
 
 export type CardAction = z.infer<typeof CardActionSchema>;
 export type CardActionType = CardAction["type"];
 
-export type ActionResult = { ok: true; raw: RawFrontmatter } | { ok: false; error: string };
+/**
+ * `transition`: the action isn't possible in the card's current state (a conflict).
+ * `input`: the action itself is wrong for this card (an unknown option, a missing note).
+ */
+export type ActionResult =
+  | { ok: true; raw: RawFrontmatter }
+  | { ok: false; error: string; reason: "transition" | "input" };
 
 /** ISO timestamp without milliseconds, e.g. 2026-11-10T14:03:00Z. */
 export function timestamp(now: Date): string {
@@ -53,6 +62,7 @@ const ALLOWED_FROM: Record<CardActionType, readonly CardStatus[]> = {
   defer: ["open"],
   reopen: ["deferred", "resolved"],
   applied: ["resolved"],
+  seen: CARD_STATUSES,
 };
 
 const VERB: Record<CardActionType, string> = {
@@ -62,6 +72,7 @@ const VERB: Record<CardActionType, string> = {
   defer: "defer a card",
   reopen: "reopen a card",
   applied: "mark a card as applied",
+  seen: "mark a card's feedback as seen",
 };
 
 export function canApply(status: CardStatus, type: CardActionType): boolean {
@@ -78,9 +89,11 @@ export function applyAction(
   if (!canApply(frontmatter.status, action.type)) {
     return {
       ok: false,
+      reason: "transition",
       error: `cannot ${VERB[action.type]} while it is ${frontmatter.status}`,
     };
   }
+  const invalid = (error: string): ActionResult => ({ ok: false, reason: "input", error });
 
   const next: RawFrontmatter = { ...card.raw };
   const appendFeedback = (type: FeedbackType, note: string, extra: RawFrontmatter = {}) => {
@@ -93,12 +106,9 @@ export function applyAction(
       const optionIds = frontmatter.options.map((o) => o.id);
       const note = action.note || undefined;
       if (action.choice === CUSTOM_CHOICE) {
-        if (!note) return { ok: false, error: "a custom answer needs a note with the answer" };
+        if (!note) return invalid("a custom answer needs a note with the answer");
       } else if (!optionIds.includes(action.choice)) {
-        return {
-          ok: false,
-          error: `"${action.choice}" is not an option of this card`,
-        };
+        return invalid(`"${action.choice}" is not an option of this card`);
       }
       next.status = "resolved";
       next.resolution = {
@@ -112,10 +122,9 @@ export function applyAction(
     }
     case "neither": {
       if (frontmatter.options.length === 0) {
-        return {
-          ok: false,
-          error: 'this card has no options to reject; resolve it with a "custom" answer instead',
-        };
+        return invalid(
+          'this card has no options to reject; resolve it with a "custom" answer instead',
+        );
       }
       appendFeedback("neither", action.note);
       next.status = "open";
@@ -137,6 +146,7 @@ export function applyAction(
         const was = `Reopened; it was resolved as "${previous.choice}"${previous.note ? ` (${previous.note})` : ""}.`;
         appendFeedback("reopen", action.note ? `${was} ${action.note}` : was, {
           previous_resolution: card.raw.resolution,
+          ...(card.raw.applied_at ? { previous_applied_at: card.raw.applied_at } : {}),
         });
       } else if (action.note) {
         appendFeedback("reopen", action.note);
@@ -147,7 +157,13 @@ export function applyAction(
       break;
     }
     case "applied": {
+      // Applying means the agent read the whole card, feedback included.
       next.applied_at = at;
+      next.seen_at = at;
+      break;
+    }
+    case "seen": {
+      next.seen_at = at;
       break;
     }
   }
@@ -156,6 +172,7 @@ export function applyAction(
   if (!check.success) {
     return {
       ok: false,
+      reason: "input",
       error: `the change would make the card invalid: ${formatIssues(check.error).join("; ")}`,
     };
   }

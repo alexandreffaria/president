@@ -5,16 +5,21 @@
  *   GET    /api/projects
  *   POST   /api/projects                     { path, name?, createDecisions? }
  *   DELETE /api/projects/:name
- *   GET    /api/cards?project=&status=&tag=
+ *   GET    /api/cards?project=&status=&tag=  cards, broken files and projects (with counts)
  *   GET    /api/cards/:project/:id
- *   POST   /api/cards/:project/:id/actions   { type, ..., revision? }  (see core/actions.ts)
+ *   POST   /api/cards/:project/:id/actions   { type, ..., revision }  (see core/actions.ts)
+ *   POST   /api/cards/:project/:id/undo      { revision }  revision = what the action returned
  *   GET    /api/events                       server-sent events: "cards" and "projects"
+ *
+ * Every card write carries the revision the client saw, so nobody decides on text they
+ * didn't see: if the file changed since, the write is refused with 409 "conflict".
  */
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { CardActionSchema } from "../core/actions.ts";
@@ -31,8 +36,10 @@ import {
   describeProject,
   findCard,
   loadProjectCards,
+  projectDto,
   toCardDetailDto,
   toCardDto,
+  undoLastAction,
 } from "./cards.ts";
 import { UserError } from "./errors.ts";
 import type { Registry } from "./registry.ts";
@@ -54,7 +61,16 @@ const AddProjectSchema = z.object({
   createDecisions: z.boolean().optional(),
 });
 
-const RevisionSchema = z.object({ revision: z.string().optional() });
+const RevisionSchema = z.object({
+  revision: z
+    .string({ error: "is required: send the revision of the card you are acting on" })
+    .min(1, {
+      error: "is required: send the revision of the card you are acting on",
+    }),
+});
+
+/** Notes are at most 20 000 characters; anything much bigger is not a card action. */
+const MAX_BODY_BYTES = 128 * 1024;
 
 const ListQuerySchema = z.object({
   project: z.string().optional(),
@@ -67,6 +83,14 @@ export function createApp(options: AppOptions): Hono {
   const app = new Hono();
 
   app.use("*", localOnly());
+  app.use(
+    "/api/*",
+    bodyLimit({
+      maxSize: MAX_BODY_BYTES,
+      onError: (c) =>
+        c.json({ error: `the request body is larger than ${MAX_BODY_BYTES / 1024} kB` }, 413),
+    }),
+  );
 
   app.onError((error, c) => {
     if (error instanceof UserError) {
@@ -114,10 +138,11 @@ export function createApp(options: AppOptions): Hono {
       throw new UserError(`no project named "${query.project}"`, { status: 404 });
     }
     const loaded = await Promise.all(projects.map(loadProjectCards));
-    const response: CardListResponse = { cards: [], broken: [], projectErrors: [] };
+    const response: CardListResponse = { cards: [], broken: [], projectErrors: [], projects: [] };
     loaded.forEach((result, i) => {
       const project = projects[i];
       if (!project) return;
+      response.projects.push(projectDto(project, result));
       if (result.error) response.projectErrors.push({ project: project.name, error: result.error });
       response.broken.push(...result.broken);
       for (const card of result.cards) {
@@ -145,6 +170,14 @@ export function createApp(options: AppOptions): Hono {
     const { revision } = parseBody(RevisionSchema, body);
     const card = await actOnCard(project, c.req.param("id"), action, { revision });
     // The watcher will notice too; emitting now makes other tabs update immediately.
+    bus.emit({ type: "cards", project: project.name });
+    return c.json({ ok: true, card: toCardDetailDto(card) } satisfies CardResponse);
+  });
+
+  api.post("/cards/:project/:id/undo", async (c) => {
+    const project = await requireProject(registry, c.req.param("project"));
+    const { revision } = parseBody(RevisionSchema, await readJson(c.req.raw));
+    const card = await undoLastAction(project, c.req.param("id"), revision);
     bus.emit({ type: "cards", project: project.name });
     return c.json({ ok: true, card: toCardDetailDto(card) } satisfies CardResponse);
   });
