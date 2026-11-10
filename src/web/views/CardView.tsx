@@ -220,37 +220,31 @@ export function CardView({ project, id }: { project: string; id: string }) {
       void hub.refresh();
       if (options.done) {
         const after = res.card.revision;
-        const undo =
-          action.type === "resolve" || action.type === "defer" || action.type === "neither"
-            ? {
-                label: "Undo",
-                key: "u",
-                run: () => {
-                  api
-                    .undo(project, id, after)
-                    .then(() => {
-                      hub.cardsChanged(project);
-                      return hub.refresh();
-                    })
-                    .then(() => {
-                      restoreDraft(
-                        project,
-                        id,
-                        wasSent,
-                        action.type === "neither" ? "neither" : undefined,
-                      );
-                      navigate(cardPath(project, id));
-                      toast(
-                        `Undone. #${id} is back as it was${unsentText({ ...NO_DRAFT, ...wasSent }) ? ", with what you wrote" : ""}.`,
-                      );
-                    })
-                    .catch((error: Error) =>
-                      toast(`Couldn't undo: ${error.message}`, { tone: "error" }),
-                    );
-                },
-              }
-            : undefined;
-        toast(options.done, { action: undo, group: undo ? undoGroup : undefined });
+        // Every action can be undone (a note sent too early, a reopen by mistake), and an
+        // undone Neither or Note opens its panel again with the text.
+        const panelToRestore: DraftPanel | undefined =
+          action.type === "neither" || action.type === "note" ? action.type : undefined;
+        const undo = {
+          label: "Undo",
+          key: "u",
+          run: () => {
+            api
+              .undo(project, id, after)
+              .then(() => {
+                hub.cardsChanged(project);
+                return hub.refresh();
+              })
+              .then(() => {
+                restoreDraft(project, id, wasSent, panelToRestore);
+                navigate(cardPath(project, id));
+                toast(
+                  `Undone. #${id} is back as it was${unsentText({ ...NO_DRAFT, ...wasSent }) ? ", with what you wrote" : ""}.`,
+                );
+              })
+              .catch((error: Error) => toast(`Couldn't undo: ${error.message}`, { tone: "error" }));
+          },
+        };
+        toast(options.done, { action: undo, group: undoGroup });
       }
       if (options.leave) {
         if (next) goTo(next);

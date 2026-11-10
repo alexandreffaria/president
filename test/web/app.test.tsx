@@ -453,11 +453,17 @@ describe("changes under the human (R2-7, R2-8, R2-12)", () => {
     await until(() => text().includes("This decision is made"), "the decided card");
     await act(async () => button("Reopen")?.click());
     await until(() => text().includes("Reopened #0001"), "the reopen toast");
-    expect(button("Undo")).toBeUndefined();
-    const before = posts.length;
+    // Only the reopen can be undone now: the decision's Undo is gone.
+    expect(
+      [...host.querySelectorAll("button")].filter((b) => b.textContent?.includes("Undo")),
+    ).toHaveLength(1);
+    const undos = () => posts.filter((p) => p.endsWith("/undo")).length;
+    await press("u", document.body);
+    await until(() => text().includes("This decision is made"), "the decision, back");
+    expect(undos()).toBe(1);
     await press("u", document.body);
     await settle();
-    expect(posts.length).toBe(before);
+    expect(undos()).toBe(1);
   });
 });
 
@@ -488,6 +494,40 @@ describe("undo puts back what was written (R3-4)", () => {
     );
     expect(text()).toContain("with what you wrote");
     expect(text()).not.toContain("An agent changed");
+  });
+
+  it("reopens the Note panel with its text, and takes the note back from the card (R4-10)", async () => {
+    const file = join(demo, "decisions", "0001-offline-storage.md");
+    const original = await readFile(file, "utf8");
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await press("m", document.body);
+    await typeInto(host.querySelector("#panel-text"), "Sent too soon");
+    await ctrlEnter();
+    await until(() => text().includes("Note added."), "the note toast");
+    expect(await readFile(file, "utf8")).toContain("Sent too soon");
+    expect(host.querySelector("#panel-text")).toBeNull();
+    await press("u", document.body);
+    await until(
+      () =>
+        (host.querySelector("#panel-text") as HTMLTextAreaElement | null)?.value ===
+        "Sent too soon",
+      "the Note panel with the text",
+    );
+    expect(text()).toContain("with what you wrote");
+    expect(await readFile(file, "utf8")).toBe(original);
+  });
+
+  it("undoes a reopen (R4-10)", async () => {
+    const file = join(demo, "decisions", "0004-map-tiles.md");
+    const original = await readFile(file, "utf8");
+    await open("/card/demo/0004", () => text().includes("This decision is made"), "the card");
+    await act(async () => button("Reopen")?.click());
+    await until(() => text().includes("Reopened #0004"), "the reopen toast");
+    expect(await readFile(file, "utf8")).not.toBe(original);
+    await press("u", document.body);
+    await until(() => text().includes("Undone"), "the undo toast");
+    await until(() => text().includes("This decision is made"), "the decision, back");
+    expect(await readFile(file, "utf8")).toBe(original);
   });
 
   it("brings back the choice and the why of a decision", async () => {

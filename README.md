@@ -76,7 +76,7 @@ Because it's a symlink, pulling this repo updates the skill.
    | `m` | add a note without deciding |
    | `d` | defer |
    | `j` / `k` | next / previous card |
-   | `u` | undo the last decision, deferral or "neither" (while its notice is shown) |
+   | `u` | undo the last action on a card: a decision, deferral, "neither", note or reopen (while its notice is shown); an undone note or "neither" comes back in its panel |
    | `?` | all shortcuts |
 
    Shortcuts never act while you are typing or while the help is open. `Enter` and `Space` on a

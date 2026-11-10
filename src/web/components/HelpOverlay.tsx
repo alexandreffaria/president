@@ -8,7 +8,10 @@ export const SHORTCUTS: [string, string][] = [
   ["n", "Neither: reject all options and say why"],
   ["m", "Add a note"],
   ["d", "Defer the card"],
-  ["u", "Undo the last decision (while its notice is shown)"],
+  [
+    "u",
+    "Undo the last action on the card: a decision, deferral, Neither, note or reopen (while its notice is shown)",
+  ],
   ["Esc", "Close a panel (what you typed is kept), or go back to the queue"],
   ["?", "Show or hide this help"],
 ];
