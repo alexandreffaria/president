@@ -170,6 +170,23 @@ function dependencyWarnings(cards: LoadedCard[], broken: BrokenCardDto[]): CardW
  */
 const cache = new Map<string, { stamp: string; result: LoadedCard | BrokenCardDto }>();
 
+/**
+ * Drops the cached cards of projects that are no longer registered. Listing a project only
+ * prunes inside that project, so without this an unregistered project's parsed cards
+ * would stay in memory until the server restarts.
+ */
+export function forgetUnregisteredCards(projects: Project[]): void {
+  const dirs = projects.map((project) => decisionsDirOf(project) + sep);
+  for (const path of cache.keys()) {
+    if (!dirs.some((dir) => path.startsWith(dir))) cache.delete(path);
+  }
+}
+
+/** The files whose parsed cards are cached (for tests). */
+export function cachedCardPaths(): string[] {
+  return [...cache.keys()];
+}
+
 function pruneCache(dir: string, names: string[]): void {
   const keep = new Set(names.map((name) => join(dir, name)));
   for (const path of cache.keys()) {

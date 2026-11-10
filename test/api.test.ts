@@ -10,6 +10,7 @@ import type {
 } from "../src/core/api.ts";
 import { agentToken } from "../src/core/pending.ts";
 import { createApp } from "../src/server/app.ts";
+import { cachedCardPaths } from "../src/server/cards.ts";
 import { Registry } from "../src/server/registry.ts";
 import { EventBus } from "../src/server/watcher.ts";
 import { cardText, copyDemoProject, tempDir } from "./helpers.ts";
@@ -239,12 +240,20 @@ describe("cards API", () => {
     const title = async () =>
       (await json<CardListResponse>(request("/api/cards"))).cards.find((c) => c.id === "0002")
         ?.frontmatter.title;
-    expect(await title()).toBe("How should the API client report errors?");
-    // Same length, same (old) modification time: only the inode change time differs.
-    const text = await readFile(file, "utf8");
-    await writeFile(file, text.replace("How should the API", "How should the APP"));
-    await utimes(file, old, old);
-    expect(await title()).toBe("How should the APP client report errors?");
+    // Pretend the file settled long ago, so the first listing caches it.
+    const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 3_600_000);
+    try {
+      expect(await title()).toBe("How should the API client report errors?");
+      expect(cachedCardPaths()).toContain(file);
+      // Same length, same (old) modification time: only the inode change time differs.
+      const text = await readFile(file, "utf8");
+      await writeFile(file, text.replace("How should the API", "How should the APP"));
+      await utimes(file, old, old);
+      expect((await stat(file)).size).toBe(Buffer.byteLength(text));
+      expect(await title()).toBe("How should the APP client report errors?");
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("serves a settled card from the cache until it changes", async () => {
@@ -259,6 +268,20 @@ describe("cards API", () => {
       expect(await title()).toBe("How should the API client report errors?");
       await writeFile(file, (await readFile(file, "utf8")).replace("the API client", "our client"));
       expect(await title()).toBe("How should our client report errors?");
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("forgets the cached cards of a project once it is unregistered", async () => {
+    const { request, remove, demo } = await setup();
+    const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 3_600_000);
+    try {
+      await request("/api/cards");
+      const inDemo = () => cachedCardPaths().filter((p) => p.startsWith(join(demo, "decisions")));
+      expect(inDemo()).toHaveLength(4);
+      expect((await remove("/api/projects/demo")).status).toBe(200);
+      expect(inDemo()).toEqual([]);
     } finally {
       now.mockRestore();
     }

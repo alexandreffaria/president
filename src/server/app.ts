@@ -35,6 +35,7 @@ import {
   actOnCard,
   describeProject,
   findCard,
+  forgetUnregisteredCards,
   loadProjectCards,
   projectDto,
   toCardDetailDto,
@@ -125,15 +126,17 @@ export function createApp(options: AppOptions): Hono {
 
   api.delete("/projects/:name", async (c) => {
     const removed = await registry.remove(c.req.param("name"));
+    forgetUnregisteredCards(await registry.list());
     bus.emit({ type: "projects" });
     return c.json({ removed });
   });
 
   api.get("/cards", async (c) => {
     const query = parseBody(ListQuerySchema, c.req.query());
-    const projects = (await registry.list()).filter(
-      (p) => !query.project || p.name === query.project,
-    );
+    const registered = await registry.list();
+    // Also catches projects removed from projects.json by hand or by the CLI.
+    forgetUnregisteredCards(registered);
+    const projects = registered.filter((p) => !query.project || p.name === query.project);
     if (query.project && projects.length === 0) {
       throw new UserError(`no project named "${query.project}"`, { status: 404 });
     }
