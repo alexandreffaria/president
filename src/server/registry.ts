@@ -117,7 +117,10 @@ export class Registry {
         const real = await realpath(nameOrPath).catch(() => resolve(nameOrPath));
         target = await findByPath(projects, real);
       }
-      if (!target) throw new UserError(`no project named "${nameOrPath}"`, { status: 404 });
+      if (!target) {
+        const what = isAbsolute(nameOrPath) ? "at" : "named";
+        throw new UserError(`no project ${what} "${nameOrPath}"`, { status: 404 });
+      }
       await this.#save(projects.filter((p) => p !== target));
       return target;
     });

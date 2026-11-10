@@ -161,7 +161,8 @@ async function validate(args: string[], out: Output): Promise<number> {
   const { positionals } = parseArgs({ args, allowPositionals: true });
   const target = resolve(positionals[0] ?? ".");
   const info = await stat(target).catch(() => undefined);
-  if (info?.isFile()) return validateFile(target, out);
+  if (!info) throw new UserError(`"${target}" does not exist`);
+  if (info.isFile()) return validateFile(target, out);
 
   const project = await projectAt(target);
   const { cards, broken, warnings, error } = await loadProjectCards(project);

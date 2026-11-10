@@ -105,6 +105,11 @@ describe("president CLI", () => {
     await writeFile(loose, cardText());
     expect(await cli("validate", loose)).toMatchObject({ code: 0 });
     expect((await cli("validate", join(demo, "decisions", "README.md"))).code).toBe(1);
+    const missing = join(demo, "decisions", "0099-missing.md");
+    expect(await cli("validate", missing)).toMatchObject({
+      code: 1,
+      err: `president: "${missing}" does not exist`,
+    });
   });
 
   it("warns about depends_on ids that are not cards", async () => {
@@ -312,6 +317,10 @@ describe("president CLI", () => {
       expect(await cli("remove", "..")).toMatchObject({
         code: 0,
         out: expect.stringMatching(/^Removed demo/),
+      });
+      expect(await cli("remove", "..")).toMatchObject({
+        code: 1,
+        err: `president: no project at "${demo}"`,
       });
     } finally {
       cwd.mockRestore();
