@@ -5,6 +5,13 @@
  * action must keep each byte outside the fields it changes, and the result must parse to
  * exactly the data the action asked for.
  *
+ * Cards come in two shapes: a small one, and the one skills/decision-cards/SKILL.md tells
+ * agents to write (priority, depends_on, a recommendation with a folded `why`, options with
+ * a summary, pros and cons, the last summary a `|` block). Both get their fields in random
+ * order. Notes come in every block style, `|+` (trailing blank lines kept) and `|2` (an
+ * indentation indicator) included; some keys are quoted, and some list items have extra
+ * spaces after the dash.
+ *
  * The generator builds each card from segments it knows (field blocks and the comment or
  * blank lines between them), so the check doesn't depend on the writer's own idea of where
  * a field ends.
@@ -22,7 +29,7 @@ const FILE = "0001-x.md";
 /** More runs for a deeper search: `FC_RUNS=20000 npx vitest run test/card-writer.property.test.ts`. */
 const RUNS = Number(process.env.FC_RUNS ?? 300);
 
-type NoteStyle = "plain" | "quoted" | "literal" | "folded";
+type NoteStyle = "plain" | "quoted" | "literal" | "folded" | "keep" | "indicator";
 type Eol = "lf" | "crlf" | "mixed";
 
 interface Field {
@@ -32,23 +39,40 @@ interface Field {
   value: unknown;
   /** Its last line is inside a `|` or `>` block. */
   endsInBlock: boolean;
+  /** That block keeps trailing blank lines (`|+`): a blank line after it would be its text. */
+  keepsBlankLines?: boolean;
 }
 
 interface Segment {
   kind: "field" | "gap";
   key?: string;
   endsInBlock?: boolean;
+  keepsBlankLines?: boolean;
   /** With the generated line endings. */
   text: string;
 }
 
-const noteStyle = fc.constantFrom<NoteStyle>("plain", "quoted", "literal", "folded");
+const noteStyle = fc.constantFrom<NoteStyle>(
+  "plain",
+  "quoted",
+  "literal",
+  "folded",
+  "keep",
+  "indicator",
+);
 const gapLine = fc.oneof(
   fc.constant(""),
   fc.record({ indent: fc.constantFrom(0, 2, 4), trailing: fc.boolean() }),
 );
 
+/** Fields the card can have, so the generated order and gaps cover them all. */
+const MAX_FIELDS = 20;
+
 const cardShape = fc.record({
+  /** The SKILL.md template's shape, or the small one. */
+  template: fc.boolean(),
+  quotedKeys: fc.boolean(),
+  wideDash: fc.boolean(),
   state: fc.constantFrom("open", "deferred", "resolved", "applied"),
   statusStyle: fc.constantFrom("plain", "double", "single", "comment"),
   titleFolded: fc.boolean(),
@@ -66,8 +90,11 @@ const cardShape = fc.record({
   innerComments: fc.boolean(),
   notes: fc.boolean(),
   tags: fc.boolean(),
-  order: fc.array(fc.integer(), { minLength: 16, maxLength: 16 }),
-  gaps: fc.array(fc.array(gapLine, { maxLength: 3 }), { minLength: 17, maxLength: 17 }),
+  order: fc.array(fc.integer(), { minLength: MAX_FIELDS, maxLength: MAX_FIELDS }),
+  gaps: fc.array(fc.array(gapLine, { maxLength: 3 }), {
+    minLength: MAX_FIELDS + 1,
+    maxLength: MAX_FIELDS + 1,
+  }),
   eol: fc.constantFrom<Eol>("lf", "crlf", "mixed"),
   mixed: fc.array(fc.boolean(), { minLength: 1, maxLength: 64 }),
   bom: fc.boolean(),
@@ -84,13 +111,25 @@ function noteText(style: NoteStyle, i: number, indent: string): [string, string]
       return [`|\n${indent}line ${i}a\n${indent}  line ${i}b\n`, `line ${i}a\n  line ${i}b\n`];
     case "folded":
       return [`>-\n${indent}fold ${i}a\n${indent}fold ${i}b\n`, `fold ${i}a fold ${i}b`];
+    case "keep":
+      return [`|+\n${indent}kept ${i}\n\n`, `kept ${i}\n\n`];
+    case "indicator":
+      // The first line is indented more than the rest: the text starts with spaces.
+      return [`|2\n${indent}  lead ${i}\n${indent}rest ${i}\n`, `  lead ${i}\nrest ${i}\n`];
   }
 }
+
+/** A block-style note ends the field in a block. */
+const isBlock = (style: NoteStyle | undefined) =>
+  style === "literal" || style === "folded" || style === "keep" || style === "indicator";
 
 function fields(shape: Shape): Field[] {
   const comment = (text: string) =>
     shape.scalarComments ? `${text}   # ${text.length}\n` : `${text}\n`;
   const status = shape.state === "applied" ? "resolved" : shape.state;
+  /** A key written as a quoted string, which is still the same name. */
+  const quoted = (key: string, style: "double" | "single") =>
+    shape.quotedKeys ? (style === "double" ? `"${key}"` : `'${key}'`) : key;
   const out: Field[] = [
     { key: "id", text: 'id: "0001"\n', value: "0001", endsInBlock: false },
     shape.titleFolded
@@ -117,21 +156,38 @@ function fields(shape: Shape): Field[] {
       value: status,
       endsInBlock: false,
     },
-    { key: "kind", text: "kind: choice\n", value: "choice", endsInBlock: false },
-    { key: "created", text: "created: 2026-11-10\n", value: "2026-11-10", endsInBlock: false },
-    { key: "created_by", text: "created_by: test\n", value: "test", endsInBlock: false },
     {
-      key: "options",
-      text: shape.optionsFlow
-        ? "options: [{id: a, title: A}, {id: b, title: B}]\n"
-        : `options:\n${shape.innerComments ? "  # the agent's options\n" : ""}  - id: a\n    title: A\n  - id: b\n    title: B\n`,
-      value: [
-        { id: "a", title: "A" },
-        { id: "b", title: "B" },
-      ],
+      key: "kind",
+      text: `${quoted("kind", "double")}: choice\n`,
+      value: "choice",
       endsInBlock: false,
     },
+    { key: "created", text: "created: 2026-11-10\n", value: "2026-11-10", endsInBlock: false },
+    {
+      key: "created_by",
+      text: `${quoted("created_by", "single")}: test\n`,
+      value: "test",
+      endsInBlock: false,
+    },
+    shape.template ? templateOptions(shape) : smallOptions(shape),
   ];
+  if (shape.template) {
+    out.push(
+      { key: "priority", text: comment("priority: normal"), value: "normal", endsInBlock: false },
+      {
+        key: "depends_on",
+        text: shape.optionsFlow ? "depends_on: []\n" : 'depends_on:\n  - "0003"\n',
+        value: shape.optionsFlow ? [] : ["0003"],
+        endsInBlock: false,
+      },
+      {
+        key: "recommendation",
+        text: `recommendation:\n${shape.innerComments ? "  # the agent's pick\n" : ""}  option: b\n  why: >-\n    One sentence or two. Why you would\n    pick it.\n`,
+        value: { option: "b", why: "One sentence or two. Why you would pick it." },
+        endsInBlock: true,
+      },
+    );
+  }
 
   const rounds = shape.feedback.map((round, i) => ({
     ...round,
@@ -160,20 +216,23 @@ function fields(shape: Shape): Field[] {
     });
   } else {
     const dash = shape.feedbackLayout === "block2" ? "  " : "";
-    const inner = `${dash}  `;
+    // `-   at:` puts the item's keys 4 columns in.
+    const afterDash = shape.wideDash ? "   " : " ";
+    const inner = `${dash} ${afterDash}`;
     const items = rounds.map((r) => {
       const [note] = noteText(r.style, r.i, `${inner}  `);
       const typed = r.typed ? `${inner}type: note\n` : "";
       const between = shape.betweenRounds && r.i > 0 ? `${dash}# between rounds\n` : "";
       const atComment = shape.innerComments ? `   # round ${r.i}` : "";
-      return `${between}${dash}- at: ${r.at}${atComment}\n${typed}${inner}note: ${note.endsWith("\n") ? note : `${note}\n`}`;
+      return `${between}${dash}-${afterDash}at: ${r.at}${atComment}\n${typed}${inner}note: ${note.endsWith("\n") ? note : `${note}\n`}`;
     });
     const lastStyle = rounds.at(-1)?.style;
     out.push({
       key: "feedback",
       text: `feedback:${keyComment}\n${shape.innerComments ? `${dash}  # oldest first\n` : ""}${items.join("")}`,
       value: feedbackValue,
-      endsInBlock: lastStyle === "literal" || lastStyle === "folded",
+      endsInBlock: isBlock(lastStyle),
+      keepsBlankLines: lastStyle === "keep",
     });
   }
 
@@ -267,6 +326,54 @@ function fields(shape: Shape): Field[] {
     .map(({ field }) => field);
 }
 
+function smallOptions(shape: Shape): Field {
+  return {
+    key: "options",
+    text: shape.optionsFlow
+      ? "options: [{id: a, title: A}, {id: b, title: B}]\n"
+      : `options:\n${shape.innerComments ? "  # the agent's options\n" : ""}  - id: a\n    title: A\n  - id: b\n    title: B\n`,
+    value: [
+      { id: "a", title: "A" },
+      { id: "b", title: "B" },
+    ],
+    endsInBlock: false,
+  };
+}
+
+/** Options as in the SKILL.md template: summary, pros and cons, the last summary a block. */
+function templateOptions(shape: Shape): Field {
+  const pad = shape.wideDash ? "   " : " ";
+  const key = `  ${" ".repeat(pad.length + 1)}`;
+  const comment = shape.innerComments ? `${key}# what it costs\n` : "";
+  const lists = shape.optionsFlow
+    ? `${key}pros: [fast, small]\n${key}cons: [new]\n`
+    : `${key}pros:\n${key}  - fast\n${key}  - small\n${comment}${key}cons:\n${key}  - new\n`;
+  return {
+    key: "options",
+    text:
+      "options:\n" +
+      `  -${pad}id: a\n${key}title: Lead with the offline promise\n${key}summary: One sentence.\n${lists}` +
+      `  -${pad}id: b\n${key}title: Lead with the next action\n${key}pros: [clear]\n${key}cons: []\n${key}summary: |\n${key}  Two lines\n${key}  of summary.\n`,
+    value: [
+      {
+        id: "a",
+        title: "Lead with the offline promise",
+        summary: "One sentence.",
+        pros: ["fast", "small"],
+        cons: ["new"],
+      },
+      {
+        id: "b",
+        title: "Lead with the next action",
+        pros: ["clear"],
+        cons: [],
+        summary: "Two lines\nof summary.\n",
+      },
+    ],
+    endsInBlock: true,
+  };
+}
+
 /** The card as segments, with the expected parsed frontmatter. */
 function build(shape: Shape): {
   prefix: string;
@@ -284,12 +391,13 @@ function build(shape: Shape): {
   const list = fields(shape);
   const segments: Segment[] = [];
   let comments = 0;
-  const gap = (index: number, afterBlock: boolean) => {
+  const gap = (index: number, afterBlock: boolean, afterKeep: boolean) => {
     let text = "";
     let first = true;
     for (const entry of shape.gaps[index] ?? []) {
       if (entry === "") {
-        text += "\n";
+        // Blank lines right after a `|+` block are part of its text.
+        if (!(first && afterKeep)) text += "\n";
         continue;
       }
       // Right after a `|` or `>` block an indented line would be part of its text, not a
@@ -301,15 +409,16 @@ function build(shape: Shape): {
     }
     if (text) segments.push({ kind: "gap", text: eol(text) });
   };
-  gap(0, false);
+  gap(0, false, false);
   list.forEach((field, i) => {
     segments.push({
       kind: "field",
       key: field.key,
       endsInBlock: field.endsInBlock,
+      keepsBlankLines: field.keepsBlankLines === true,
       text: eol(field.text),
     });
-    gap(i + 1, field.endsInBlock);
+    gap(i + 1, field.endsInBlock, field.keepsBlankLines === true);
   });
   return {
     prefix: (shape.bom ? "﻿" : "") + eol("---\n"),
@@ -437,6 +546,32 @@ const ACTIONS: CardAction[] = [
 ];
 
 describe("updateCardText (property)", () => {
+  it("generates every shape it claims to (R4-7)", () => {
+    const texts = fc.sample(cardShape, { numRuns: 300, seed: 1 }).map((shape) => {
+      const card = build(shape);
+      return card.prefix + card.segments.map((s) => s.text).join("") + card.suffix;
+    });
+    const needles = [
+      "priority: normal",
+      'depends_on:\n  - "0003"',
+      "  why: >-",
+      "summary: |",
+      "    pros:\n      - fast",
+      "note: |+",
+      "note: |2",
+      '"kind": choice',
+      "'created_by': test",
+      "-   at: ",
+      "-   id: a",
+    ];
+    for (const needle of needles) {
+      expect(
+        texts.some((t) => t.replace(/\r/g, "").includes(needle)),
+        needle,
+      ).toBe(true);
+    }
+  });
+
   it(
     "keeps every byte outside the changed fields, for every action",
     () => {
