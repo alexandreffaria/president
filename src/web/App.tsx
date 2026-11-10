@@ -35,7 +35,7 @@ function Shell() {
       <Header current={route.name} onHelp={() => setHelp(true)} />
       <LoadErrorBanner />
       <main className="main">
-        <ErrorBoundary key={pathname}>
+        <ErrorBoundary key={pathname} inPage>
           <Route route={route} />
         </ErrorBoundary>
       </main>
