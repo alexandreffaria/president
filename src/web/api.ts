@@ -1,0 +1,61 @@
+/**
+ * Typed calls to the president API.
+ */
+import type { CardAction } from "../core/actions.ts";
+import type {
+  AddProjectRequest,
+  AddProjectResponse,
+  ApiError,
+  CardDetailDto,
+  CardListResponse,
+  CardResponse,
+  ProjectDto,
+} from "../core/api.ts";
+
+export class RequestError extends Error {
+  readonly status: number;
+  readonly code: string | undefined;
+  readonly details: string[];
+
+  constructor(status: number, body: Partial<ApiError>) {
+    super(body.error ?? `request failed (${status})`);
+    this.status = status;
+    this.code = body.code;
+    this.details = body.details ?? [];
+  }
+}
+
+async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      ...init,
+      headers: init?.body ? { "content-type": "application/json" } : undefined,
+    });
+  } catch {
+    throw new RequestError(0, { error: "can't reach the president server; is it running?" });
+  }
+  const body = (await response.json().catch(() => ({}))) as unknown;
+  if (!response.ok) throw new RequestError(response.status, body as Partial<ApiError>);
+  return body as T;
+}
+
+const segment = encodeURIComponent;
+
+export const api = {
+  cards: () => call<CardListResponse>("/api/cards"),
+  card: (project: string, id: string) =>
+    call<CardResponse>(`/api/cards/${segment(project)}/${segment(id)}`),
+  act: (project: string, id: string, action: CardAction, revision?: string) =>
+    call<{ ok: true; card: CardDetailDto }>(
+      `/api/cards/${segment(project)}/${segment(id)}/actions`,
+      { method: "POST", body: JSON.stringify({ ...action, revision }) },
+    ),
+  projects: () => call<{ projects: ProjectDto[] }>("/api/projects"),
+  addProject: (input: AddProjectRequest) =>
+    call<AddProjectResponse>("/api/projects", { method: "POST", body: JSON.stringify(input) }),
+  removeProject: (name: string) =>
+    call<{ removed: { name: string; path: string } }>(`/api/projects/${segment(name)}`, {
+      method: "DELETE",
+    }),
+};

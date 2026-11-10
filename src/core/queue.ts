@@ -2,7 +2,7 @@
  * Ordering and grouping of cards for the UI. Pure and shared so it can be tested.
  */
 import type { CardDto } from "./api.ts";
-import { type Priority, sameCardId } from "./schema.ts";
+import { type Priority, sameCardId } from "./model.ts";
 
 const PRIORITY_RANK: Record<Priority, number> = { high: 0, normal: 1, low: 2 };
 

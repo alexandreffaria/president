@@ -259,3 +259,10 @@ describe("docs/card-format.md", () => {
     expect(card.sections.options.map((o) => o.id)).toEqual(["throw", "result"]);
   });
 });
+
+describe("error messages", () => {
+  it("says a missing date is required rather than malformed", () => {
+    const errors = expectErrors(cardText({ created: "" }));
+    expect(errors).toEqual(["created: is required"]);
+  });
+});

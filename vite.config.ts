@@ -9,12 +9,17 @@ export default defineConfig({
   build: {
     outDir: "../../dist/web",
     emptyOutDir: true,
+    // Served from localhost, so one ~200 kB (gzipped) bundle is fine; most of it is
+    // syntax highlighting for the languages agents put in code examples.
+    chunkSizeWarningLimit: 1000,
   },
   server: {
     host: "127.0.0.1",
     port: 5173,
+    strictPort: true,
     proxy: {
-      "/api": { target: `http://127.0.0.1:${apiPort}` },
+      // Trailing slash: "/api" alone would also capture the module /api.ts.
+      "/api/": { target: `http://127.0.0.1:${apiPort}` },
     },
   },
 });
