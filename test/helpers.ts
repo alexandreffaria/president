@@ -52,3 +52,41 @@ export function cardText(
     .join("\n");
   return `---\n${yaml}\n---\n${body}`;
 }
+
+/** A line diff (longest common subsequence): which lines were removed and which added. */
+export function diffLines(
+  before: string,
+  after: string,
+): { removed: { line: number; text: string }[]; added: string[] } {
+  const a = before.split("\n");
+  const b = after.split("\n");
+  const lcs = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      const row = lcs[i] as number[];
+      row[j] =
+        a[i] === b[j]
+          ? ((lcs[i + 1] as number[])[j + 1] as number) + 1
+          : Math.max((lcs[i + 1] as number[])[j] as number, row[j + 1] as number);
+    }
+  }
+  const removed: { line: number; text: string }[] = [];
+  const added: string[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && a[i] === b[j]) {
+      i++;
+      j++;
+    } else if (
+      j < b.length &&
+      (i >= a.length ||
+        ((lcs[i] as number[])[j + 1] as number) >= ((lcs[i + 1] as number[])[j] as number))
+    ) {
+      added.push(b[j++] as string);
+    } else {
+      removed.push({ line: i + 1, text: a[i++] as string });
+    }
+  }
+  return { removed, added };
+}
