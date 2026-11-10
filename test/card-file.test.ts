@@ -293,6 +293,24 @@ describe("parseCard never throws", () => {
     ]);
   });
 
+  it("says a number, true/false or null can't be a key (R4-8)", () => {
+    const keyError = (key: string) =>
+      expectErrors(cardText().replace("\n---\n", `\n${key}: x\n---\n`));
+    for (const key of ["2026", "true", "False", "~", "null", "1.5"]) {
+      expect(keyError(key)).toEqual([
+        expect.stringMatching(
+          new RegExp(
+            `^frontmatter keys must be plain names, not numbers, true/false or null like ${key.replace(".", "\\.")} \\(line 14\\)$`,
+          ),
+        ),
+      ]);
+    }
+    // No key at all (": x") is a null key.
+    expect(keyError("")[0]).toMatch(/^frontmatter keys must be plain names, not numbers/);
+    // A quoted key is a name.
+    expectCard(cardText({ '"2026"': "planning" }));
+  });
+
   it("survives hostile and odd YAML", () => {
     const inputs = [
       "---\n!!binary x: 1\n---\n",

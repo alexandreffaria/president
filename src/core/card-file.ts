@@ -5,7 +5,7 @@
  * result is either a card or a list of problems phrased so the agent can fix the file.
  * Writing lives in card-writer.ts.
  */
-import { type Document, isCollection, isMap, LineCounter, parseDocument } from "yaml";
+import { type Document, isCollection, isMap, isScalar, LineCounter, parseDocument } from "yaml";
 import {
   CARD_FILENAME_PATTERN,
   type Frontmatter,
@@ -160,11 +160,20 @@ function parseNamedCard(
     );
   }
   if (isMap(doc.contents)) {
-    const odd = doc.contents.items.find((pair) => isCollection(pair.key));
+    // Only names: a list, mapping, number, true/false or null as a key isn't a field of
+    // the card, and the writer can't place an edit next to one.
+    const odd = doc.contents.items.find(
+      (pair) => !isScalar(pair.key) || typeof pair.key.value !== "string",
+    );
     if (odd) {
-      const offset = (odd.key as { range?: [number, number, number] }).range?.[0];
+      const key = odd.key as { range?: [number, number, number] } | null;
+      const offset = key?.range?.[0];
       const where = offset === undefined ? "" : ` (line ${fileLine(offset)})`;
-      return fail([`frontmatter keys must be plain names, not lists or mappings${where}`]);
+      const text = key?.range ? split.yaml.slice(key.range[0], key.range[1]).trim() : "";
+      const what = isCollection(odd.key)
+        ? "not lists or mappings"
+        : `not numbers, true/false or null${text ? ` like ${text}` : ""}`;
+      return fail([`frontmatter keys must be plain names, ${what}${where}`]);
     }
   }
   let raw: unknown;

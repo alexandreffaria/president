@@ -68,7 +68,9 @@ title: How should the API client report errors?
 | `session_id` | no | string | Reserved for the per-card chat (a later version). |
 
 Any other field is allowed and is kept untouched when president updates the card, so agents can
-add their own bookkeeping. When president writes a card it changes only the fields whose values
+add their own bookkeeping. Field names must be plain names: a number, `true`/`false`, `null`, a
+list or a mapping as a key (`2026: planning`) makes the card invalid; quote it (`"2026": planning`)
+to use it as a name. When president writes a card it changes only the fields whose values
 changed; everything else (comments, quoting, folded text, line endings, the body) stays exactly as
 it was.
 
