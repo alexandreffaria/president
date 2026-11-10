@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { link, open, readFile, rename, stat, unlink } from "node:fs/promises";
+import { link, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
 /**
@@ -79,49 +79,45 @@ export interface FileLockOptions {
 }
 
 /**
+ * How long `<lock>.break` may exist before it is taken to be left by a process that died
+ * holding it. It is held for two file operations, so this only happens after a crash.
+ */
+export const BREAKER_STALE_MS = 5000;
+
+/**
  * Runs `task` while holding `lockPath`, a lock shared by every process (the CLI, each
- * agent's CLI, the server). The lock is a file created with O_EXCL that holds the owner's
- * pid and a random id; it is removed when the task ends.
+ * agent's CLI, the server). The lock is a file holding the owner's pid and a random id. It
+ * is created whole (written to a temp file, then hard-linked into place, which fails if the
+ * lock exists), so its content never changes while it exists.
  *
- * A lock is broken when its owner process is gone (it crashed) or it is older than
- * `stale`. To break one, it is renamed away first, so of several processes that see the
- * same stale lock only one removes it, and a lock someone took in the meantime is put back.
+ * A lock is broken when its owner process is gone (it crashed) or it is older than `stale`.
+ * Every removal of the lock, a release or a break, goes through `removeLockIf`, which holds
+ * a second lock (`<lock>.break`) while it checks the content and removes the file. So no
+ * one removes a lock they didn't just see: one that replaced the stale lock is left alone.
  */
 export async function withFileLock<T>(
   lockPath: string,
   task: () => Promise<T>,
   { timeout = 15_000, stale = 30_000 }: FileLockOptions = {},
 ): Promise<T> {
-  const id = `${process.pid} ${randomBytes(8).toString("hex")}`;
+  const id = lockId();
   const deadline = Date.now() + timeout;
-  for (let attempt = 0; ; attempt++) {
-    try {
-      const handle = await open(lockPath, "wx");
-      try {
-        await handle.writeFile(id, "utf8");
-      } finally {
-        await handle.close();
-      }
-      break;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    }
+  for (let attempt = 0; !(await createExclusive(lockPath, id)); attempt++) {
     const holder = await readLock(lockPath);
     if (holder && (holder.age > stale || !isAlive(holder.pid))) {
-      await breakLock(lockPath, holder.content);
+      await removeLockIf(lockPath, holder.content);
       continue;
     }
     if (Date.now() > deadline) {
       throw new FileLockTimeout(lockPath, holder?.pid);
     }
-    // Back off a little more each time, with jitter so waiting processes spread out.
-    await sleep(Math.min(5 + attempt * 5, 100) * (0.5 + Math.random()));
+    await sleep(backoff(attempt));
   }
   try {
     return await task();
   } finally {
-    // Only remove the lock if it is still ours (it is, unless it was broken as stale).
-    if ((await readLock(lockPath))?.content === id) await unlink(lockPath).catch(() => {});
+    // Still ours, unless it was broken as stale meanwhile.
+    await removeLockIf(lockPath, id).catch(() => {});
   }
 }
 
@@ -133,6 +129,57 @@ export class FileLockTimeout extends Error {
   }
 }
 
+function lockId(): string {
+  return `${process.pid} ${randomBytes(8).toString("hex")}`;
+}
+
+/** Back off a little more each time, with jitter so waiting processes spread out. */
+function backoff(attempt: number): number {
+  return Math.min(5 + attempt * 5, 100) * (0.5 + Math.random());
+}
+
+/** Creates `path` holding `content`, unless it exists. True when it was created. */
+async function createExclusive(path: string, content: string): Promise<boolean> {
+  const temp = `${path}.${randomBytes(6).toString("hex")}.tmp`;
+  await writeFile(temp, content, { encoding: "utf8", flag: "wx" });
+  try {
+    await link(temp, path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw error;
+  } finally {
+    await unlink(temp).catch(() => {});
+  }
+}
+
+/**
+ * Removes the lock if it still holds `content`, under `<lock>.break`. Every removal holds
+ * that, and a lock can only be created where none exists, so between the check and the
+ * removal the lock can't change. A breaker older than BREAKER_STALE_MS was left by a crash
+ * and is removed by age alone.
+ */
+async function removeLockIf(lockPath: string, content: string): Promise<void> {
+  const breaker = `${lockPath}.break`;
+  for (let attempt = 0; !(await createExclusive(breaker, lockId())); attempt++) {
+    const age = await stat(breaker).then(
+      (info) => Date.now() - info.mtimeMs,
+      () => undefined,
+    );
+    if (age !== undefined && age > BREAKER_STALE_MS) await unlink(breaker).catch(() => {});
+    else await sleep(backoff(attempt));
+  }
+  try {
+    const current = await readFile(lockPath, "utf8").catch((error: unknown) => {
+      if (isNotFound(error)) return undefined;
+      throw error;
+    });
+    if (current === content) await unlink(lockPath);
+  } finally {
+    await unlink(breaker).catch(() => {});
+  }
+}
+
 async function readLock(
   lockPath: string,
 ): Promise<{ content: string; pid: number | undefined; age: number } | undefined> {
@@ -141,7 +188,7 @@ async function readLock(
     const pid = Number(content.split(" ")[0]);
     return {
       content,
-      // An empty lock is one whose owner hasn't written its id yet: treat it as alive.
+      // Not a pid (a lock written by something else): only its age can break it.
       pid: Number.isInteger(pid) && pid > 0 ? pid : undefined,
       age: Date.now() - info.mtimeMs,
     };
@@ -149,23 +196,6 @@ async function readLock(
     if (isNotFound(error)) return undefined;
     throw error;
   }
-}
-
-async function breakLock(lockPath: string, staleContent: string): Promise<void> {
-  const aside = `${lockPath}.${process.pid}.${randomBytes(4).toString("hex")}.stale`;
-  try {
-    await rename(lockPath, aside);
-  } catch (error) {
-    if (isNotFound(error)) return; // someone else broke it
-    throw error;
-  }
-  const taken = await readFile(aside, "utf8").catch(() => staleContent);
-  if (taken !== staleContent) {
-    // Between our read and the rename, another process broke the stale lock and took a
-    // new one: give it back (unless yet another lock exists by now).
-    await link(aside, lockPath).catch(() => {});
-  }
-  await unlink(aside).catch(() => {});
 }
 
 function isAlive(pid: number | undefined): boolean {
