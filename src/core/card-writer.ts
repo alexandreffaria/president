@@ -19,12 +19,14 @@
 import {
   Document,
   isMap,
+  isNode,
   isScalar,
   isSeq,
   type Pair,
   parseDocument,
   type Range,
   Scalar,
+  visit,
   type YAMLMap,
 } from "yaml";
 import { splitFrontmatter } from "./card-file.ts";
@@ -151,7 +153,9 @@ function changeValue(
       // The column of the first `-`; new items line up with it.
       const column = value.range[0] - lineStart(source, value.range[0]);
       const at = lineEnd(source, Math.max(last.range[2], value.range[1]));
-      if (at === value.range[2]) {
+      // Anything between the last item and the end of the field must be blank lines or
+      // comments (`# more rounds go here`): the new items go before them and they stay.
+      if (at <= value.range[2] && onlyCommentsOrBlank(source.slice(at, value.range[2]))) {
         const items = new Document(after.slice(before.length)).toString({ lineWidth: 0 });
         return { start: at, end: at, text: indent(items, " ".repeat(column)) };
       }
@@ -159,6 +163,10 @@ function changeValue(
   }
 
   return { ...span, text: renderPair(key, after) };
+}
+
+function onlyCommentsOrBlank(text: string): boolean {
+  return text.split("\n").every((line) => /^\s*(#.*)?$/.test(line));
 }
 
 /** A plain or quoted scalar written on one line (not a `|` or `>` block). */
@@ -178,6 +186,10 @@ function renderPair(key: string, value: unknown): string {
 function reserialize(source: string, next: RawFrontmatter, newline: string): string {
   const doc = parseDocument(source);
   const previous = doc.toJS() as RawFrontmatter;
+  const changed = Object.keys(previous).filter(
+    (key) => next[key] === undefined || !deepEqual(previous[key], next[key]),
+  );
+  inlineAliasesInto(doc, changed);
   for (const key of Object.keys(previous)) {
     if (next[key] === undefined) doc.delete(key);
   }
@@ -187,6 +199,31 @@ function reserialize(source: string, next: RawFrontmatter, newline: string): str
     }
   }
   return withNewline(doc.toString({ lineWidth: 0 }), newline);
+}
+
+/**
+ * Replaces every alias (`*st`) whose anchor (`&st`) is inside one of `keys` with a copy of
+ * the value it points to. Those fields are about to be replaced or deleted, and an alias
+ * must not lose its anchor (the YAML would no longer be valid) or follow the new value.
+ */
+function inlineAliasesInto(doc: Document, keys: string[]): void {
+  const anchors = new Set<string>();
+  for (const key of keys) {
+    const node = doc.get(key, true);
+    if (!isNode(node)) continue;
+    visit(node, {
+      Node(_, child) {
+        if (child.anchor) anchors.add(child.anchor);
+      },
+    });
+  }
+  if (anchors.size === 0) return;
+  visit(doc, {
+    Alias(_, alias) {
+      if (!anchors.has(alias.source)) return undefined;
+      return doc.createNode(alias.resolve(doc)?.toJS(doc));
+    },
+  });
 }
 
 function sameData(yaml: string, expected: RawFrontmatter): boolean {

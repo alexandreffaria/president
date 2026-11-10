@@ -212,6 +212,45 @@ Body.
     ]);
   });
 
+  it("keeps a comment after the last feedback item, adding the new round above it", () => {
+    const head = card.split("feedback:")[0] ?? "";
+    const commented = `${head}feedback:
+  - at: 2026-11-01T00:00:00Z
+    note: one
+  # more rounds go here
+seen_at: 2026-11-02T00:00:00Z
+---
+
+## Context
+`;
+    const { out } = write(commented, { type: "note", note: "Two." });
+    const diff = diffLines(commented, out);
+    expect(diff.removed).toEqual([]);
+    expect(diff.added).toEqual([
+      "  - at: 2026-11-10T12:00:00Z",
+      "    type: note",
+      "    note: Two.",
+    ]);
+    expect(out).toContain("    note: Two.\n  # more rounds go here\nseen_at:");
+  });
+
+  it("changes a field whose anchor another field aliases, keeping the alias's value", () => {
+    const anchored = card
+      .replace("status: open   # agents: keep open", "status: &st open")
+      .replace("---\n\n", "mirror: *st\n---\n\n");
+    expect(anchored).toContain("mirror: *st");
+    const { out, after } = write(anchored, { type: "defer" });
+    expect(after.mirror).toBe("open");
+    expect(parsed(out).raw).toMatchObject({ status: "deferred", mirror: "open" });
+
+    const aliasedFeedback = card
+      .replace("feedback:\n", "feedback: &fb\n")
+      .replace("---\n\n", "history: *fb\n---\n\n");
+    const noted = write(aliasedFeedback, { type: "note", note: "Two." });
+    const raw = parsed(noted.out).raw;
+    expect((raw.feedback as unknown[]).length).toBe((raw.history as unknown[]).length + 1);
+  });
+
   it("returns the text unchanged when nothing changed", () => {
     expect(updateCardText(card, parsed(card).raw)).toBe(card);
   });

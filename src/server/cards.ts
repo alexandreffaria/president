@@ -216,8 +216,9 @@ async function loadFile(
     // Like git's "racily clean" rule: file times are coarse (a few ms), so a file changed in
     // the last couple of seconds could change again without its stamp moving. Only files
     // that have settled are cached; any later write moves ctime past the cached stamp.
-    const changedMs = Number(
-      (info.mtimeNs > info.ctimeNs ? info.mtimeNs : info.ctimeNs) / 1_000_000n,
+    const changedMs = Math.max(
+      Number(info.mtimeNs / 1_000_000n),
+      Number(info.ctimeNs / 1_000_000n),
     );
     const settled = Date.now() - changedMs > 2000;
     if (settled) cache.set(path, { stamp, result });
@@ -319,7 +320,16 @@ export async function actOnCard(
     if (revisionOf(original) !== card.revision) {
       throw conflict("the card changed on disk while saving; try again");
     }
-    const text = updateCardText(original, result.raw);
+    let text: string;
+    try {
+      text = updateCardText(original, result.raw);
+    } catch (error) {
+      // An exotic YAML layout the writer can't update safely: say so instead of a 500.
+      throw new UserError(
+        `president can't update ${card.fileName} safely: ${(error as Error).message}. Ask an agent to simplify its frontmatter (for example, remove YAML anchors and aliases).`,
+        { status: 422, code: "unsupported_layout" },
+      );
+    }
     const written = await writeChecked(project, card, text);
     remember(card.path, { before: original, after: written.revision, at: Date.now() });
     return written;
