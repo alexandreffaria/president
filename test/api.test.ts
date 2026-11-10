@@ -8,6 +8,7 @@ import type {
   HubEvent,
   ProjectDto,
 } from "../src/core/api.ts";
+import { agentToken } from "../src/core/pending.ts";
 import { createApp } from "../src/server/app.ts";
 import { Registry } from "../src/server/registry.ts";
 import { EventBus } from "../src/server/watcher.ts";
@@ -346,6 +347,8 @@ describe("card actions API", () => {
       ["0002", { type: "explode" }, 400, /invalid request/],
       ["0004", { type: "defer" }, 409, /cannot defer a card while it is resolved/],
       ["9999", { type: "defer" }, 404, /no card "9999"/],
+      ["0002", { type: "seen" }, 400, /invalid request/],
+      ["0004", { type: "applied", token: "0-aaaaaaaaaaa" }, 409, /president pending/],
     ];
     for (const [id, body, status, message] of cases) {
       const res = await act(id, body);
@@ -476,8 +479,12 @@ describe("undo", () => {
   });
 
   it("refuses when the card changed after the action (an agent applied it)", async () => {
-    const { post, act, file, revision } = await resolved();
-    expect((await act("0002", { type: "applied" })).status).toBe(200);
+    const { post, act, file, revision, request } = await resolved();
+    const shown = await json<CardResponse>(request("/api/cards/demo/0002"));
+    if (!shown.ok) throw new Error("broken");
+    expect((await act("0002", { type: "applied", token: agentToken(shown.card) })).status).toBe(
+      200,
+    );
     const res = await post("/api/cards/demo/0002/undo", { revision });
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ code: "conflict" });

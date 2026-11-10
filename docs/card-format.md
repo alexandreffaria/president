@@ -63,8 +63,8 @@ title: How should the API client report errors?
 | `feedback` | no | list of `{at, note, type?}` | Rounds of human feedback, oldest first. president appends to it. |
 | `needs_new_options` | no | boolean | Set by president when the human rejects every option ("neither"). An agent should write new options from the latest feedback, then remove the flag. Not allowed on a resolved card. |
 | `resolution` | when resolved | `{choice, note?, resolved_at}` | The human's answer. `choice` is an option id, or `custom` with the answer in `note`. |
-| `applied_at` | no | timestamp | Set by an agent after it has acted on the resolution (updated the docs): `president applied <file>`. Only on resolved cards. |
-| `seen_at` | no | timestamp | When an agent last read the human's feedback: `president seen <file>` (and `president applied`) set it. Feedback newer than this is listed by `president pending`. |
+| `applied_at` | no | timestamp | Set by an agent after it has acted on the resolution (updated the docs): `president applied <file> --token <token>`. Only on resolved cards. |
+| `seen_at` | no | timestamp | The `at` of the newest feedback entry an agent has read. `president seen` and `president applied` set it to the newest entry `president pending` showed. Feedback newer than this is listed by `president pending`. |
 | `session_id` | no | string | Reserved for the per-card chat (a later version). |
 
 Any other field is allowed and is kept untouched when president updates the card, so agents can
@@ -122,7 +122,8 @@ resolution in `previous_resolution`, and `previous_applied_at` when an agent had
 ```
 
 Feedback written after `seen_at` (or all of it, when there is no `seen_at`) has not been read by
-an agent yet.
+an agent yet. president gives each new entry an `at` later than every earlier entry and than
+`seen_at`; when that second is already taken it adds milliseconds (`2026-11-05T18:40:00.001Z`).
 
 ## Body
 
@@ -150,20 +151,27 @@ open ──resolve──▶ resolved ──(agent applies it)──▶ resolved 
 
 Deferred cards can also be resolved, rejected ("neither") or noted directly.
 
-What agents do (`president pending` lists all of these):
+What agents do (`president pending` lists all of these, each with the unread feedback and a
+`done:` line to run once the card is handled):
 
 - **Write** cards with `status: open`.
-- **Resolved, no `applied_at`**: act on the decision (update the project's docs), then set
-  `applied_at` (`president applied <file>` does it).
+- **Resolved, no `applied_at`**: act on the decision (update the project's docs), then run the
+  `done:` line (`president applied <file> --token <token>`), which sets `applied_at`.
 - **Resolved again after a reopen** (a `reopen` feedback entry with `previous_resolution`): the
   earlier decision may already be in the docs and the code. If `previous_applied_at` is set,
   replace the earlier record instead of adding a second one, and undo work that no longer
-  applies. Then `president applied <file>`.
-- **`needs_new_options: true`**: read the latest `neither` feedback, replace `options` (and the
+  applies. Then run the `done:` line.
+- **`needs_new_options: true`**: read all the unread feedback, replace `options` (and the
   option sections in the body) with new ones, update `recommendation`, then remove
-  `needs_new_options`. Keep `feedback` as it is. Then `president seen <file>`.
+  `needs_new_options`. Keep `feedback` as it is. Then run the `done:` line
+  (`president seen <file> --token <token>`).
 - **Feedback newer than `seen_at`** (notes, a deferral's reason, a reopen): read it and act on it
-  (answer in the card, research, adjust the options), then `president seen <file>`.
+  (answer in the card, research, adjust the options), then run the `done:` line.
+
+The token in a `done:` line identifies what `pending` showed: the feedback entries up to then
+and the resolution. `seen` and `applied` mark only that. Feedback the human adds afterwards stays
+unread (and the command says so). If the human changed or undid the decision, or undid a note,
+the command refuses: run `president pending` again.
 
 Check a card with `president validate <project>` or `president validate <card-file>`; it prints
 each problem with the field and the file line.

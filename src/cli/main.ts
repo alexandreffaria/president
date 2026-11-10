@@ -8,7 +8,13 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import type { CardAction } from "../core/actions.ts";
 import { parseCard, parseCardFileName } from "../core/card-file.ts";
-import { earlierDecision, needsApplying, unseenFeedback } from "../core/pending.ts";
+import {
+  agentToken,
+  checkAgentToken,
+  earlierDecision,
+  needsApplying,
+  unseenFeedback,
+} from "../core/pending.ts";
 import {
   actOnCard,
   findCard,
@@ -42,11 +48,13 @@ Usage:
       Exit code 1 if any is broken.
   president pending [path] [--json]
       What an agent should act on: resolved cards not yet applied, cards where the human
-      rejected all options, and new notes from the human.
-  president applied <card-file>
+      rejected all options, and new notes from the human. Each card ends with the \`done\`
+      command to run once you have acted on it.
+  president applied <card-file> --token <token>
       Mark a resolved card as applied (sets applied_at) after updating the project's docs.
-  president seen <card-file>
-      Mark the human's notes on a card as read (sets seen_at), after acting on them.
+  president seen <card-file> --token <token>
+      Mark the human's feedback on a card as read (sets seen_at), after acting on it.
+      Both take the token \`pending\` printed, and refuse if the human changed the card since.
   president serve
       Start the hub web app (needs \`npm run build\` first for the UI).
 
@@ -222,11 +230,15 @@ async function pending(args: string[], out: Output): Promise<number> {
   const needOptions = cards.filter(
     (c) => c.frontmatter.status === "open" && c.frontmatter.needs_new_options === true,
   );
-  // Cards in the two lists above get read in full anyway.
+  // Notes are listed whatever the card's status; cards in the two lists above show their
+  // new notes there.
   const withNotes = cards.filter(
     (c) =>
       !toApply.includes(c) && !needOptions.includes(c) && unseenFeedback(c.frontmatter).length > 0,
   );
+  /** The command that marks exactly what this output showed about the card. */
+  const done = (c: LoadedCard) =>
+    `president ${needsApplying(c.frontmatter) ? "applied" : "seen"} ${c.path} --token ${agentToken(c)}`;
 
   if (values.json) {
     const describe = (c: LoadedCard) => ({
@@ -234,6 +246,9 @@ async function pending(args: string[], out: Output): Promise<number> {
       title: c.frontmatter.title,
       status: c.frontmatter.status,
       path: c.path,
+      new_notes: unseenFeedback(c.frontmatter),
+      token: agentToken(c),
+      done: done(c),
     });
     out.log(
       JSON.stringify(
@@ -255,10 +270,7 @@ async function pending(args: string[], out: Output): Promise<number> {
             ...describe(c),
             feedback: c.frontmatter.feedback,
           })),
-          new_notes: withNotes.map((c) => ({
-            ...describe(c),
-            notes: unseenFeedback(c.frontmatter),
-          })),
+          new_notes: withNotes.map(describe),
           broken: broken.map((b) => ({ file: b.fileName, errors: b.errors })),
           warnings: warnings.map((w) => ({ file: w.fileName, message: w.message })),
         },
@@ -274,8 +286,15 @@ async function pending(args: string[], out: Output): Promise<number> {
     for (const w of warnings) out.log(`(warning) ${w.fileName}: ${w.message}`);
     return 0;
   }
+  const notes = (c: LoadedCard) => {
+    for (const note of unseenFeedback(c.frontmatter)) {
+      out.log(`    ${note.type ?? "note"} ${note.at}: ${note.note}`);
+    }
+  };
   if (toApply.length > 0) {
-    out.log("Resolved, not yet applied (update the docs, then `president applied <file>`):");
+    out.log(
+      "Resolved, not yet applied. Record the decision in the docs and act on it (and on any notes), then run its `done` command:",
+    );
     for (const c of toApply) {
       const r = c.frontmatter.resolution;
       out.log(
@@ -290,26 +309,33 @@ async function pending(args: string[], out: Output): Promise<number> {
             : `    Decided again: it was "${String(was)}" before (never applied).`,
         );
       }
+      notes(c);
+      out.log(`    done: ${done(c)}`);
     }
   }
   if (needOptions.length > 0) {
     out.log(
-      "The human rejected the options; write new ones from the latest feedback, then `president seen <file>`:",
+      "The human rejected the options. Write new options that answer all the feedback shown, remove `needs_new_options`, then run its `done` command:",
     );
     for (const c of needOptions) {
-      const last = c.frontmatter.feedback.findLast((f) => f.type === "neither");
-      out.log(
-        `  ${c.path}\n    ${c.frontmatter.title}${last ? `\n    feedback: ${last.note}` : ""}`,
-      );
+      out.log(`  ${c.path}\n    ${c.frontmatter.title}`);
+      if (unseenFeedback(c.frontmatter).length > 0) {
+        notes(c);
+      } else {
+        // Already read, but the options were never rewritten.
+        const last = c.frontmatter.feedback.findLast((f) => f.type === "neither");
+        if (last) out.log(`    neither ${last.at} (read before): ${last.note}`);
+        out.log("    The feedback was marked read, but `needs_new_options` is still set.");
+      }
+      out.log(`    done: ${done(c)}`);
     }
   }
   if (withNotes.length > 0) {
-    out.log("New notes from the human (act on them, then `president seen <file>`):");
+    out.log("New notes from the human. Act on them, then run its `done` command:");
     for (const c of withNotes) {
       out.log(`  ${c.path}\n    ${c.frontmatter.title} (${c.frontmatter.status})`);
-      for (const note of unseenFeedback(c.frontmatter)) {
-        out.log(`    ${note.type ?? "note"} ${note.at}: ${note.note}`);
-      }
+      notes(c);
+      out.log(`    done: ${done(c)}`);
     }
   }
   if (broken.length > 0) {
@@ -321,23 +347,48 @@ async function pending(args: string[], out: Output): Promise<number> {
 }
 
 async function applied(args: string[], out: Output): Promise<number> {
-  const { project, card } = await cardFromFile(args, "applied <card-file>");
+  const { project, card, token } = await cardFromFile(args, "applied <card-file> --token <token>");
+  // The token first: "already applied" is only true of the decision the agent was shown.
+  const check = checkAgentToken(card, token);
+  if (!check.ok) throw new UserError(check.error);
   if (card.frontmatter.applied_at) {
     out.log(
       `${card.fileName} was already applied at ${card.frontmatter.applied_at}; nothing changed.`,
     );
     return 0;
   }
-  const after = await act(project, card, { type: "applied" });
+  const after = await act(project, card, { type: "applied", token });
   out.log(`Marked ${after.fileName} as applied at ${after.frontmatter.applied_at}.`);
+  reportUnread(after, out);
   return 0;
 }
 
 async function seen(args: string[], out: Output): Promise<number> {
-  const { project, card } = await cardFromFile(args, "seen <card-file>");
-  const after = await act(project, card, { type: "seen" });
-  out.log(`Marked the feedback on ${after.fileName} as seen at ${after.frontmatter.seen_at}.`);
+  const { project, card, token } = await cardFromFile(args, "seen <card-file> --token <token>");
+  const check = checkAgentToken(card, token);
+  if (!check.ok) throw new UserError(check.error);
+  const after = await act(project, card, { type: "seen", token });
+  const count = check.shown.length;
+  out.log(
+    `Marked the human's feedback on ${after.fileName} as read (${count} ${count === 1 ? "entry" : "entries"}).`,
+  );
+  const lastNeither = check.shown.findLast((f) => f.type === "neither");
+  if (after.frontmatter.needs_new_options && lastNeither) {
+    out.error(
+      "president: warning: needs_new_options is still set. Remove it once the options are rewritten, or the card stays out of the human's queue.",
+    );
+  }
+  reportUnread(after, out);
   return 0;
+}
+
+/** Feedback that arrived after the agent ran `pending` stays unread; say so. */
+function reportUnread(card: LoadedCard, out: Output): void {
+  const unread = unseenFeedback(card.frontmatter).length;
+  if (unread === 0) return;
+  out.log(
+    `The human added ${unread} more ${unread === 1 ? "note" : "notes"} since you ran \`president pending\`; they are still unread. Run \`president pending\` again.`,
+  );
 }
 
 function act(project: Project, card: LoadedCard, action: CardAction): Promise<LoadedCard> {
@@ -346,13 +397,26 @@ function act(project: Project, card: LoadedCard, action: CardAction): Promise<Lo
   return actOnCard(project, card.id, action, { revision: card.revision });
 }
 
-/** The card a `<card-file>` argument names; it must exist and be that card's file. */
+/**
+ * The card a `<card-file> --token <token>` pair names; the file must exist and be that
+ * card's file.
+ */
 async function cardFromFile(
   args: string[],
   usage: string,
-): Promise<{ project: Project; card: LoadedCard }> {
-  const { positionals } = parseArgs({ args, allowPositionals: true });
+): Promise<{ project: Project; card: LoadedCard; token: string }> {
+  const { positionals, values } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: { token: { type: "string" } },
+  });
   const file = resolve(single(positionals, usage));
+  const token = values.token;
+  if (!token) {
+    throw new UserError(
+      `--token is required: run \`president pending\` and use the \`done\` command it prints for this card (usage: president ${usage})`,
+    );
+  }
   const name = parseCardFileName(basename(file));
   if (!name || basename(dirname(file)) !== DECISIONS_DIR) {
     throw new UserError(`"${file}" is not a card file inside a ${DECISIONS_DIR}/ folder`);
@@ -371,7 +435,7 @@ async function cardFromFile(
       `card ${name.id} is ${found.card.fileName}, not ${basename(file)}; check the file name`,
     );
   }
-  return { project, card: found.card };
+  return { project, card: found.card, token };
 }
 
 async function serve(out: Output): Promise<number> {

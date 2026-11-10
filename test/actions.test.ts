@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { applyAction, type CardAction, canApply, timestamp } from "../src/core/actions.ts";
+import {
+  applyAction,
+  type CardAction,
+  canApply,
+  feedbackTimestamp,
+  timestamp,
+} from "../src/core/actions.ts";
 import { type ParsedCard, parseCard } from "../src/core/card-file.ts";
 import { updateCardText } from "../src/core/card-writer.ts";
+import { agentToken, unseenFeedback } from "../src/core/pending.ts";
 import { CARD_STATUSES, type CardStatus } from "../src/core/schema.ts";
 import { cardText } from "./helpers.ts";
 
@@ -157,28 +164,130 @@ describe("reopen", () => {
   });
 });
 
+/** Applies the action and returns the card as it would be read back from the file. */
+function step(from: ParsedCard, action: CardAction, now = NOW): ParsedCard {
+  const result = applyAction(from, action, now);
+  if (!result.ok) throw new Error(result.error);
+  const reparsed = parseCard(updateCardText(cardText(), result.raw), "0001-colour.md");
+  if (!reparsed.ok) throw new Error(reparsed.problem.errors.join("; "));
+  return reparsed.card;
+}
+
+const ONE_NOTE = {
+  feedback: "\n  - at: 2026-11-10T09:00:00Z\n    type: note\n    note: first",
+};
+
 describe("applied", () => {
-  it("stamps applied_at on a resolved card, and seen_at since the agent read it", () => {
-    const { raw } = act(card({ ...RESOLVED, applied_at: "" }), { type: "applied" });
+  it("stamps applied_at, and seen_at up to the newest feedback the agent was shown", () => {
+    const before = card({ ...RESOLVED, applied_at: "", ...ONE_NOTE });
+    const { raw } = act(before, { type: "applied", token: agentToken(before) });
     expect(raw.applied_at).toBe(AT);
-    expect(raw.seen_at).toBe(AT);
+    expect(raw.seen_at).toBe("2026-11-10T09:00:00Z");
+    const bare = card({ ...RESOLVED, applied_at: "" });
+    expect(act(bare, { type: "applied", token: agentToken(bare) }).raw).not.toHaveProperty(
+      "seen_at",
+    );
   });
 
   it("is only for resolved cards", () => {
-    expect(rejects(card(), { type: "applied" })).toMatch(
+    expect(rejects(card(), { type: "applied", token: agentToken(card()) })).toMatch(
       /cannot mark a card as applied while it is open/,
     );
+  });
+
+  it("refuses when the human changed the decision after the agent looked", () => {
+    // The agent is shown "a"; the human reopens and decides "b" before it runs applied.
+    const shown = card({ ...RESOLVED, applied_at: "" });
+    const token = agentToken(shown);
+    const later = new Date("2026-11-10T12:05:00Z");
+    const redecided = step(step(shown, { type: "reopen" }, later), {
+      type: "resolve",
+      choice: "b",
+    });
+    const result = applyAction(redecided, { type: "applied", token }, later);
+    expect(result).toMatchObject({ ok: false, reason: "stale" });
+    expect(!result.ok && result.error).toMatch(/now resolved as "b".*president pending/);
+  });
+
+  it("refuses when the human undid the decision and made it again", () => {
+    const open = card();
+    const first = step(open, { type: "resolve", choice: "a" });
+    const token = agentToken(first);
+    // Undo puts the file back as it was; the same choice a minute later is a new decision.
+    const again = step(open, { type: "resolve", choice: "a" }, new Date("2026-11-10T12:01:00Z"));
+    expect(applyAction(again, { type: "applied", token }, NOW)).toMatchObject({
+      ok: false,
+      reason: "stale",
+    });
   });
 });
 
 describe("seen", () => {
-  it("stamps seen_at in any state without changing anything else", () => {
+  it("marks only what the token covers, in any state, changing nothing else", () => {
     const cases: Record<string, string>[] = [{}, { status: "deferred" }, RESOLVED];
     for (const overrides of cases) {
-      const before = card(overrides);
-      const { raw } = act(before, { type: "seen" });
-      expect(raw).toEqual({ ...before.raw, seen_at: AT });
+      const before = card({ ...overrides, ...ONE_NOTE });
+      const { raw } = act(before, { type: "seen", token: agentToken(before) });
+      expect(raw).toEqual({ ...before.raw, seen_at: "2026-11-10T09:00:00Z" });
     }
+  });
+
+  it("leaves a note the human added after the agent looked unread", () => {
+    const shown = card(ONE_NOTE);
+    const token = agentToken(shown);
+    const withSecond = step(shown, { type: "note", note: "second, never shown" });
+    const after = step(withSecond, { type: "seen", token });
+    expect(unseenFeedback(after.frontmatter).map((f) => f.note)).toEqual(["second, never shown"]);
+  });
+
+  it("never counts a note written in the same second as seen_at as read", () => {
+    const shown = card(ONE_NOTE);
+    const seen = step(shown, { type: "seen", token: agentToken(shown) }, NOW);
+    // seen_at is the shown note's time; force the harder case where it is "now".
+    const sameSecond = { ...seen, frontmatter: { ...seen.frontmatter, seen_at: AT } };
+    const noted = step(
+      { ...sameSecond, raw: { ...seen.raw, seen_at: AT } },
+      { type: "note", note: "same second" },
+      new Date("2026-11-10T12:00:00.400Z"),
+    );
+    expect(unseenFeedback(noted.frontmatter).map((f) => f.note)).toEqual(["same second"]);
+  });
+
+  it("refuses a token for feedback that is no longer there, or for another card", () => {
+    const noted = step(card(), { type: "note", note: "oops" });
+    const token = agentToken(noted);
+    // The human undid the note: the card is back as it was.
+    expect(applyAction(card(), { type: "seen", token }, NOW)).toMatchObject({
+      ok: false,
+      reason: "stale",
+    });
+    const other = { ...noted, id: "0002" };
+    expect(applyAction(other, { type: "seen", token }, NOW)).toMatchObject({ reason: "stale" });
+    expect(applyAction(noted, { type: "seen", token: "nonsense" }, NOW)).toMatchObject({
+      reason: "stale",
+      error: expect.stringMatching(/not a token from `president pending`/),
+    });
+  });
+});
+
+describe("feedback timestamps", () => {
+  it("are whole seconds, but always later than earlier feedback and seen_at", () => {
+    expect(feedbackTimestamp(NOW, { feedback: [] })).toBe(AT);
+    expect(feedbackTimestamp(NOW, { feedback: [{ at: AT }] })).toBe("2026-11-10T12:00:00.001Z");
+    expect(feedbackTimestamp(NOW, { feedback: [], seen_at: "2026-11-10T12:00:00.500Z" })).toBe(
+      "2026-11-10T12:00:00.501Z",
+    );
+    // A clock that went backwards still gives a later time.
+    expect(feedbackTimestamp(NOW, { feedback: [{ at: "2026-11-11T00:00:00Z" }] })).toBe(
+      "2026-11-11T00:00:00.001Z",
+    );
+  });
+
+  it("make two notes in one second both unread and in order", () => {
+    const one = step(card(), { type: "note", note: "one" });
+    const two = step(one, { type: "note", note: "two" });
+    expect(two.frontmatter.feedback.map((f) => f.at)).toEqual([AT, "2026-11-10T12:00:00.001Z"]);
+    expect(unseenFeedback(two.frontmatter)).toHaveLength(2);
   });
 });
 

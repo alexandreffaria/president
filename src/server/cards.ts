@@ -312,9 +312,12 @@ export async function actOnCard(
     }
     const result = applyAction(card, action, options.now ?? new Date());
     if (!result.ok) {
-      throw result.reason === "transition"
-        ? new UserError(result.error, { status: 409, code: "invalid_transition" })
-        : new UserError(result.error, { status: 422, code: "invalid_action" });
+      const failure = {
+        transition: { status: 409, code: "invalid_transition" },
+        stale: { status: 409, code: "stale_token" },
+        input: { status: 422, code: "invalid_action" },
+      } as const;
+      throw new UserError(result.error, failure[result.reason]);
     }
     const original = await readFile(card.path, "utf8");
     if (revisionOf(original) !== card.revision) {

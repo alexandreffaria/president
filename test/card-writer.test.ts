@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { applyAction, type CardAction } from "../src/core/actions.ts";
 import { parseCard } from "../src/core/card-file.ts";
 import { deepEqual, updateCardText } from "../src/core/card-writer.ts";
+import { agentToken } from "../src/core/pending.ts";
 import { DEMO_PROJECT, diffLines } from "./helpers.ts";
 
 const NOW = new Date("2026-11-10T12:00:00Z");
@@ -52,8 +53,8 @@ const ACTIONS: CardAction[] = [
   { type: "resolve", choice: "custom", note: "My own answer." },
   { type: "reopen", note: "Costs changed." },
   { type: "reopen" },
-  { type: "applied" },
-  { type: "seen" },
+  { type: "applied", token: "TOKEN" },
+  { type: "seen", token: "TOKEN" },
 ];
 
 describe("updateCardText on the demo cards", async () => {
@@ -67,9 +68,12 @@ describe("updateCardText on the demo cards", async () => {
       const action =
         template.type === "resolve" && template.choice === "FIRST"
           ? { ...template, choice: card.frontmatter.options[0]?.id ?? "custom" }
-          : template;
+          : "token" in template
+            ? { ...template, token: agentToken(card) }
+            : template;
       const result = applyAction(card, action, NOW);
-      if (!result.ok) continue;
+      // Not possible in this state, or nothing to change (seen with no new feedback).
+      if (!result.ok || deepEqual(result.raw, card.raw)) continue;
 
       it(`${fileName}: ${action.type}${"note" in action && action.note ? " with a note" : ""} changes only the changed fields`, () => {
         const { before, after, out } = write(text, action, fileName);
@@ -165,10 +169,14 @@ Body.
       "  note: Calmer.",
       "  resolved_at: 2026-11-10T12:00:00Z",
     ]);
-    const applied = write(resolved, { type: "applied" }).out;
+    const applied = write(resolved, {
+      type: "applied",
+      token: agentToken(parsed(resolved)),
+    }).out;
+    // seen_at is the newest feedback the agent was shown, not the time it ran.
     expect(diffLines(resolved, applied)).toEqual({
       removed: [],
-      added: ["applied_at: 2026-11-10T12:00:00Z", "seen_at: 2026-11-10T12:00:00Z"],
+      added: ["applied_at: 2026-11-10T12:00:00Z", "seen_at: 2026-11-01"],
     });
     const reopened = write(applied, { type: "reopen" }).out;
     const diff = diffLines(applied, reopened);

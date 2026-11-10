@@ -52,6 +52,13 @@ the part that is the same for every option.
    **new notes from the human** you haven't read yet. Handle all of them (below) before starting
    new work.
 
+   Each card in the output ends with a `done:` line, for example
+   `done: president seen /abs/path/decisions/0012-x.md --token 2-0k3j5h2g9fd`. When you have
+   handled that card, run that line exactly as printed. The token records what `pending`
+   showed you, so only that is marked as handled. If the human changed the card in the
+   meantime, the command refuses and says so: run `president pending` again and handle the
+   card as it is now. Never write a token yourself or reuse one from an earlier run.
+
 ## Writing a card
 
 1. Pick the id: list `decisions/`, take the highest number and add one, zero-padded to 4 digits.
@@ -170,8 +177,8 @@ resolution:
 
 For each one that `president pending` lists:
 
-1. Read the whole card, including the `note` and any `feedback`. The note can change or narrow
-   the chosen option; follow it.
+1. Read the whole card, including the resolution's `note` and the new notes `pending` shows.
+   The note can change or narrow the chosen option; follow it.
 2. Record the decision in the project's docs (for example `docs/decisions.md`, or wherever the
    project keeps settled decisions): what was decided, the short reason, and the card id.
    **If pending says "Decided again"** (the human reopened the card and decided differently;
@@ -179,20 +186,21 @@ For each one that `president pending` lists:
    update or replace the earlier record for this card id, and undo work for the old decision
    that no longer applies.
 3. Do the work it implies, or note it as a follow-up task if it's large.
-4. Mark it applied: `president applied decisions/0012-empty-state-copy.md` (this sets
-   `applied_at` and `seen_at`). Don't change `status` or `resolution`.
+4. Run the card's `done:` line from `pending` (`president applied <file> --token <token>`; it
+   sets `applied_at` and `seen_at`). Don't change `status` or `resolution` yourself.
 
 ## Cards that need new options
 
 When the human rejects all options, president appends their note to `feedback` (with
 `type: neither`) and sets `needs_new_options: true`. For each such card:
 
-1. Read the latest `neither` feedback carefully. It says what was wrong or what they want instead.
+1. Read **all** the feedback `pending` shows for the card (every entry newer than `seen_at`, not
+   only the latest `neither`). It says what was wrong or what they want instead.
 2. Do any research it calls for.
 3. Replace `options` with new ones that answer the feedback (new ids are fine), rewrite the
    `## Option <id>` sections in the body to match, and update `recommendation`.
 4. Remove `needs_new_options`. Keep `feedback`, `id`, `created` and `status: open` as they are.
-5. Run `president validate decisions/<file>`, then `president seen decisions/<file>`.
+5. Run `president validate decisions/<file>`, then the card's `done:` line from `pending`.
 
 ## New notes from the human
 
@@ -206,7 +214,8 @@ For each:
 2. Act on them: update the context or the options (and `recommendation`), do the research and
    add sources, or change the code if the note is about work already done. If a note needs an
    answer, put it in the card's body where the human will read it.
-3. Mark them read: `president seen decisions/<file>`. Don't edit or remove `feedback`.
+3. Run the card's `done:` line from `pending` (`president seen <file> --token <token>`). Don't
+   edit or remove `feedback`.
 
 ## Rules
 

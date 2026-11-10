@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CARD_FORMAT_DOC, run } from "../src/cli/main.ts";
+import type { CardAction } from "../src/core/actions.ts";
+import { actOnCard, findCard } from "../src/server/cards.ts";
 import { cardText, copyDemoProject, tempDir } from "./helpers.ts";
 
 const BIN = join(import.meta.dirname, "..", "bin", "president.js");
@@ -14,6 +16,27 @@ async function cli(...args: string[]) {
   const stderr: string[] = [];
   const code = await run(args, { log: (l) => stdout.push(l), error: (l) => stderr.push(l) });
   return { code, out: stdout.join("\n"), err: stderr.join("\n") };
+}
+
+/** Runs the `done:` command that `president pending` printed for a card file. */
+async function runDone(pendingOut: string, file: string) {
+  const line = pendingOut
+    .split("\n")
+    .find((l) => l.trim().startsWith(`done: president `) && l.includes(file));
+  if (!line) throw new Error(`no done command for ${file} in:\n${pendingOut}`);
+  const [, ...args] = line
+    .trim()
+    .replace(/^done: /, "")
+    .split(" ");
+  return cli(...args);
+}
+
+/** Acts on a card the way the UI does (with the revision it has now). */
+async function human(demo: string, id: string, action: CardAction) {
+  const project = { name: "demo", path: demo };
+  const found = await findCard(project, id);
+  if (!found.ok) throw new Error("broken");
+  return actOnCard(project, id, action, { revision: found.card.revision });
 }
 
 let configHome: string;
@@ -110,28 +133,33 @@ describe("president CLI", () => {
     ]);
     expect((await cli("pending", demo)).out).toMatch(/Resolved, not yet applied/);
 
-    const applied = await cli("applied", file);
+    const listed = (await cli("pending", demo)).out;
+    const token = JSON.parse(pending.out).resolved_not_applied[0].token;
+    expect(listed).toContain(`done: president applied ${file} --token ${token}`);
+    const applied = await runDone(listed, file);
     expect(applied).toMatchObject({ code: 0 });
     const text = await readFile(file, "utf8");
     expect(text).toMatch(/^applied_at: \d{4}-/m);
     expect((await cli("pending", demo)).out).toBe("Nothing pending.");
 
     // Applying twice changes nothing.
-    const twice = await cli("applied", file);
+    const twice = await cli("applied", file, "--token", token);
     expect(twice).toMatchObject({ code: 0, out: expect.stringMatching(/already applied at/) });
     expect(await readFile(file, "utf8")).toBe(text);
 
-    const open = await cli("applied", join(demo, "decisions", "0002-api-errors.md"));
+    const openFile = join(demo, "decisions", "0002-api-errors.md");
+    const open = await cli("applied", openFile, "--token", "0-aaaaaaaaaaa");
     expect(open).toMatchObject({ code: 1 });
-    expect(open.err).toMatch(/cannot mark a card as applied while it is open/);
+    expect(open.err).toMatch(/is now open/);
   });
 
   it("only marks the card file it was given", async () => {
     const demo = await copyDemoProject();
-    const wrongSlug = await cli("applied", join(demo, "decisions", "0004-other-slug.md"));
+    const token = ["--token", "0-aaaaaaaaaaa"];
+    const wrongSlug = await cli("applied", join(demo, "decisions", "0004-other-slug.md"), ...token);
     expect(wrongSlug).toMatchObject({ code: 1, err: expect.stringMatching(/does not exist/) });
     await writeFile(join(demo, "decisions", "0004-copy.md"), "x");
-    const other = await cli("applied", join(demo, "decisions", "0004-copy.md"));
+    const other = await cli("applied", join(demo, "decisions", "0004-copy.md"), ...token);
     expect(other.code).toBe(1);
   });
 
@@ -151,11 +179,11 @@ describe("president CLI", () => {
     expect(listed.out).toContain("note 2026-11-10T09:00:00Z: Ask Sam about retries.");
     const json = JSON.parse((await cli("pending", demo, "--json")).out);
     expect(json.new_notes).toMatchObject([
-      { id: "0002", status: "open", notes: [{ note: "Ask Sam about retries." }] },
+      { id: "0002", status: "open", new_notes: [{ note: "Ask Sam about retries." }] },
     ]);
 
-    expect(await cli("seen", file)).toMatchObject({ code: 0 });
-    expect(await readFile(file, "utf8")).toMatch(/^seen_at: \d{4}-/m);
+    expect(await runDone(listed.out, file)).toMatchObject({ code: 0 });
+    expect(await readFile(file, "utf8")).toMatch(/^seen_at: 2026-11-10T09:00:00Z$/m);
     expect((await cli("pending", demo)).out).toBe("Nothing pending.");
   });
 
@@ -185,6 +213,87 @@ describe("president CLI", () => {
       previous_resolution: { choice: "protomaps" },
       previous_applied_at: "2026-11-03T16:45:00Z",
     });
+  });
+
+  it("requires the token that pending printed", async () => {
+    const demo = await copyDemoProject();
+    const file = join(demo, "decisions", "0002-api-errors.md");
+    const result = await cli("seen", file);
+    expect(result).toMatchObject({ code: 1 });
+    expect(result.err).toMatch(/--token is required: run `president pending`/);
+  });
+
+  it("never marks a note as read that pending didn't show (R2-1)", async () => {
+    const demo = await copyDemoProject();
+    const file = join(demo, "decisions", "0002-api-errors.md");
+    await human(demo, "0002", { type: "note", note: "first note" });
+    const shown = (await cli("pending", demo)).out;
+    expect(shown).toContain("first note");
+    // The human adds a note while the agent is working on the first one.
+    await human(demo, "0002", { type: "note", note: "SECOND note, never shown" });
+    const done = await runDone(shown, file);
+    expect(done).toMatchObject({ code: 0 });
+    expect(done.out).toMatch(/added 1 more note since you ran `president pending`/);
+    const after = await cli("pending", demo);
+    expect(after.out).toContain("SECOND note, never shown");
+    expect(after.out).not.toContain("first note");
+  });
+
+  it("refuses to mark a decision applied when the human changed it (R2-2)", async () => {
+    const demo = await copyDemoProject();
+    const file = join(demo, "decisions", "0002-api-errors.md");
+    await human(demo, "0002", { type: "resolve", choice: "throw" });
+    const shown = (await cli("pending", demo)).out;
+    expect(shown).toContain("-> throw");
+    // While the agent applies "throw", the human reopens the card and picks "result".
+    await human(demo, "0002", { type: "reopen" });
+    await human(demo, "0002", { type: "resolve", choice: "result" });
+    const before = await readFile(file, "utf8");
+    const refused = await runDone(shown, file);
+    expect(refused.code).toBe(1);
+    expect(refused.err).toMatch(/now resolved as "result".*Run `president pending` again/s);
+    expect(await readFile(file, "utf8")).toBe(before);
+    const again = await cli("pending", demo);
+    expect(again.out).toMatch(/-> result/);
+    expect((await runDone(again.out, file)).code).toBe(0);
+    expect((await cli("pending", demo)).out).toBe("Nothing pending.");
+  });
+
+  it("shows every unread note, whatever section the card is in (R2-4)", async () => {
+    const demo = await copyDemoProject();
+    await human(demo, "0002", { type: "neither", note: "both assume a server" });
+    await human(demo, "0002", { type: "note", note: "ALSO: look at how Linear does it" });
+    const rejected = (await cli("pending", demo)).out;
+    expect(rejected).toContain("both assume a server");
+    expect(rejected).toContain("ALSO: look at how Linear does it");
+    expect(rejected).toMatch(/remove `needs_new_options`/);
+
+    const other = await copyDemoProject();
+    await human(other, "0002", { type: "note", note: "ALSO rename the error type to ApiFailure" });
+    await human(other, "0002", { type: "resolve", choice: "result" });
+    const text = (await cli("pending", other)).out;
+    expect(text).toMatch(/-> result/);
+    expect(text).toContain("ApiFailure");
+    const json = JSON.parse((await cli("pending", other, "--json")).out);
+    expect(json.resolved_not_applied[0].new_notes).toMatchObject([
+      { note: "ALSO rename the error type to ApiFailure" },
+    ]);
+    // Applying marks the note read too.
+    expect((await runDone(text, join(other, "decisions", "0002-api-errors.md"))).code).toBe(0);
+    expect((await cli("pending", other)).out).toBe("Nothing pending.");
+  });
+
+  it("warns when seen leaves needs_new_options set (R2-16)", async () => {
+    const demo = await copyDemoProject();
+    const file = join(demo, "decisions", "0002-api-errors.md");
+    await human(demo, "0002", { type: "neither", note: "both bad" });
+    const shown = (await cli("pending", demo)).out;
+    const done = await runDone(shown, file);
+    expect(done.code).toBe(0);
+    expect(done.err).toMatch(/needs_new_options is still set/);
+    const still = (await cli("pending", demo)).out;
+    expect(still).toMatch(/needs_new_options` is still set/);
+    expect(still).toContain("both bad");
   });
 
   it("warns when --name is ignored for a registered folder", async () => {

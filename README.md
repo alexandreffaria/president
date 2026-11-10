@@ -87,6 +87,9 @@ Because it's a symlink, pulling this repo updates the skill.
    reopen it instead.
 
    Notes (`m`) reach agents through `president pending`, which lists notes they haven't read yet.
+   An agent marks a card handled with a token from `pending` that records what it was shown, so
+   a note you add, or a decision you change, while it works is never marked as read or applied
+   by mistake.
 
 4. **Decisions** lists everything you decided, newest first, and whether an agent has applied it.
 
@@ -104,9 +107,10 @@ president list [--json]                           show registered projects
 president remove <name-or-path>                   unregister (files are not touched)
 president validate [path]                         check the cards in <path>/decisions, or one card file
 president pending [path] [--json]                 what agents should act on: unapplied decisions,
-                                                  rejected options, unread notes
-president applied <card-file>                     mark a resolved card as applied
-president seen <card-file>                        mark the human's notes on a card as read
+                                                  rejected options, unread notes; each card ends
+                                                  with the `done:` command to run once handled
+president applied <card-file> --token <token>     mark a resolved card as applied
+president seen <card-file> --token <token>        mark the human's feedback on a card as read
 president serve                                   start the hub (same as npm start)
 ```
 

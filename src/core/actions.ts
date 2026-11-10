@@ -9,13 +9,15 @@
  *    └──defer────▶ deferred ──reopen──▶ open
  *
  * `resolve`, `neither` and `note` also work on deferred cards. `seen` (an agent has read the
- * human's feedback) works in any state; `applied` implies it.
+ * human's feedback) works in any state; `applied` implies it. Both take the token that
+ * `president pending` printed, and mark only what the agent was shown (see agentToken).
  *
  * New actions (for example the chat panel's "teach me" or "research") belong here too,
  * so the API, the CLI and future agent runners share one set of rules.
  */
 import { z } from "zod";
 import type { ParsedCard } from "./card-file.ts";
+import { checkAgentToken, seenAtAfter } from "./pending.ts";
 import {
   CARD_STATUSES,
   type CardStatus,
@@ -28,6 +30,10 @@ import {
 
 const Note = z.string().trim().min(1, { error: "a note is required" }).max(20_000);
 const OptionalNote = z.string().trim().max(20_000).optional();
+const AgentToken = z
+  .string({ error: "is required: pass the token `president pending` printed for this card" })
+  .min(1)
+  .max(100);
 
 export const CardActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("resolve"), choice: z.string().min(1).max(40), note: OptionalNote }),
@@ -35,8 +41,8 @@ export const CardActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("note"), note: Note }),
   z.object({ type: z.literal("defer"), note: OptionalNote }),
   z.object({ type: z.literal("reopen"), note: OptionalNote }),
-  z.object({ type: z.literal("applied") }),
-  z.object({ type: z.literal("seen") }),
+  z.object({ type: z.literal("applied"), token: AgentToken }),
+  z.object({ type: z.literal("seen"), token: AgentToken }),
 ]);
 
 export type CardAction = z.infer<typeof CardActionSchema>;
@@ -45,14 +51,33 @@ export type CardActionType = CardAction["type"];
 /**
  * `transition`: the action isn't possible in the card's current state (a conflict).
  * `input`: the action itself is wrong for this card (an unknown option, a missing note).
+ * `stale`: an agent's token no longer matches the card (the human acted since it looked).
  */
 export type ActionResult =
   | { ok: true; raw: RawFrontmatter }
-  | { ok: false; error: string; reason: "transition" | "input" };
+  | { ok: false; error: string; reason: "transition" | "input" | "stale" };
 
 /** ISO timestamp without milliseconds, e.g. 2026-11-10T14:03:00Z. */
 export function timestamp(now: Date): string {
   return now.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+/**
+ * The `at` of a new feedback entry: now, but always later than every earlier entry and than
+ * `seen_at`, so it can never count as already read. Normally whole seconds; when the
+ * second is already taken (two notes in one second, or a note in the same second as
+ * `seen_at`), one millisecond after the latest.
+ */
+export function feedbackTimestamp(
+  now: Date,
+  card: { feedback: { at: string }[]; seen_at?: string | undefined },
+): string {
+  let latest = Number.NEGATIVE_INFINITY;
+  for (const entry of card.feedback) latest = Math.max(latest, Date.parse(entry.at));
+  if (card.seen_at) latest = Math.max(latest, Date.parse(card.seen_at));
+  const at = timestamp(now);
+  if (Date.parse(at) > latest) return at;
+  return new Date(latest + 1).toISOString();
 }
 
 const ALLOWED_FROM: Record<CardActionType, readonly CardStatus[]> = {
@@ -80,7 +105,7 @@ export function canApply(status: CardStatus, type: CardActionType): boolean {
 }
 
 export function applyAction(
-  card: Pick<ParsedCard, "frontmatter" | "raw">,
+  card: Pick<ParsedCard, "id" | "frontmatter" | "raw">,
   action: CardAction,
   now: Date,
 ): ActionResult {
@@ -98,7 +123,10 @@ export function applyAction(
   const next: RawFrontmatter = { ...card.raw };
   const appendFeedback = (type: FeedbackType, note: string, extra: RawFrontmatter = {}) => {
     const existing = Array.isArray(next.feedback) ? next.feedback : [];
-    next.feedback = [...existing, { at, type, note, ...extra }];
+    next.feedback = [
+      ...existing,
+      { at: feedbackTimestamp(now, frontmatter), type, note, ...extra },
+    ];
   };
 
   switch (action.type) {
@@ -156,14 +184,14 @@ export function applyAction(
       delete next.applied_at;
       break;
     }
-    case "applied": {
-      // Applying means the agent read the whole card, feedback included.
-      next.applied_at = at;
-      next.seen_at = at;
-      break;
-    }
+    case "applied":
     case "seen": {
-      next.seen_at = at;
+      const check = checkAgentToken(card, action.token);
+      if (!check.ok) return { ok: false, reason: "stale", error: check.error };
+      // Applying means the agent read the whole card as it was shown, feedback included.
+      if (action.type === "applied") next.applied_at = at;
+      const seenAt = seenAtAfter(frontmatter, check.shown);
+      if (seenAt !== undefined) next.seen_at = seenAt;
       break;
     }
   }
