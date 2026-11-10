@@ -30,13 +30,43 @@ export interface HubWatcherOptions {
   debounceMs?: number;
   /** Use stat polling instead of native events (slower; for odd filesystems and tests). */
   usePolling?: boolean;
+  /** Called for every file event the watcher acts on, before debouncing (tests, debugging). */
+  onFileEvent?: (event: string, path: string) => void;
+}
+
+/** Runs the last function given for a key once no new one arrived for `delayMs`. */
+export class Debouncer {
+  readonly #delayMs: number;
+  readonly #timers = new Map<string, NodeJS.Timeout>();
+
+  constructor(delayMs: number) {
+    this.#delayMs = delayMs;
+  }
+
+  run(key: string, fn: () => void | Promise<void>): void {
+    clearTimeout(this.#timers.get(key));
+    this.#timers.set(
+      key,
+      setTimeout(() => {
+        this.#timers.delete(key);
+        Promise.resolve()
+          .then(fn)
+          .catch((error) => console.error("[watcher]", error));
+      }, this.#delayMs),
+    );
+  }
+
+  cancelAll(): void {
+    for (const timer of this.#timers.values()) clearTimeout(timer);
+    this.#timers.clear();
+  }
 }
 
 export class HubWatcher {
   readonly #registry: Registry;
   readonly #bus: EventBus;
-  readonly #debounceMs: number;
-  readonly #timers = new Map<string, NodeJS.Timeout>();
+  readonly #debouncer: Debouncer;
+  readonly #onFileEvent: HubWatcherOptions["onFileEvent"];
   readonly #watcher: FSWatcher;
   /** decisions dir -> project name */
   #dirs = new Map<string, string>();
@@ -49,13 +79,14 @@ export class HubWatcher {
   constructor(registry: Registry, bus: EventBus, options: HubWatcherOptions = {}) {
     this.#registry = registry;
     this.#bus = bus;
-    this.#debounceMs = options.debounceMs ?? 150;
+    this.#debouncer = new Debouncer(options.debounceMs ?? 150);
+    this.#onFileEvent = options.onFileEvent;
     this.#watcher = watch([], {
       ignoreInitial: true,
       depth: 0,
       usePolling: options.usePolling ?? false,
       interval: 100,
-      ignored: (path) => this.#isIgnored(path),
+      ignored: (path) => this.ignores(path),
     });
     this.#watcher.on("all", (event, path) => this.#onChange(event, path));
     this.#watcher.on("error", (error) => console.error("[watcher]", error));
@@ -95,12 +126,12 @@ export class HubWatcher {
   }
 
   async close(): Promise<void> {
-    for (const timer of this.#timers.values()) clearTimeout(timer);
-    this.#timers.clear();
+    this.#debouncer.cancelAll();
     await this.#watcher.close();
   }
 
-  #isIgnored(path: string): boolean {
+  /** True for paths whose changes don't matter (anything but projects.json, decisions/ and cards). */
+  ignores(path: string): boolean {
     if (path === this.#registry.file || this.#dirs.has(path) || this.#roots.has(path)) {
       return false;
     }
@@ -115,8 +146,9 @@ export class HubWatcher {
   }
 
   #onChange(event: string, path: string): void {
+    this.#onFileEvent?.(event, path);
     if (path === this.#registry.file) {
-      this.#debounce("projects", async () => {
+      this.#debouncer.run("projects", async () => {
         await this.sync();
         this.#bus.emit({ type: "projects" });
       });
@@ -131,17 +163,6 @@ export class HubWatcher {
     project ??= this.#dirs.get(dirname(path));
     if (!project) return;
     const name = project;
-    this.#debounce(`cards:${name}`, () => this.#bus.emit({ type: "cards", project: name }));
-  }
-
-  #debounce(key: string, fn: () => void | Promise<void>): void {
-    clearTimeout(this.#timers.get(key));
-    this.#timers.set(
-      key,
-      setTimeout(() => {
-        this.#timers.delete(key);
-        Promise.resolve(fn()).catch((error) => console.error("[watcher]", error));
-      }, this.#debounceMs),
-    );
+    this.#debouncer.run(`cards:${name}`, () => this.#bus.emit({ type: "cards", project: name }));
   }
 }

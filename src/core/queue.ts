@@ -37,23 +37,24 @@ export function buildLog(cards: CardDto[], project?: string): CardDto[] {
     .sort((a, b) => resolvedAt(b) - resolvedAt(a));
 }
 
-/** Dependencies of `card` (same project) that are not resolved yet. Unknown ids count as open. */
+/** Dependencies of `card` (same project) that exist and are not resolved yet. */
 export function openDependencies(card: CardDto, all: CardDto[]): string[] {
   return card.frontmatter.depends_on
     .filter((dep) => {
+      if (sameCardId(dep, card.id)) return false;
       const target = all.find((c) => c.project === card.project && sameCardId(c.id, dep));
-      return target?.frontmatter.status !== "resolved";
+      return target !== undefined && target.frontmatter.status !== "resolved";
     })
     .map(String);
 }
 
-/** The card to show after `current` leaves the queue (or the previous one with step -1). */
-export function neighbour(
-  queue: CardDto[],
-  current: { project: string; id: string },
-  step: 1 | -1,
-): CardDto | undefined {
-  const index = queue.findIndex((c) => c.project === current.project && c.id === current.id);
-  if (index === -1) return queue[0];
-  return queue[index + step];
+/** Dependencies of `card` that don't name another card of its project (a typo, usually). */
+export function unknownDependencies(card: CardDto, all: CardDto[]): string[] {
+  return card.frontmatter.depends_on
+    .filter(
+      (dep) =>
+        sameCardId(dep, card.id) ||
+        !all.some((c) => c.project === card.project && sameCardId(c.id, dep)),
+    )
+    .map(String);
 }
