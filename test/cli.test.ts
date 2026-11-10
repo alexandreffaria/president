@@ -256,6 +256,23 @@ describe("president CLI", () => {
     expect((await cli("pending", demo)).out).toBe("Nothing pending.");
   });
 
+  it("indents every line of a multi-line note under its card (R3-10)", async () => {
+    const demo = await copyDemoProject();
+    await human(demo, "0002", { type: "note", note: "First paragraph.\n\nSecond:\n- item one" });
+    await human(demo, "0002", { type: "resolve", choice: "result", note: "Because\nof retries." });
+    const lines = (await cli("pending", demo)).out.split("\n");
+    const start = lines.findIndex((l) => l.includes("0002-api-errors.md"));
+    expect(lines.slice(start + 1, start + 8)).toEqual([
+      expect.stringMatching(/ -> result \(Because$/),
+      "      of retries.)",
+      expect.stringMatching(/^ {4}note \S+: First paragraph\.$/),
+      "",
+      "      Second:",
+      "      - item one",
+      expect.stringMatching(/^ {4}done: president applied /),
+    ]);
+  });
+
   it("requires the token that pending printed", async () => {
     const demo = await copyDemoProject();
     const file = join(demo, "decisions", "0002-api-errors.md");

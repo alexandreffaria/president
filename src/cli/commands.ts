@@ -245,7 +245,7 @@ export async function pending(args: string[], out: Output): Promise<number> {
   }
   const notes = (c: LoadedCard) => {
     for (const note of unseenFeedback(c.frontmatter)) {
-      out.log(`    ${note.type ?? "note"} ${note.at}: ${note.note}`);
+      out.log(`    ${note.type ?? "note"} ${note.at}: ${continued(note.note)}`);
     }
   };
   if (toApply.length > 0) {
@@ -255,7 +255,7 @@ export async function pending(args: string[], out: Output): Promise<number> {
     for (const c of toApply) {
       const r = c.frontmatter.resolution;
       out.log(
-        `  ${c.path}\n    ${c.frontmatter.title} -> ${r?.choice}${r?.note ? ` (${r.note})` : ""}`,
+        `  ${c.path}\n    ${c.frontmatter.title} -> ${r?.choice}${r?.note ? ` (${continued(r.note)})` : ""}`,
       );
       const earlier = earlierDecision(c.frontmatter);
       if (earlier) {
@@ -281,7 +281,7 @@ export async function pending(args: string[], out: Output): Promise<number> {
       } else {
         // Already read, but the options were never rewritten.
         const last = c.frontmatter.feedback.findLast((f) => f.type === "neither");
-        if (last) out.log(`    neither ${last.at} (read before): ${last.note}`);
+        if (last) out.log(`    neither ${last.at} (read before): ${continued(last.note)}`);
         out.log("    The feedback was marked read, but `needs_new_options` is still set.");
       }
       out.log(`    done: ${done(c)}`);
@@ -301,6 +301,17 @@ export async function pending(args: string[], out: Output): Promise<number> {
   }
   for (const w of warnings) out.log(`(warning) ${w.fileName}: ${w.message}`);
   return 0;
+}
+
+/**
+ * Text that may span lines, with each line after the first indented to where a card's
+ * notes start, so a note's own lines can't be mistaken for the output's structure.
+ */
+function continued(text: string, indent = "      "): string {
+  return text
+    .split(/\r?\n/)
+    .map((line, i) => (i === 0 || line === "" ? line : indent + line))
+    .join("\n");
 }
 
 export async function applied(args: string[], out: Output): Promise<number> {
