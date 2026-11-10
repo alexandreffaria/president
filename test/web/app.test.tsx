@@ -20,6 +20,13 @@ import { copyDemoProject, tempDir } from "../helpers.ts";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+// Each test renders the app and waits for real requests to the in-process API. Alone a
+// test takes well under a second, but with several suites at once on a busy machine it can
+// take many times that; the waits only run long when something is wrong, so they are
+// generous rather than tight (a test cut off midway also leaves work running into the next).
+vi.setConfig({ testTimeout: 30_000 });
+const WAIT_MS = 10_000;
+
 /** Stands in for the browser's EventSource; tests push hub events through it. */
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
@@ -100,7 +107,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function until(check: () => boolean, what: string, timeoutMs = 3000): Promise<void> {
+async function until(check: () => boolean, what: string, timeoutMs = WAIT_MS): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!check()) {
     if (Date.now() > deadline)
