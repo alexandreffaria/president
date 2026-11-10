@@ -34,7 +34,7 @@ export async function add(args: string[], out: Output): Promise<number> {
     options: { name: { type: "string" }, create: { type: "boolean" } },
   });
   const path = single(positionals, "add <path>");
-  const { project, alreadyRegistered } = await new Registry().add({
+  const { project, alreadyRegistered, renamedFrom } = await new Registry().add({
     path: resolve(path),
     name: values.name,
     createDecisions: values.create,
@@ -54,6 +54,11 @@ export async function add(args: string[], out: Output): Promise<number> {
       ? `Already registered: ${project.name} (${project.path})`
       : `Registered ${project.name} (${project.path})`,
   );
+  if (renamedFrom !== undefined) {
+    out.log(
+      `Another project is already named "${renamedFrom}", so this one is "${project.name}". To choose its name: president remove ${shellQuote(project.name)}, then president add <path> --name <name>.`,
+    );
+  }
   return 0;
 }
 

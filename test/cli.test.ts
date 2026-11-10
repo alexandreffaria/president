@@ -337,6 +337,18 @@ describe("president CLI", () => {
     expect(still).toContain("both bad");
   });
 
+  it("names a second folder with a taken name -2 and says how to choose (R3-13)", async () => {
+    await cli("add", await copyDemoProject("app"));
+    const second = await copyDemoProject("app");
+    const added = await cli("add", second);
+    expect(added).toMatchObject({ code: 0 });
+    expect(added.out).toBe(
+      `Registered app-2 (${second})\nAnother project is already named "app", so this one is "app-2". To choose its name: president remove app-2, then president add <path> --name <name>.`,
+    );
+    const taken = await cli("add", await copyDemoProject("web"), "--name", "app");
+    expect(taken).toMatchObject({ code: 1, err: expect.stringMatching(/--name <name>/) });
+  });
+
   it("warns when --name is ignored for a registered folder", async () => {
     const demo = await copyDemoProject();
     await cli("add", demo);
@@ -409,7 +421,34 @@ describe("president CLI", () => {
     expect((await cli("help")).out).toMatch(/president add <path>/);
   });
 
-  // The only test that starts a process. Its time is Node's own start-up, which doesn't
+  // Agents that start together each run `president add . --create`: every one of them must
+  // end up registered, under its own name (R3-2, R3-13). Separate processes, so this starts
+  // Node several times (see the timeout note below).
+  it("registers every project when many `add`s run at once", { timeout: 60_000 }, async () => {
+    const folders = await Promise.all(
+      Array.from({ length: 10 }, async () => {
+        const dir = join(await tempDir(), "app");
+        await mkdir(dir);
+        return dir;
+      }),
+    );
+    const results = await Promise.all(
+      folders.map((dir) =>
+        promisify(execFile)(process.execPath, [BIN, "add", dir, "--create"], { timeout: 55_000 }),
+      ),
+    );
+    for (const { stdout } of results) expect(stdout).toMatch(/^Registered app(-\d+)? /);
+    const listed = JSON.parse((await cli("list", "--json")).out) as {
+      name: string;
+      path: string;
+    }[];
+    expect(listed.map((p) => p.path).sort()).toEqual([...folders].sort());
+    expect(listed.map((p) => p.name).sort()).toEqual(
+      ["app", ...Array.from({ length: 9 }, (_, i) => `app-${i + 2}`)].sort(),
+    );
+  });
+
+  // Like the test above, this starts a process. Its time is Node's own start-up, which doesn't
   // depend on our code but on how busy the machine is: on a loaded CI runner, or with
   // several suites at once, it can take many times the ~0.15 s it takes alone, so it gets
   // its own timeout instead of the 5 s meant for in-process tests.

@@ -38,6 +38,11 @@ the part that is the same for every option.
    president add . --create
    ```
 
+   The project is named after its folder. If another project already has that name,
+   president adds `-2` (`app-2`) and says so. To choose the name yourself, add
+   `--name <name>` (letters, digits, `.`, `_` and `-`), for example `--name shop-web` for the
+   `web` folder of a `shop` monorepo.
+
    Use the `president` command, not `npx president` outside the president repo: an unrelated
    package with the same name exists on npm. If `president` isn't installed, tell the human
    (setup is in the president README) and keep going; cards work without the hub running.

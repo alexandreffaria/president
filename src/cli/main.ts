@@ -29,6 +29,7 @@ const HELP = `president: decision cards for humans, written by agents
 Usage:
   president add <path> [--name <name>] [--create]
       Register a project folder with the hub. --create makes <path>/decisions/ if missing.
+      The name defaults to the folder's name, with -2, -3... added if it is taken.
   president list [--json]
       Show registered projects.
   president remove <name-or-path>

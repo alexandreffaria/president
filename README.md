@@ -125,7 +125,11 @@ president demo [path] [--name <name>]             copy the sample project and re
 president serve                                   start the hub (same as npm start)
 ```
 
-The registry is `$XDG_CONFIG_HOME/president/projects.json` (default `~/.config/president/projects.json`).
+A project is named after its folder unless `--name` says otherwise; when that name is taken, `add`
+uses `<name>-2`, `<name>-3`... and says so. The registry is
+`$XDG_CONFIG_HOME/president/projects.json` (default `~/.config/president/projects.json`). Each
+change to it holds `projects.json.lock`, so agents that run `president add` at the same time all
+get registered.
 
 ## Development
 

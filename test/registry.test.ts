@@ -63,10 +63,23 @@ describe("Registry", () => {
     const a = await copyDemoProject();
     const b = await copyDemoProject();
     await reg.add({ path: a });
-    await expect(reg.add({ path: b })).rejects.toThrow(/already registered; choose another name/);
+    await expect(reg.add({ path: b, name: "demo" })).rejects.toThrow(
+      /already registered; choose another name \(CLI: --name <name>\)/,
+    );
     await expect(reg.add({ path: b, name: "../evil" })).rejects.toThrow(/not a valid project name/);
-    await reg.add({ path: b, name: "demo-2" });
-    expect((await reg.list()).map((p) => p.name)).toEqual(["demo", "demo-2"]);
+    await reg.add({ path: b, name: "other" });
+    expect((await reg.list()).map((p) => p.name)).toEqual(["demo", "other"]);
+  });
+
+  it("names a folder whose name is taken with -2, -3... (R3-13)", async () => {
+    const reg = await registry();
+    const added = [];
+    for (let i = 0; i < 3; i++) added.push(await reg.add({ path: await copyDemoProject("app") }));
+    expect(added.map((r) => [r.project.name, r.renamedFrom])).toEqual([
+      ["app", undefined],
+      ["app-2", "app"],
+      ["app-3", "app"],
+    ]);
   });
 
   it("removes by name or path without touching files", async () => {

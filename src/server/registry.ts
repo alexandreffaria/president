@@ -3,15 +3,23 @@
  *
  * Stored at $XDG_CONFIG_HOME/president/projects.json (default ~/.config/president/projects.json)
  * as { "projects": [{ "name": "...", "path": "/abs/path" }] }. The CLI and the server both
- * read and write it; writes are atomic.
+ * read and write it. Writes are atomic, and each change (read, modify, write) holds
+ * projects.json.lock, so agents that run `president add` at the same time don't lose each
+ * other's projects.
  */
 import { mkdir, readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { formatIssues } from "../core/schema.ts";
 import { fileError, UserError } from "./errors.ts";
-import { isNotFound, KeyedMutex, writeFileAtomic } from "./fs-utils.ts";
+import {
+  FileLockTimeout,
+  isNotFound,
+  KeyedMutex,
+  withFileLock,
+  writeFileAtomic,
+} from "./fs-utils.ts";
 
 export const DECISIONS_DIR = "decisions";
 export const PROJECT_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -74,8 +82,14 @@ export class Registry {
     return (await this.list()).find((p) => p.name === name);
   }
 
-  async add(input: AddProjectInput): Promise<{ project: Project; alreadyRegistered: boolean }> {
-    return this.#lock.run("registry", async () => {
+  /**
+   * Registers a folder. Without a name it is named after the folder, with "-2", "-3"... added
+   * when another project has that name (`renamedFrom` is then the folder's name).
+   */
+  async add(
+    input: AddProjectInput,
+  ): Promise<{ project: Project; alreadyRegistered: boolean; renamedFrom?: string }> {
+    return this.#change(async () => {
       if (!isAbsolute(input.path)) {
         throw new UserError(`"${input.path}" is not an absolute path`);
       }
@@ -88,29 +102,35 @@ export class Registry {
         return { project: existing, alreadyRegistered: true };
       }
 
-      const name = input.name?.trim() || suggestName(path);
+      const taken = new Set(projects.map((p) => p.name));
+      const given = input.name?.trim();
+      let name = given || suggestName(path);
       if (!PROJECT_NAME_PATTERN.test(name)) {
         throw new UserError(
           `"${name}" is not a valid project name: use letters, digits, ".", "_" and "-" (max 64)`,
         );
       }
-      if (projects.some((p) => p.name === name)) {
+      if (given && taken.has(name)) {
         throw new UserError(
-          `a project named "${name}" is already registered; choose another name`,
+          `a project named "${name}" is already registered; choose another name (CLI: --name <name>)`,
           { status: 409 },
         );
       }
+      const folderName = name;
+      for (let i = 2; taken.has(name); i++) name = `${folderName.slice(0, 60)}-${i}`;
 
       const project: Project = { name, path };
       await ensureDecisionsDir(project, input.createDecisions);
       await this.#save([...projects, project]);
-      return { project, alreadyRegistered: false };
+      return name === folderName
+        ? { project, alreadyRegistered: false }
+        : { project, alreadyRegistered: false, renamedFrom: folderName };
     });
   }
 
   /** Removes a project by name or by path. Card files are never touched. */
   async remove(nameOrPath: string): Promise<Project> {
-    return this.#lock.run("registry", async () => {
+    return this.#change(async () => {
       const projects = await this.list();
       let target = projects.find((p) => p.name === nameOrPath);
       if (!target && isAbsolute(nameOrPath)) {
@@ -126,9 +146,28 @@ export class Registry {
     });
   }
 
+  /**
+   * Runs a read-modify-write of the registry: one at a time in this process, and holding the
+   * lock file against other processes.
+   */
+  #change<T>(task: () => Promise<T>): Promise<T> {
+    return this.#lock.run("registry", async () => {
+      const dir = dirname(this.file);
+      try {
+        await mkdir(dir, { recursive: true });
+        return await withFileLock(`${this.file}.lock`, task);
+      } catch (error) {
+        if (error instanceof FileLockTimeout) {
+          throw new UserError(`cannot change the registry: ${error.message}`, { status: 500 });
+        }
+        if (error instanceof UserError) throw error;
+        throw fileError("change", this.file, error);
+      }
+    });
+  }
+
   async #save(projects: Project[]): Promise<void> {
     try {
-      await mkdir(join(this.file, ".."), { recursive: true });
       await writeFileAtomic(this.file, `${JSON.stringify({ projects }, null, 2)}\n`);
     } catch (error) {
       throw fileError("save", this.file, error);
