@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { BrokenCardDto, CardDto } from "../../core/api.ts";
 import { buildQueue, isWaitingOnAgent, openDependencies } from "../../core/queue.ts";
+import { useHeadingFocus } from "../focus.ts";
 import { fullDate, KIND_LABEL, PRIORITY_LABEL, timeAgo } from "../format.ts";
 import { useHub } from "../hub.tsx";
 import { useKeyboard } from "../keyboard.ts";
@@ -15,6 +16,8 @@ export function QueueView() {
   const deferred = cards.filter((c) => c.frontmatter.status === "deferred" && inFilter(c));
   const brokenHere = broken.filter(inFilter);
   const [selected, setSelected] = useState(0);
+  const heading = useRef<HTMLHeadingElement>(null);
+  useHeadingFocus(heading, hub.loaded);
 
   useEffect(() => {
     if (selected >= queue.length) setSelected(Math.max(0, queue.length - 1));
@@ -43,7 +46,9 @@ export function QueueView() {
   return (
     <div className="page">
       <div className="page-header">
-        <h1 className="page-title">Queue</h1>
+        <h1 className="page-title" ref={heading} tabIndex={-1}>
+          Queue
+        </h1>
         <p className="muted">
           {queue.length === 0
             ? "Nothing waiting for you."

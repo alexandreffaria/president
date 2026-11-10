@@ -1,6 +1,7 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import type { ProjectDto } from "../../core/api.ts";
 import { api, RequestError } from "../api.ts";
+import { useHeadingFocus } from "../focus.ts";
 import { useHub } from "../hub.tsx";
 import { useToast } from "../toast.tsx";
 
@@ -13,6 +14,8 @@ export function ProjectsView() {
   const [error, setError] = useState<string>();
   const [needsCreate, setNeedsCreate] = useState(false);
   const [busy, setBusy] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  useHeadingFocus(heading, true);
 
   const add = async (event: FormEvent) => {
     event.preventDefault();
@@ -59,7 +62,9 @@ export function ProjectsView() {
   return (
     <div className="page">
       <div className="page-header">
-        <h1 className="page-title">Projects</h1>
+        <h1 className="page-title" ref={heading} tabIndex={-1}>
+          Projects
+        </h1>
         <p className="muted">
           president shows cards from the <code>decisions/</code> folder of each project below.
         </p>

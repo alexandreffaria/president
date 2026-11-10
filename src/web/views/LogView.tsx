@@ -1,6 +1,8 @@
+import { useRef } from "react";
 import type { CardDto } from "../../core/api.ts";
 import { CUSTOM_CHOICE } from "../../core/model.ts";
 import { buildLog } from "../../core/queue.ts";
+import { useHeadingFocus } from "../focus.ts";
 import { fullDate, optionLabel, timeAgo } from "../format.ts";
 import { useHub } from "../hub.tsx";
 import { cardPath, Link } from "../router.tsx";
@@ -9,12 +11,16 @@ import { cardPath, Link } from "../router.tsx";
 export function LogView() {
   const { cards, loaded, projects, projectFilter, setProjectFilter } = useHub();
   const log = buildLog(cards, projectFilter);
+  const heading = useRef<HTMLHeadingElement>(null);
+  useHeadingFocus(heading, loaded);
 
   if (!loaded) return <p className="muted">Loading…</p>;
   return (
     <div className="page">
       <div className="page-header">
-        <h1 className="page-title">Decisions</h1>
+        <h1 className="page-title" ref={heading} tabIndex={-1}>
+          Decisions
+        </h1>
         <p className="muted">
           {log.length === 0
             ? "No decisions yet."
