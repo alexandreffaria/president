@@ -1,68 +1,78 @@
 /**
- * Live updates from the server.
+ * Live updates from the server, over one WebSocket per tab (/api/events).
  *
- * Each tab opens its own server-sent events stream, but only while it is visible: a hidden
- * tab closes it, and when the tab is shown again it reconnects, and the stream's "ready"
- * event makes it refetch whatever it missed. Browsers allow 6 connections per host over
- * HTTP/1.1 and a stream holds one, so this keeps the streams to one per window that shows
- * a president tab, however many tabs are open.
+ * A WebSocket rather than server-sent events because browsers keep WebSockets out of the
+ * 6-connections-per-host pool that HTTP/1.1 requests share: a stream per tab used that pool
+ * up, and the API calls of every president window then hung. With sockets, any number of
+ * tabs and windows can be live at once, hidden or not.
+ *
+ * The state is the socket's own: "live" once the server says it is subscribed ("ready"),
+ * "offline" from the moment it closes until a new socket is ready again. A closed socket is
+ * reopened with backoff, and the new socket's "ready" makes the page refetch what it missed.
  */
-import type { HubEvent } from "../core/api.ts";
+import type { LiveMessage } from "../core/api.ts";
 
 export type LiveState = "connecting" | "live" | "offline";
 
-/** What the stream delivers: hub events, plus "ready" each time it (re)connects. */
-export type LiveEvent = HubEvent | { type: "ready" };
+export type LiveEvent = LiveMessage;
 
 export interface LiveHandlers {
   onEvent: (event: LiveEvent) => void;
   onState: (state: LiveState) => void;
 }
 
-const EVENT_TYPES = ["ready", "cards", "projects"] as const;
+const EVENT_TYPES = new Set<string>(["ready", "cards", "projects"]);
 
-/** Keeps a stream open while the page is visible. Returns a function that disconnects. */
-export function connectLive(handlers: LiveHandlers, url = "/api/events"): () => void {
-  let source: EventSource | undefined;
+/** Waits before the next reconnect: 0.5 s doubling to 3 s, with jitter. */
+export function retryDelay(failures: number): number {
+  return Math.min(500 * 2 ** failures, 3000) * (0.75 + Math.random() * 0.5);
+}
+
+function eventsUrl(): string {
+  const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${scheme}//${window.location.host}/api/events`;
+}
+
+/** Keeps a socket open until the returned function is called. */
+export function connectLive(handlers: LiveHandlers, url = eventsUrl()): () => void {
+  let socket: WebSocket | undefined;
+  let retry: ReturnType<typeof setTimeout> | undefined;
+  let failures = 0;
+  let stopped = false;
 
   const open = () => {
-    handlers.onState("connecting");
-    const stream = new EventSource(url);
-    for (const type of EVENT_TYPES) {
-      stream.addEventListener(type, (message) => {
-        if (type === "ready") {
-          handlers.onState("live");
-          handlers.onEvent({ type: "ready" });
-          return;
-        }
-        let event: LiveEvent;
-        try {
-          event = JSON.parse((message as MessageEvent<string>).data) as HubEvent;
-        } catch {
-          event = { type } as LiveEvent;
-        }
-        handlers.onEvent(event);
-      });
-    }
-    stream.onerror = () => {
-      handlers.onState(stream.readyState === EventSource.CLOSED ? "offline" : "connecting");
+    retry = undefined;
+    const ws = new WebSocket(url);
+    socket = ws;
+    ws.onmessage = (message) => {
+      let event: LiveEvent;
+      try {
+        event = JSON.parse(String(message.data)) as LiveEvent;
+      } catch {
+        return;
+      }
+      if (!EVENT_TYPES.has(event?.type)) return;
+      if (event.type === "ready") {
+        failures = 0;
+        handlers.onState("live");
+      }
+      handlers.onEvent(event);
     };
-    source = stream;
-  };
-  const update = () => {
-    if (document.hidden) {
-      source?.close();
-      source = undefined;
-    } else if (!source) {
-      open();
-    }
+    // Every failure ends in "close" (a refused handshake too), so that is the one to watch.
+    ws.onclose = () => {
+      if (stopped || socket !== ws) return;
+      socket = undefined;
+      handlers.onState("offline");
+      retry = setTimeout(open, retryDelay(failures++));
+    };
   };
 
-  update();
-  document.addEventListener("visibilitychange", update);
+  handlers.onState("connecting");
+  open();
   return () => {
-    document.removeEventListener("visibilitychange", update);
-    source?.close();
-    source = undefined;
+    stopped = true;
+    clearTimeout(retry);
+    socket?.close();
+    socket = undefined;
   };
 }

@@ -29,8 +29,8 @@ interface HubState {
   /** Bumped whenever a project's cards change on disk; card views refetch on change. */
   versions: Record<string, number>;
   /**
-   * Bumped when the live stream reconnects after the first time (the tab was hidden, or the
-   * connection dropped): changes may have been missed, so card views refetch too.
+   * Bumped when the live socket reconnects after the first time (the connection dropped, or
+   * the hub restarted): changes may have been missed, so card views refetch too.
    */
   reconnects: number;
   projectFilter: string | undefined;
@@ -102,7 +102,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh();
     let connected = false;
-    // A stream of our own while the tab is visible (see live.ts).
+    // One socket per tab (see live.ts).
     return connectLive({
       onState: setConnection,
       onEvent: (event) => {

@@ -19,7 +19,8 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       // Trailing slash: "/api" alone would also capture the module /api.ts.
-      "/api/": { target: `http://127.0.0.1:${apiPort}` },
+      // ws: live events are a WebSocket on /api/events.
+      "/api/": { target: `http://127.0.0.1:${apiPort}`, ws: true },
     },
   },
 });

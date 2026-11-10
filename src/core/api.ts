@@ -80,5 +80,11 @@ export interface AddProjectResponse {
   alreadyRegistered: boolean;
 }
 
-/** Server-sent event payloads on /api/events: something in a project's cards, or the project list, changed. */
+/** Something in a project's cards, or the project list, changed. */
 export type HubEvent = { type: "cards"; project: string } | { type: "projects" };
+
+/**
+ * A message on the /api/events WebSocket: "ready" once it is connected (anything may have
+ * changed before, so refetch), then hub events.
+ */
+export type LiveMessage = HubEvent | { type: "ready" };

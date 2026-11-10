@@ -1,10 +1,16 @@
 /**
- * Starts the hub: registry + watcher + HTTP server on 127.0.0.1.
+ * Starts the hub: registry + watcher + HTTP server on 127.0.0.1, with live events on a
+ * WebSocket (/api/events).
+ *
+ * A WebSocket, not a server-sent events stream: browsers allow 6 HTTP/1.1 connections per
+ * host, and each open stream held one, so a few president windows used them all up and
+ * every API call hung. Browsers keep WebSockets out of that pool.
  */
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type ServerType, serve } from "@hono/node-server";
+import { WebSocketServer } from "ws";
 import { createApp } from "./app.ts";
 import { fileError, UserError } from "./errors.ts";
 import { Registry } from "./registry.ts";
@@ -32,7 +38,7 @@ export interface RunningHub {
 }
 
 export async function startHub(
-  options: { port?: number; registry?: Registry; staticDir?: string } = {},
+  options: { port?: number; registry?: Registry; staticDir?: string; heartbeatMs?: number } = {},
 ): Promise<RunningHub> {
   const registry = options.registry ?? new Registry();
   const port = options.port ?? portFromEnv();
@@ -46,13 +52,21 @@ export async function startHub(
   await watcher.start();
   const app = createApp({ registry, bus, staticDir: options.staticDir ?? BUILT_UI_DIR });
 
+  // The upgrade request goes through the app (and its Host and Origin checks) first.
+  const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 });
+  const stopHeartbeat = heartbeat(sockets, options.heartbeatMs ?? 25_000);
+
   let server: ServerType;
   try {
     server = await new Promise<ServerType>((resolve, reject) => {
-      const s = serve({ fetch: app.fetch, hostname: HOST, port }, () => resolve(s));
+      const s = serve(
+        { fetch: app.fetch, hostname: HOST, port, websocket: { server: sockets } },
+        () => resolve(s),
+      );
       s.once("error", reject);
     });
   } catch (error) {
+    stopHeartbeat();
     await watcher.close();
     throw error;
   }
@@ -62,6 +76,8 @@ export async function startHub(
   return {
     url: `http://${HOST}:${actualPort}`,
     async close() {
+      stopHeartbeat();
+      for (const socket of sockets.clients) socket.terminate();
       await watcher.close();
       await new Promise<void>((resolve) => {
         server.close(() => resolve());
@@ -69,6 +85,26 @@ export async function startHub(
       });
     },
   };
+}
+
+/**
+ * Pings every socket each `ms` and drops the ones that didn't answer the last ping (a
+ * browser that went away without closing). Browsers answer pings by themselves.
+ */
+function heartbeat(sockets: WebSocketServer, ms: number): () => void {
+  const answered = new WeakSet<object>();
+  sockets.on("connection", (socket) => {
+    answered.add(socket);
+    socket.on("pong", () => answered.add(socket));
+  });
+  const timer = setInterval(() => {
+    for (const socket of sockets.clients) {
+      if (!answered.delete(socket)) socket.terminate();
+      else socket.ping();
+    }
+  }, ms);
+  timer.unref();
+  return () => clearInterval(timer);
 }
 
 type Output = { log: (line: string) => void; error: (line: string) => void };

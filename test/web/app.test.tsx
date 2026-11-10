@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HubEvent } from "../../src/core/api.ts";
+import type { HubEvent, LiveMessage } from "../../src/core/api.ts";
 import { createApp } from "../../src/server/app.ts";
 import { Registry } from "../../src/server/registry.ts";
 import { EventBus } from "../../src/server/watcher.ts";
@@ -27,37 +27,45 @@ import { copyDemoProject, tempDir } from "../helpers.ts";
 vi.setConfig({ testTimeout: 30_000 });
 const WAIT_MS = 10_000;
 
-/** Stands in for the browser's EventSource; tests push hub events through it. */
-class FakeEventSource {
-  static instances: FakeEventSource[] = [];
-  static readonly CLOSED = 2;
-  readyState = 1;
-  onerror: (() => void) | null = null;
-  readonly #listeners = new Map<string, ((event: MessageEvent) => void)[]>();
+/** Stands in for the browser's WebSocket; tests push hub events through it. */
+class FakeWebSocket {
+  static instances: FakeWebSocket[] = [];
+  /** Off: a new socket says "ready" only when the test calls ready(). */
+  static autoReady = true;
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  onclose: (() => void) | null = null;
+  closed = false;
   readonly url: string;
   constructor(url: string) {
     this.url = url;
-    FakeEventSource.instances.push(this);
-    queueMicrotask(() => this.emit("ready", {}));
+    FakeWebSocket.instances.push(this);
+    if (FakeWebSocket.autoReady) queueMicrotask(() => this.ready());
   }
-  addEventListener(type: string, listener: (event: MessageEvent) => void) {
-    this.#listeners.set(type, [...(this.#listeners.get(type) ?? []), listener]);
+  ready() {
+    this.emit({ type: "ready" });
   }
-  emit(type: string, data: unknown) {
-    const event = new MessageEvent(type, { data: JSON.stringify(data) });
-    for (const listener of this.#listeners.get(type) ?? []) listener(event);
+  emit(message: LiveMessage) {
+    if (this.closed) return;
+    this.onmessage?.(new MessageEvent("message", { data: JSON.stringify(message) }));
+  }
+  /** The connection drops (the hub stopped, say). */
+  drop() {
+    this.closed = true;
+    this.onclose?.();
   }
   close() {
-    this.readyState = 2;
+    this.closed = true;
   }
 }
+
+/** The tab's current socket. */
+const socket = () => FakeWebSocket.instances.at(-1);
 
 let root: Root;
 let host: HTMLElement;
 let demo: string;
 let registryFile: string;
 let posts: string[];
-let hidden = false;
 /** Requests the UI started that haven't finished; awaited before the stubs go away. */
 const inFlight = new Set<Promise<Response>>();
 
@@ -78,10 +86,9 @@ beforeEach(async () => {
     response.finally(() => inFlight.delete(response)).catch(() => {});
     return response;
   });
-  FakeEventSource.instances = [];
-  vi.stubGlobal("EventSource", FakeEventSource);
-  hidden = false;
-  Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
+  FakeWebSocket.instances = [];
+  FakeWebSocket.autoReady = true;
+  vi.stubGlobal("WebSocket", FakeWebSocket);
   vi.stubGlobal("confirm", () => true);
   clearDrafts();
   clearWrites();
@@ -153,7 +160,7 @@ async function typeInto(field: Element | null, value: string) {
 async function agentEdits(file: string, from: string, to: string) {
   await writeFile(file, (await readFile(file, "utf8")).replace(from, to));
   await act(async () => {
-    FakeEventSource.instances[0]?.emit("cards", {
+    socket()?.emit({
       type: "cards",
       project: "demo",
     } satisfies HubEvent);
@@ -171,12 +178,18 @@ async function otherTabAddsNote(id: string, note: string) {
   if (!res.ok) throw new Error(`note failed: ${res.status}`);
 }
 
-/** Hides or shows the tab (another tab in front of it, or back). */
-async function setHidden(value: boolean) {
-  hidden = value;
-  await act(async () => {
-    document.dispatchEvent(new Event("visibilitychange"));
-  });
+/**
+ * Drops the tab's socket, runs `change` while it is down (so the tab gets no event about
+ * it), and lets the socket the page reopens say "ready".
+ */
+async function whileDisconnected(change: () => Promise<void>) {
+  FakeWebSocket.autoReady = false;
+  const before = FakeWebSocket.instances.length;
+  await act(async () => socket()?.drop());
+  await until(() => text().includes("Offline"), "the offline indicator");
+  await change();
+  await until(() => FakeWebSocket.instances.length > before, "the reconnect");
+  await act(async () => socket()?.ready());
 }
 
 /** Lets pending requests and renders finish. */
@@ -252,7 +265,7 @@ describe("card view keyboard", () => {
       ),
     );
     await act(async () => {
-      FakeEventSource.instances[0]?.emit("cards", {
+      socket()?.emit({
         type: "cards",
         project: "demo",
       } satisfies HubEvent);
@@ -400,7 +413,7 @@ describe("changes under the human (R2-7, R2-8, R2-12)", () => {
     await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
     await otherTabAddsNote("0001", "from tab 2");
     await act(async () => {
-      FakeEventSource.instances[0]?.emit("cards", {
+      socket()?.emit({
         type: "cards",
         project: "demo",
       } satisfies HubEvent);
@@ -412,11 +425,7 @@ describe("changes under the human (R2-7, R2-8, R2-12)", () => {
 
   it("knows the human's own change from another tab even when this tab missed it (R3-6)", async () => {
     await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
-    await setHidden(true);
-    // Hidden: no stream, so no event about what the other tab does.
-    expect(FakeEventSource.instances.every((s) => s.readyState === 2)).toBe(true);
-    await otherTabAddsNote("0001", "while this tab was hidden");
-    await setHidden(false);
+    await whileDisconnected(() => otherTabAddsNote("0001", "while this tab was offline"));
     await until(() => text().includes("another president tab"), "the notice");
     expect(text()).not.toContain("An agent changed");
     expect(text()).toContain("A note was added.");
@@ -425,12 +434,12 @@ describe("changes under the human (R2-7, R2-8, R2-12)", () => {
   it("says an agent changed the card even when this tab missed the event", async () => {
     const file = join(demo, "decisions", "0001-offline-storage.md");
     await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
-    await setHidden(true);
-    await writeFile(
-      file,
-      (await readFile(file, "utf8")).replace("title: IndexedDB through Dexie", "title: RENAMED"),
-    );
-    await setHidden(false);
+    await whileDisconnected(async () => {
+      await writeFile(
+        file,
+        (await readFile(file, "utf8")).replace("title: IndexedDB through Dexie", "title: RENAMED"),
+      );
+    });
     await until(() => text().includes("An agent changed"), "the notice");
     expect(text()).toContain('Option 1 ("RENAMED") changed: title.');
   });
@@ -591,7 +600,7 @@ describe("errors", () => {
     await open("/", () => host.querySelectorAll(".queue-link").length >= 2, "the queue");
     await writeFile(registryFile, "{ not json");
     await act(async () => {
-      FakeEventSource.instances[0]?.emit("projects", { type: "projects" } satisfies HubEvent);
+      socket()?.emit({ type: "projects" } satisfies HubEvent);
     });
     await until(() => text().includes("Couldn't refresh"), "the error banner");
     expect(host.querySelector("[role=alert]")?.textContent).toMatch(

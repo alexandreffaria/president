@@ -8,6 +8,9 @@
  *   Host header). Other local servers (a dev server on localhost:3000) are refused too.
  *   Browsers always send Origin on these requests; scripts and curl must send it as well
  *   (`-H "Origin: http://127.0.0.1:4747"`).
+ * - Cross-site WebSocket hijacking: a WebSocket handshake is a GET, but a page can read the
+ *   socket it opens, so the live-events handshake (which Node passes through this same
+ *   middleware) needs the hub's own origin too.
  * - Writes also need a JSON body, which a plain cross-site form can't send.
  *
  * The Vite dev server proxies /api/ without changing Host, so in `npm run dev` the page's
@@ -28,7 +31,8 @@ export function localOnly(): MiddlewareHandler {
     if (!isLoopbackHost(hostnameOf(host))) {
       return c.json({ error: "president only answers requests addressed to localhost" }, 403);
     }
-    if (!SAFE_METHODS.has(c.req.method)) {
+    const upgrade = c.req.header("upgrade")?.toLowerCase() === "websocket";
+    if (upgrade || !SAFE_METHODS.has(c.req.method)) {
       const origin = c.req.header("origin");
       const fetchSite = c.req.header("sec-fetch-site");
       const sameOrigin =
@@ -40,14 +44,18 @@ export function localOnly(): MiddlewareHandler {
           {
             error:
               origin === undefined
-                ? `send an Origin header (http://${host}) with requests that change something`
+                ? `send an Origin header (http://${host}) with ${upgrade ? "WebSocket connections" : "requests that change something"}`
                 : "cross-origin requests are not allowed",
           },
           403,
         );
       }
       const type = c.req.header("content-type") ?? "";
-      if (c.req.method !== "DELETE" && !type.toLowerCase().startsWith("application/json")) {
+      if (
+        !upgrade &&
+        c.req.method !== "DELETE" &&
+        !type.toLowerCase().startsWith("application/json")
+      ) {
         return c.json({ error: "send a JSON body with Content-Type: application/json" }, 415);
       }
     }

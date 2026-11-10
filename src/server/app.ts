@@ -10,7 +10,7 @@
  *                                            CardDetailDto.writtenByPresident)
  *   POST   /api/cards/:project/:id/actions   { type, ..., revision }  (see core/actions.ts)
  *   POST   /api/cards/:project/:id/undo      { revision }  revision = what the action returned
- *   GET    /api/events                       server-sent events: "cards" and "projects"
+ *   GET    /api/events                       a WebSocket of live events (see live-socket.ts)
  *
  * Every card write carries the revision the client saw, so nobody decides on text they
  * didn't see: if the file changed since, the write is refused with 409 "conflict".
@@ -18,10 +18,10 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { upgradeWebSocket } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { CardActionSchema } from "../core/actions.ts";
 import type {
@@ -29,7 +29,7 @@ import type {
   ApiError,
   CardListResponse,
   CardResponse,
-  HubEvent,
+  LiveMessage,
 } from "../core/api.ts";
 import { CARD_STATUSES, formatIssues } from "../core/schema.ts";
 import {
@@ -53,8 +53,6 @@ export interface AppOptions {
   bus: EventBus;
   /** Folder with the built UI (dist/web). When missing, only the API is served. */
   staticDir?: string | undefined;
-  /** Interval between SSE keep-alive pings. */
-  heartbeatMs?: number;
 }
 
 const AddProjectSchema = z.object({
@@ -196,22 +194,24 @@ export function createApp(options: AppOptions): Hono {
     return c.json({ ok: true, card: toCardDetailDto(card, true) } satisfies CardResponse);
   });
 
-  api.get("/events", (c) =>
-    streamSSE(c, async (stream) => {
-      let closed = false;
-      const send = (event: HubEvent) =>
-        stream.writeSSE({ event: event.type, data: JSON.stringify(event) }).catch(() => {});
-      const unsubscribe = bus.subscribe(send);
-      stream.onAbort(() => {
-        closed = true;
-        unsubscribe();
-      });
-      await stream.writeSSE({ event: "ready", data: "{}" });
-      while (!closed) {
-        await stream.sleep(options.heartbeatMs ?? 25_000);
-        if (!closed) await stream.writeSSE({ event: "ping", data: "{}" }).catch(() => {});
-      }
+  // Live events. Each socket gets "ready" once it is subscribed, then every hub event.
+  api.get(
+    "/events",
+    upgradeWebSocket(() => {
+      let unsubscribe = () => {};
+      return {
+        onOpen(_event, ws) {
+          const send = (message: LiveMessage) => ws.send(JSON.stringify(message));
+          unsubscribe = bus.subscribe(send);
+          send({ type: "ready" });
+        },
+        onClose() {
+          unsubscribe();
+        },
+      };
     }),
+    (c) =>
+      c.json({ error: "/api/events is a WebSocket; connect with one" } satisfies ApiError, 426),
   );
 
   api.all("*", (c) => c.json({ error: "not found" } satisfies ApiError, 404));

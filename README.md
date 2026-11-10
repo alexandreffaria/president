@@ -146,7 +146,7 @@ Layout:
 
 ```
 src/core/     card format: zod schemas, parser/writer, state transitions, queue ordering (shared)
-src/server/   Hono API, registry, file access, watcher + server-sent events
+src/server/   Hono API, registry, file access, watcher + live events (WebSocket)
 src/cli/      the president command
 src/web/      React UI
 skills/       the Claude Code skill for agents
@@ -164,20 +164,22 @@ How it fits together:
 - Cards are addressed only by project name and card id; files are found by listing the project's
   `decisions/` folder, so the API can't be pointed at other paths. Symlinked cards, and a
   `decisions/` folder that points outside the project, are refused. The server refuses requests
-  whose Host isn't localhost (DNS rebinding) and writes whose Origin isn't the hub itself (scripts
-  and curl must send `Origin: http://127.0.0.1:4747`).
+  whose Host isn't localhost (DNS rebinding), and writes and live-event WebSockets whose Origin
+  isn't the hub itself (scripts and curl must send `Origin: http://127.0.0.1:4747`).
 - Every action must send the revision (a content hash) of the card the human last read, not the
   newest one the page has loaded. If the file changed since, the action is refused and the page
   lists what changed. Undo sends the revision its action returned, and restores the file only if
   it is still at that revision. The server remembers the revisions it wrote; a page asks for a
   card with the revision it last read (`?since=`), and the answer says whether only president's
   own writes happened since, so a change made in another tab, even one this tab missed while
-  it was hidden, is never blamed on an agent.
-- A watcher on every `decisions/` folder and on the registry pushes changes to the UI over
-  server-sent events. Each tab holds a stream only while it is visible; a hidden tab closes it,
-  and reconnects and refetches when it is shown again. So the streams stay at one per browser
-  window showing president, under the browser's 6 connections per host however many tabs are
-  open.
+  its connection was down, is never blamed on an agent.
+- A watcher on every `decisions/` folder and on the registry pushes changes to the UI over a
+  WebSocket (`/api/events`), one per tab, hidden or not. Browsers keep WebSockets out of the 6
+  connections per host that HTTP requests share, so any number of tabs and windows can be live
+  at once without holding up API calls. The indicator in the top bar shows the socket's state:
+  Live, or Offline from the moment it closes; the page reconnects with backoff (0.5 s doubling
+  to 3 s) and refetches everything when it is back. The handshake passes the same Host and
+  Origin checks as writes, so another site can't open one.
 - State transitions live in `src/core/actions.ts`, shared by the API and the CLI. The coming
   per-card chat ("ask", "teach me", "research") plugs in there and in
   `src/web/components/CardAssistant.tsx`.

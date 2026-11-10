@@ -622,6 +622,13 @@ describe("local-only guard", () => {
 });
 
 describe("unknown API routes", () => {
+  it("answer /api/events without a WebSocket handshake with 426", async () => {
+    const { request } = await setup();
+    const res = await request("/api/events");
+    expect(res.status).toBe(426);
+    expect(await res.json()).toEqual({ error: "/api/events is a WebSocket; connect with one" });
+  });
+
   it("answer 404 JSON", async () => {
     const { request } = await setup();
     const res = await request("/api/nope");

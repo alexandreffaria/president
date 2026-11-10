@@ -7,7 +7,8 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HubEvent } from "../src/core/api.ts";
+import { type ClientOptions, WebSocket } from "ws";
+import type { HubEvent, LiveMessage } from "../src/core/api.ts";
 import { Registry } from "../src/server/registry.ts";
 import { type RunningHub, startHub } from "../src/server/server.ts";
 import { Debouncer, EventBus, HubWatcher } from "../src/server/watcher.ts";
@@ -165,13 +166,49 @@ describe("HubWatcher", () => {
 });
 
 describe("running hub", () => {
-  async function hub(): Promise<{ hub: RunningHub; demo: string }> {
+  async function hub(options: { heartbeatMs?: number } = {}) {
     const registry = new Registry(join(await tempDir(), "config"));
     const demo = await copyDemoProject();
     await registry.add({ path: demo, name: "demo" });
-    const running = await startHub({ port: 0, registry, staticDir: join(await tempDir(), "none") });
+    const running = await startHub({
+      port: 0,
+      registry,
+      staticDir: join(await tempDir(), "none"),
+      ...options,
+    });
     closers.push(() => running.close());
     return { hub: running, demo };
+  }
+
+  /** A WebSocket to the hub's live events, with the messages it has received. */
+  async function socket(
+    running: RunningHub,
+    options: ClientOptions = { origin: running.url },
+  ): Promise<{ ws: WebSocket; messages: LiveMessage[]; closed: Promise<void> }> {
+    const ws = new WebSocket(`${running.url.replace("http", "ws")}/api/events`, options);
+    const messages: LiveMessage[] = [];
+    ws.on("message", (data) => messages.push(JSON.parse(String(data))));
+    const closed = new Promise<void>((done) => ws.on("close", () => done()));
+    closers.push(async () => ws.terminate());
+    await new Promise<void>((resolve, reject) => {
+      ws.once("open", () => resolve());
+      ws.once("error", reject);
+    });
+    await until(messages, (m) => m.type === "ready");
+    return { ws, messages, closed };
+  }
+
+  /** The HTTP status a refused handshake got. */
+  function refusedWith(running: RunningHub, options: ClientOptions): Promise<number> {
+    const ws = new WebSocket(`${running.url.replace("http", "ws")}/api/events`, options);
+    ws.on("error", () => {});
+    return new Promise((resolve, reject) => {
+      ws.once("unexpected-response", (request, response) => {
+        resolve(response.statusCode ?? 0);
+        request.destroy();
+      });
+      ws.once("open", () => reject(new Error("the handshake was accepted")));
+    });
   }
 
   it("binds to 127.0.0.1 and serves the API", async () => {
@@ -194,29 +231,65 @@ describe("running hub", () => {
     }
   });
 
-  it("streams card changes over server-sent events", async () => {
+  it("sends card changes over a WebSocket", async () => {
     const { hub: running, demo } = await hub();
-    const controller = new AbortController();
-    closers.push(async () => controller.abort());
-    const res = await fetch(`${running.url}/api/events`, { signal: controller.signal });
-    expect(res.headers.get("content-type")).toMatch(/text\/event-stream/);
-    const reader = res.body?.getReader();
-    if (!reader) throw new Error("no body");
-    const decoder = new TextDecoder();
-    let received = "";
-    const readUntil = async (needle: string) => {
-      while (!received.includes(needle)) {
-        const { value, done } = await reader.read();
-        if (done) throw new Error("stream ended");
-        received += decoder.decode(value);
-      }
-    };
-    await readUntil("event: ready");
+    const { messages } = await socket(running);
+    expect(messages).toEqual([{ type: "ready" }]);
     const file = join(demo, "decisions", "0002-api-errors.md");
     await writeFile(
       file,
       (await readFile(file, "utf8")).replace("priority: normal", "priority: high"),
     );
-    await readUntil('data: {"type":"cards","project":"demo"}');
+    await until(messages, (m) => m.type === "cards" && m.project === "demo");
+  });
+
+  it("keeps the API answering with more sockets open than browsers allow requests (R4-1)", async () => {
+    const { hub: running } = await hub();
+    const sockets = await Promise.all(Array.from({ length: 10 }, () => socket(running)));
+    const res = await fetch(`${running.url}/api/cards`);
+    expect(res.status).toBe(200);
+    const removed = await fetch(`${running.url}/api/projects/demo`, {
+      method: "DELETE",
+      headers: { origin: running.url },
+    });
+    expect(removed.status).toBe(200);
+    for (const { messages } of sockets) await until(messages, (m) => m.type === "projects");
+  });
+
+  it("refuses WebSockets from other origins and hosts (hijacking, DNS rebinding)", async () => {
+    const { hub: running } = await hub();
+    expect(await refusedWith(running, { origin: "https://evil.example" })).toBe(403);
+    expect(await refusedWith(running, { origin: "http://localhost:3000" })).toBe(403);
+    expect(await refusedWith(running, {})).toBe(403);
+    expect(
+      await refusedWith(running, {
+        origin: running.url,
+        headers: { "sec-fetch-site": "cross-site" },
+      }),
+    ).toBe(403);
+    const port = new URL(running.url).port;
+    expect(
+      await refusedWith(running, {
+        origin: `http://evil.example:${port}`,
+        headers: { host: `evil.example:${port}` },
+      }),
+    ).toBe(403);
+    // And the hub's own origin is let in.
+    await socket(running);
+  });
+
+  it("drops a socket that stops answering pings, and keeps the ones that answer", async () => {
+    const { hub: running } = await hub({ heartbeatMs: 30 });
+    const silent = await socket(running, { origin: running.url, autoPong: false });
+    const answering = await socket(running);
+    await silent.closed;
+    expect(answering.ws.readyState).toBe(WebSocket.OPEN);
+  });
+
+  it("closes its sockets when it stops", async () => {
+    const { hub: running } = await hub();
+    const { closed } = await socket(running);
+    await running.close();
+    await closed;
   });
 });
