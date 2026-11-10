@@ -1,11 +1,30 @@
 /**
  * What changed between the version of a card the human read and the one on disk now, in
- * words. Only what the human sees and decides on counts: an agent marking feedback as read
- * (`seen_at`) or applying a decision changes nothing they have to look at again.
+ * words. Everything counts except an agent marking feedback as read (`seen_at`) or
+ * applying a decision (`applied_at`), which changes nothing the human has to look at again.
+ * Changes this file has no words for are still reported, as "Other details changed."
  */
 import type { CardDetailDto } from "../core/api.ts";
 import { deepEqual } from "../core/equal.ts";
-import { optionLabel } from "./format.ts";
+import { CUSTOM_CHOICE } from "../core/model.ts";
+import { optionLabel, PRIORITY_LABEL } from "./format.ts";
+
+/** Fields whose changes the human doesn't have to read again. */
+const UNREAD_FIELDS = new Set(["seen_at", "applied_at"]);
+/** Fields described in words below. */
+const DESCRIBED_FIELDS = new Set([
+  "title",
+  "status",
+  "resolution",
+  "needs_new_options",
+  "kind",
+  "priority",
+  "tags",
+  "depends_on",
+  "options",
+  "recommendation",
+  "feedback",
+]);
 
 export function describeChanges(before: CardDetailDto, after: CardDetailDto): string[] {
   const a = before.frontmatter;
@@ -14,7 +33,15 @@ export function describeChanges(before: CardDetailDto, after: CardDetailDto): st
   if (a.title !== b.title) changes.push(`The question is now "${b.title}" (was "${a.title}").`);
   if (a.status !== b.status) changes.push(`It is now ${b.status} (was ${a.status}).`);
   if (!deepEqual(a.resolution, b.resolution) && b.resolution) {
-    changes.push(`It was decided: ${b.resolution.choice}.`);
+    const choice = b.resolution.choice;
+    const option = b.options.find((o) => o.id === choice);
+    changes.push(
+      option
+        ? `It was decided: "${option.title}".`
+        : choice === CUSTOM_CHOICE
+          ? "It was decided, with an answer in words."
+          : `It was decided: ${choice}.`,
+    );
   }
   if (Boolean(a.needs_new_options) !== Boolean(b.needs_new_options)) {
     changes.push(
@@ -22,6 +49,19 @@ export function describeChanges(before: CardDetailDto, after: CardDetailDto): st
     );
   }
   if (a.kind !== b.kind) changes.push(`It is now a ${b.kind} card (was ${a.kind}).`);
+  if (a.priority !== b.priority) {
+    changes.push(
+      `It is now ${PRIORITY_LABEL[b.priority].toLowerCase()} (was ${PRIORITY_LABEL[a.priority].toLowerCase()}).`,
+    );
+  }
+  if (!deepEqual(a.tags, b.tags)) changes.push("The tags changed.");
+  if (!deepEqual(a.depends_on, b.depends_on)) {
+    changes.push(
+      b.depends_on.length > 0
+        ? `It now depends on ${b.depends_on.map((d) => `#${d}`).join(", ")}.`
+        : "It no longer depends on other cards.",
+    );
+  }
   if (before.sections.context !== after.sections.context) changes.push("The context changed.");
 
   const sectionOf = (card: CardDetailDto, id: string) =>
@@ -67,6 +107,19 @@ export function describeChanges(before: CardDetailDto, after: CardDetailDto): st
     changes.push("A note was added.");
   } else if (!deepEqual(a.feedback, b.feedback)) {
     changes.push("The notes changed.");
+  }
+
+  const otherFields = new Set([...Object.keys(a), ...Object.keys(b)]);
+  const otherFieldChanged = [...otherFields].some(
+    (field) =>
+      !UNREAD_FIELDS.has(field) &&
+      !DESCRIBED_FIELDS.has(field) &&
+      !deepEqual((a as Record<string, unknown>)[field], (b as Record<string, unknown>)[field]),
+  );
+  // Body text outside the sections compared above (before the context, say).
+  const otherText = before.body !== after.body && deepEqual(before.sections, after.sections);
+  if (otherFieldChanged || otherText) {
+    changes.push("Other details changed.");
   }
   return changes;
 }
