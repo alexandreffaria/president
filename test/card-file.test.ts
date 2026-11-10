@@ -1,7 +1,8 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseCard, renderCard, splitFrontmatter, updateCardText } from "../src/core/card-file.ts";
+import { MAX_CARD_BYTES, parseCard, splitFrontmatter } from "../src/core/card-file.ts";
+import { updateCardText } from "../src/core/card-writer.ts";
 import { cardText, DEMO_PROJECT } from "./helpers.ts";
 
 function expectErrors(text: string, fileName = "0001-colour.md"): string[] {
@@ -187,6 +188,8 @@ describe("splitFrontmatter", () => {
     expect(split).toEqual({
       yaml: "a: 1\n",
       body: "\n# Body\n---\nmore\n",
+      yamlStart: 4,
+      yamlEnd: 9,
       yamlStartLine: 2,
       bodyStartLine: 4,
     });
@@ -225,7 +228,7 @@ Body stays exactly the same.
     const card = expectCard(original);
     const updated = updateCardText(original, { ...card.raw, status: "deferred" });
     expect(updated).toContain("# Written by an agent; keep this comment.");
-    expect(updated).toContain("estimate: { days: 3 } # unknown field");
+    expect(updated).toContain("estimate: { days: 3 }   # unknown field");
     expect(updated).toContain("vendor_note: unknown nested field");
     expect(updated).toContain("status: deferred");
     expect(updated.endsWith("## Context\n\nBody stays exactly the same.\n")).toBe(true);
@@ -240,12 +243,6 @@ Body stays exactly the same.
     const updated = updateCardText(original, { ...rest, needs_new_options: true });
     expect(updated).not.toContain("estimate");
     expect(expectCard(updated).frontmatter.needs_new_options).toBe(true);
-  });
-
-  it("renders a new card that parses back to the same data", () => {
-    const raw = expectCard(original).raw;
-    const text = renderCard(raw, "\nBody\n");
-    expect(expectCard(text).raw).toEqual(raw);
   });
 });
 
@@ -264,5 +261,125 @@ describe("error messages", () => {
   it("says a missing date is required rather than malformed", () => {
     const errors = expectErrors(cardText({ created: "" }));
     expect(errors).toEqual(["created: is required"]);
+  });
+});
+
+describe("parseCard never throws", () => {
+  it("reports YAML with too many aliases as a broken card", () => {
+    const lines = ['a: &a ["x","x","x","x","x","x","x","x","x","x"]'];
+    const names = "abcdefgh";
+    for (let i = 1; i < names.length; i++) {
+      lines.push(
+        `${names[i]}: &${names[i]} [${Array(10)
+          .fill(`*${names[i - 1]}`)
+          .join(",")}]`,
+      );
+    }
+    const errors = expectErrors(`---\n${lines.join("\n")}\n---\n`);
+    expect(errors[0]).toMatch(/^YAML error: Excessive alias count/);
+  });
+
+  it("refuses a file that is too large to be a card", () => {
+    const huge = cardText({}, `\n${"x".repeat(MAX_CARD_BYTES)}\n`);
+    expect(expectErrors(huge)[0]).toMatch(/cards must be under 1024 kB/);
+  });
+
+  it("survives hostile and odd YAML", () => {
+    const inputs = [
+      "---\n!!binary x: 1\n---\n",
+      "---\n? [a, b]\n: c\n---\n",
+      "---\n<<: *missing\n---\n",
+      "---\nid: !!int nope\n---\n",
+      "---\na: &x [*x]\n---\n",
+      `---\n${"[".repeat(5000)}\n---\n`,
+      "---\n\u0000\n---\n",
+    ];
+    for (const input of inputs) {
+      const result = parseCard(input, "0001-x.md");
+      expect(result.ok, input.slice(0, 40)).toBe(false);
+    }
+  });
+});
+
+describe("validation details", () => {
+  it("gives the file line of a schema error", () => {
+    const errors = expectErrors(
+      cardText({
+        options: `
+  - id: a
+    title: Red
+    pros: just a string
+  - id: b
+    title: Blue`,
+      }),
+    );
+    expect(errors).toEqual([
+      "options[0].pros: Invalid input: expected array, received string (line 12)",
+    ]);
+  });
+
+  it("rejects impossible dates", () => {
+    for (const date of [
+      "2026-02-30",
+      "2026-13-01",
+      "2026-04-31T10:00:00Z",
+      "2026-11-10T25:00:00Z",
+    ]) {
+      expect(expectErrors(cardText({ created: date }))[0], date).toMatch(
+        /^created: expected a date/,
+      );
+    }
+    expectCard(cardText({ created: "2028-02-29" }));
+    expectCard(cardText({ created: "2026-11-10T14:03:00+05:30" }));
+  });
+
+  it("rejects applied_at before a card is resolved", () => {
+    expect(expectErrors(cardText({ applied_at: "2026-11-10" }))[0]).toMatch(
+      /^applied_at: only resolved cards can be applied, but status is "open"/,
+    );
+    expect(expectErrors(cardText({ status: "deferred", applied_at: "2026-11-10" }))[0]).toMatch(
+      /status is "deferred"/,
+    );
+  });
+
+  it("rejects needs_new_options on a resolved card", () => {
+    const resolved = {
+      status: "resolved",
+      resolution: "{ choice: a, resolved_at: 2026-11-10 }",
+      needs_new_options: "true",
+    };
+    expect(expectErrors(cardText(resolved))[0]).toMatch(/^needs_new_options: a resolved card/);
+    expectCard(cardText({ needs_new_options: "true" }));
+  });
+
+  it("matches ids numerically only for unquoted numbers", () => {
+    expectCard(cardText({ id: "1" }));
+    expect(expectErrors(cardText({ id: '"1"' }))[0]).toMatch(/does not match the file name/);
+    expect(expectErrors(cardText({ id: '"01"' }))[0]).toMatch(/does not match the file name/);
+  });
+
+  it("rejects placeholders copied from the template", () => {
+    const errors = expectErrors(
+      cardText(
+        {
+          options: `
+  - id: a
+    title: Red
+    summary: ...
+    pros: [...]
+  - id: b
+    title: Blue`,
+        },
+        "\n## Context\n\n...\n\n## Option b: Blue\n\n...\n",
+      ),
+    );
+    expect(errors).toEqual([
+      'options[0].summary: "..." is a placeholder from the template; write the real text (line 12)',
+      'options[0].pros[0]: "..." is a placeholder from the template; write the real text (line 13)',
+      'body: the "## Option b" section (line 22) is only "..."; write the real content',
+      'body: the context is only "..."; write the real content',
+    ]);
+    // An ellipsis inside real text is fine.
+    expectCard(cardText({ title: '"Wait... which colour?"' }));
   });
 });

@@ -53,3 +53,31 @@ describe("splitSections", () => {
     expect(splitSections("### Option a\ntext").options).toEqual([]);
   });
 });
+
+describe("splitSections follows CommonMark", () => {
+  it("does not close a fence on a line with an info string", () => {
+    expect(splitSections("## Context\n```\n```js\n## Option a\n```\n").options).toEqual([]);
+  });
+
+  it("closes a fence only with the same character and at least the same length", () => {
+    const body = "````md\n```\n## Option a\n~~~~\n````\n## Option b\n";
+    expect(splitSections(body).options.map((o) => o.id)).toEqual(["b"]);
+  });
+
+  it("needs a space after ##", () => {
+    expect(splitSections("##Option b\n\ny\n").options).toEqual([]);
+  });
+
+  it("accepts headings indented up to three spaces and closing hashes", () => {
+    const body = "   ## Option c\nz\n    ## Option d\n## Option e ##\n";
+    expect(splitSections(body).options.map((o) => [o.id, o.markdown])).toEqual([
+      ["c", "z\n    ## Option d"],
+      ["e", ""],
+    ]);
+  });
+
+  it("ignores headings in a backtick fence whose info string has backticks", () => {
+    // "```a`b" is not a fence opener, so the heading below it is real.
+    expect(splitSections("```a`b\n## Option a\n").options.map((o) => o.id)).toEqual(["a"]);
+  });
+});

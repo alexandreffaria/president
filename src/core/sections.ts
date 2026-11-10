@@ -6,6 +6,10 @@
  * level-2 heading. Everything else is context: what comes before the first option
  * section is `context`, what comes after the last one (sources, notes) is `appendix`.
  * Headings inside fenced code blocks are ignored.
+ *
+ * Headings and fences follow CommonMark, so the sections match what the markdown renderer
+ * shows: a heading may be indented up to 3 spaces and needs a space after `##`; a fence
+ * closes only on a line with the same character, at least as many of them, and nothing else.
  */
 
 export interface OptionSection {
@@ -23,9 +27,13 @@ export interface BodySections {
   appendix: string;
 }
 
-const H2 = /^##(?!#)\s*(.*?)\s*#*\s*$/;
+/** An ATX level-2 heading; group 1 is its text without the optional closing `#`s. */
+const H2 = /^ {0,3}##(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
 const OPTION_HEADING = /^option\s+`?([^\s`:]+)`?\s*(?:[:—–-]\s*(.*))?$/i;
-const FENCE = /^\s{0,3}(`{3,}|~{3,})/;
+/** An opening fence; a backtick fence's info string can't contain backticks. */
+const FENCE_OPEN = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/;
+/** A closing fence: only the fence characters, then optional spaces. */
+const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
 
 export function splitSections(body: string): BodySections {
   const lines = body.split(/\r?\n/);
@@ -45,15 +53,20 @@ export function splitSections(body: string): BodySections {
   };
 
   lines.forEach((line, index) => {
-    const fenceMatch = FENCE.exec(line);
-    if (fenceMatch?.[1]) {
-      const marker = fenceMatch[1];
-      if (fence === null) fence = marker;
-      else if (marker[0] === fence[0] && marker.length >= fence.length) fence = null;
+    if (fence === null) {
+      const open = FENCE_OPEN.exec(line)?.[1];
+      if (open) {
+        fence = open;
+        target.push(line);
+        return;
+      }
+    } else {
+      const close = FENCE_CLOSE.exec(line)?.[1];
+      if (close && close[0] === fence[0] && close.length >= fence.length) fence = null;
       target.push(line);
       return;
     }
-    const heading = fence === null ? H2.exec(line) : null;
+    const heading = H2.exec(line);
     if (heading) {
       const option = OPTION_HEADING.exec(heading[1] ?? "");
       if (option?.[1]) {

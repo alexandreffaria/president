@@ -26,15 +26,27 @@ export const CARD_FILENAME_PATTERN = /^([a-z0-9]{1,32})(?:-([a-z0-9][a-z0-9-]*))
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/;
 
-/** True for `2026-11-10` and full ISO 8601 timestamps with a timezone (`2026-11-10T14:03:00Z`). */
+/**
+ * True for `2026-11-10` and full ISO 8601 timestamps with a timezone (`2026-11-10T14:03:00Z`).
+ * Impossible dates such as `2026-02-30` are rejected (Date.parse would roll them over).
+ */
 export function isIsoDateOrDateTime(value: string): boolean {
   if (!ISO_DATE.test(value) && !ISO_DATETIME.test(value)) return false;
-  return !Number.isNaN(Date.parse(value));
+  if (Number.isNaN(Date.parse(value))) return false;
+  const [year, month, day] = value.slice(0, 10).split("-").map(Number) as [number, number, number];
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+  );
 }
 
-/** Card ids compare as strings, except that numbers (unquoted YAML) match by numeric value. */
+/**
+ * Card ids compare as strings. Only an unquoted YAML number (`id: 7`, `depends_on: [7]`)
+ * matches by numeric value, so `7` matches "0007" but "07" does not.
+ */
 export function sameCardId(a: string | number, b: string | number): boolean {
   if (String(a) === String(b)) return true;
-  const isNumeric = (v: string | number) => typeof v === "number" || /^\d+$/.test(v);
-  return isNumeric(a) && isNumeric(b) && Number(a) === Number(b);
+  if (typeof a !== "number" && typeof b !== "number") return false;
+  const isDigits = (v: string | number) => typeof v === "number" || /^\d+$/.test(v);
+  return isDigits(a) && isDigits(b) && Number(a) === Number(b);
 }

@@ -82,6 +82,8 @@ export const FrontmatterSchema = z
     needs_new_options: z.boolean().optional(),
     resolution: ResolutionSchema.optional(),
     applied_at: Timestamp.optional(),
+    /** When an agent last read the human's feedback (`president seen`, `president applied`). */
+    seen_at: Timestamp.optional(),
     /** Reserved for the chat panel (headless Claude Code session per card). */
     session_id: z.string().optional(),
   })
@@ -144,6 +146,20 @@ export const FrontmatterSchema = z
         message: `has a resolution but status is "${card.status}"; remove one or the other`,
       });
     }
+    if (card.applied_at && card.status !== "resolved") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["applied_at"],
+        message: `only resolved cards can be applied, but status is "${card.status}"; remove applied_at`,
+      });
+    }
+    if (card.needs_new_options && card.status === "resolved") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["needs_new_options"],
+        message: "a resolved card can't need new options; remove needs_new_options",
+      });
+    }
     if (card.resolution) {
       const { choice, note } = card.resolution;
       if (choice === CUSTOM_CHOICE) {
@@ -177,15 +193,26 @@ export type Frontmatter = z.output<typeof FrontmatterSchema>;
 /** Frontmatter exactly as it appears in the file (no defaults), used for writing. */
 export type RawFrontmatter = Record<string, unknown>;
 
-/** Formats zod issues as `path: message` lines that an agent can act on. */
-export function formatIssues(error: z.ZodError): string[] {
+/**
+ * Formats zod issues as `path: message` lines that an agent can act on. `locate` turns an
+ * issue path into a file line number, added as ` (line N)` when known.
+ */
+export function formatIssues(
+  error: z.ZodError,
+  locate?: (path: readonly PropertyKey[]) => number | undefined,
+): string[] {
   return error.issues.map((issue) => {
     const path = formatPath(issue.path);
-    return path ? `${path}: ${issue.message}` : issue.message;
+    const line = lineSuffix(locate?.(issue.path));
+    return path ? `${path}: ${issue.message}${line}` : `${issue.message}${line}`;
   });
 }
 
-function formatPath(path: PropertyKey[]): string {
+export function lineSuffix(line: number | undefined): string {
+  return line === undefined ? "" : ` (line ${line})`;
+}
+
+export function formatPath(path: readonly PropertyKey[]): string {
   let out = "";
   for (const part of path) {
     if (typeof part === "number") out += `[${part}]`;
