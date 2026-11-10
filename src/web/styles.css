@@ -22,7 +22,8 @@
   --on-bad: #ffffff;
   --warn: #8a6516;
   --warn-soft: #f8efd9;
-  --focus: #5b8ac7;
+  /* Focus rings: at least 3:1 against bg, the surfaces and every *-soft notice background. */
+  --focus: #4f7fbf;
   --shadow: 0 1px 2px rgb(30 28 24 / 6%), 0 2px 8px rgb(30 28 24 / 5%);
   --radius: 10px;
   --radius-small: 6px;
@@ -1148,6 +1149,12 @@ ul.broken {
 .toast .button-link {
   color: inherit;
   font-weight: 600;
+}
+
+/* On a toast's dark (or red) background the page's focus color is too faint: use the toast's
+   own text color, which contrasts with its background in both themes. */
+.toast :focus-visible {
+  outline-color: currentColor;
 }
 
 .toast-error {

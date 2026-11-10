@@ -72,10 +72,14 @@ const PAIRS: [string, string, number][] = [
   ...["keyword", "string", "number", "comment", "title", "type", "attr"].map(
     (name): [string, string, number] => [`hl-${name}`, "code-bg", TEXT],
   ),
-  ...backgrounds.flatMap((bg): [string, string, number][] => [
-    ["control-border", bg, UI],
-    ["focus", bg, UI],
-  ]),
+  ...backgrounds.map((bg): [string, string, number] => ["control-border", bg, UI]),
+  // Focus rings on the page, in cards and on every notice background.
+  ...[...backgrounds, "accent-soft", "warn-soft", "good-soft", "bad-soft", "code-bg"].map(
+    (bg): [string, string, number] => ["focus", bg, UI],
+  ),
+  // Focus rings inside toasts use the toast's text color (see the test below).
+  ["bg", "text", UI],
+  ["on-bad", "bad", UI],
   ["accent", "surface", UI], // selected option border
   ["good", "surface", UI], // chosen option border, live dot
   ["bad", "surface", UI], // high priority dot
@@ -90,6 +94,12 @@ describe.each([
     expect(a, `--${fg}`).toBeDefined();
     expect(b, `--${bg}`).toBeDefined();
     expect(contrast(a as string, b as string)).toBeGreaterThanOrEqual(min);
+  });
+});
+
+describe("focus rings on toasts", () => {
+  it("use the toast's own text color, not the page's focus color", () => {
+    expect(css).toMatch(/\.toast :focus-visible \{\s*outline-color: currentColor;/);
   });
 });
 
