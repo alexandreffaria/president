@@ -373,8 +373,14 @@ describe("president CLI", () => {
     expect((await cli("help")).out).toMatch(/president add <path>/);
   });
 
-  it("runs through the bin script", async () => {
-    const { stdout } = await promisify(execFile)(process.execPath, [BIN, "help"]);
+  // The only test that starts a process. Its time is Node's own start-up, which doesn't
+  // depend on our code but on how busy the machine is: on a loaded CI runner, or with
+  // several suites at once, it can take many times the ~0.15 s it takes alone, so it gets
+  // its own timeout instead of the 5 s meant for in-process tests.
+  it("runs through the bin script", { timeout: 60_000 }, async () => {
+    const { stdout } = await promisify(execFile)(process.execPath, [BIN, "help"], {
+      timeout: 55_000,
+    });
     expect(stdout).toMatch(/Usage:/);
   });
 });
