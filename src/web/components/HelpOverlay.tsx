@@ -9,7 +9,7 @@ export const SHORTCUTS: [string, string][] = [
   ["m", "Add a note"],
   ["d", "Defer the card"],
   ["u", "Undo the last decision (while its notice is shown)"],
-  ["Esc", "Close a panel, or go back to the queue"],
+  ["Esc", "Close a panel (what you typed is kept), or go back to the queue"],
   ["?", "Show or hide this help"],
 ];
 

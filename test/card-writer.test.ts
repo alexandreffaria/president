@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { applyAction, type CardAction } from "../src/core/actions.ts";
 import { parseCard } from "../src/core/card-file.ts";
-import { deepEqual, updateCardText } from "../src/core/card-writer.ts";
+import { updateCardText } from "../src/core/card-writer.ts";
+import { deepEqual } from "../src/core/equal.ts";
 import { agentToken } from "../src/core/pending.ts";
 import { DEMO_PROJECT, diffLines } from "./helpers.ts";
 

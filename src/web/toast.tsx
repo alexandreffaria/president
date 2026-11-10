@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -22,14 +23,24 @@ interface Toast {
   tone: "info" | "error";
   action: ToastAction | undefined;
   durationMs: number;
+  group: string | undefined;
 }
 
 type ShowToast = (
   message: string,
-  options?: { tone?: Toast["tone"]; action?: ToastAction | undefined; durationMs?: number },
+  options?: {
+    tone?: Toast["tone"];
+    action?: ToastAction | undefined;
+    durationMs?: number;
+    /** Lets {@link useDismissToasts} remove it, e.g. "undo:demo/0001". */
+    group?: string;
+  },
 ) => void;
 
-const ToastContext = createContext<ShowToast | null>(null);
+const ToastContext = createContext<{
+  show: ShowToast;
+  dismissGroup: (group: string) => void;
+} | null>(null);
 
 /**
  * Short notices in one polite live region. A toast with an action (Undo) stays longer,
@@ -52,9 +63,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       tone: options.tone ?? "info",
       action: options.action,
       durationMs: options.durationMs ?? (options.action ? 10_000 : 5000),
+      group: options.group,
     };
     setToasts((all) => [...all.slice(-2), toast]);
   }, []);
+
+  const dismissGroup = useCallback((group: string) => {
+    setToasts((all) => all.filter((t) => t.group !== group));
+  }, []);
+
+  const context = useMemo(() => ({ show, dismissGroup }), [show, dismissGroup]);
 
   // The newest toast whose action has a shortcut answers that key.
   const keys: Record<string, () => unknown> = {};
@@ -70,7 +88,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   useKeyboard(keys, Object.keys(keys).length > 0);
 
   return (
-    <ToastContext.Provider value={show}>
+    <ToastContext.Provider value={context}>
       {children}
       <div className="toasts" role="status" aria-live="polite">
         {toasts.map((toast) => (
@@ -132,7 +150,14 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
 }
 
 export function useToast(): ShowToast {
-  const show = useContext(ToastContext);
-  if (!show) throw new Error("useToast must be used inside <ToastProvider>");
-  return show;
+  const context = useContext(ToastContext);
+  if (!context) throw new Error("useToast must be used inside <ToastProvider>");
+  return context.show;
+}
+
+/** Removes every toast of a group, e.g. an undo that no longer applies. */
+export function useDismissToasts(): (group: string) => void {
+  const context = useContext(ToastContext);
+  if (!context) throw new Error("useDismissToasts must be used inside <ToastProvider>");
+  return context.dismissGroup;
 }

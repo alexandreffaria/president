@@ -492,6 +492,15 @@ input:disabled {
   flex: 1;
 }
 
+.notice-body {
+  flex: 1;
+}
+
+.notice-body .changes {
+  margin: 0.4rem 0 0;
+  padding-left: 1.2rem;
+}
+
 .notice-info {
   background: var(--accent-soft);
   border-color: transparent;
@@ -1132,6 +1141,11 @@ ul.broken {
   display: grid;
   gap: 0.5rem;
   max-width: min(26rem, calc(100vw - 2rem));
+}
+
+/* Keep toasts clear of an open Neither/Note panel, which is taller than the action bar. */
+body:has(.action-bar-open) .toasts {
+  bottom: 12rem;
 }
 
 .toast {

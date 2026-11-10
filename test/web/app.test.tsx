@@ -13,6 +13,9 @@ import { createApp } from "../../src/server/app.ts";
 import { Registry } from "../../src/server/registry.ts";
 import { EventBus } from "../../src/server/watcher.ts";
 import { App } from "../../src/web/App.tsx";
+import { clearWrites } from "../../src/web/app-writes.ts";
+import { clearDrafts } from "../../src/web/drafts.ts";
+import { navigate } from "../../src/web/router.tsx";
 import { copyDemoProject, tempDir } from "../helpers.ts";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -70,6 +73,8 @@ beforeEach(async () => {
   FakeEventSource.instances = [];
   vi.stubGlobal("EventSource", FakeEventSource);
   vi.stubGlobal("confirm", () => true);
+  clearDrafts();
+  clearWrites();
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -122,13 +127,36 @@ async function press(key: string, target: EventTarget = document.activeElement ?
   return event;
 }
 
+/** Types into a field the way a person does (React sees an input event). */
+async function typeInto(field: Element | null, value: string) {
+  if (!(field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement)) {
+    throw new Error("no such field");
+  }
+  const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")?.set;
+  await act(async () => {
+    setter?.call(field, value);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+/** An agent rewriting the card file, and the live event the watcher would send. */
+async function agentEdits(file: string, from: string, to: string) {
+  await writeFile(file, (await readFile(file, "utf8")).replace(from, to));
+  await act(async () => {
+    FakeEventSource.instances[0]?.emit("cards", {
+      type: "cards",
+      project: "demo",
+    } satisfies HubEvent);
+  });
+}
+
 /** Lets pending requests and renders finish. */
 const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 50)));
 
 const CARD_TITLE = "Where should trip data live on the device?";
 
 describe("card view keyboard", () => {
-  it("Enter on a focused button runs that button, never a decision", async () => {
+  it("leaves Enter on a focused button to the button, never a decision", async () => {
     await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
     await press("1", document.body);
     expect(text()).toContain("Selected");
@@ -137,9 +165,13 @@ describe("card view keyboard", () => {
     neither.focus();
     const event = await press("Enter", neither);
     await settle();
+    // Not taken by the page: the browser turns it into a click on the button (happy-dom
+    // doesn't, so the click is simulated below).
     expect(event.defaultPrevented).toBe(false);
     expect(posts).toEqual([]);
     expect(pathname()).toBe("/card/demo/0001");
+    await act(async () => neither.click());
+    expect(host.querySelector("#panel-text")).not.toBeNull();
   });
 
   it("does nothing to the card while the help dialog is open", async () => {
@@ -196,15 +228,15 @@ describe("card view keyboard", () => {
         project: "demo",
       } satisfies HubEvent);
     });
-    await until(() => text().includes("your choice was cleared"), "the change notice");
+    await until(() => text().includes("Your choice was cleared"), "the change notice");
+    expect(text()).toContain('Option 1 ("Something else entirely") changed: title.');
     expect(text()).not.toContain("Selected");
     await press("Enter", document.body);
     await settle();
     expect(posts).toEqual([]);
-    // The notice stays until it is dismissed.
-    button("Dismiss")?.click();
-    await settle();
-    expect(text()).not.toContain("your choice was cleared");
+    // The notice stays until the human says they read it.
+    await act(async () => button("I've read it")?.click());
+    expect(text()).not.toContain("Your choice was cleared");
   });
 
   it("puts focus back on the Note button when the note panel closes", async () => {
@@ -218,6 +250,171 @@ describe("card view keyboard", () => {
     await settle();
     expect(host.querySelector("#panel-text")).toBeNull();
     expect(document.activeElement?.textContent).toMatch(/^Note…/);
+  });
+});
+
+describe("panels holding unsent text (R2-3)", () => {
+  it("keep every page shortcut off while the panel is open, wherever focus is", async () => {
+    const file = join(demo, "decisions", "0001-offline-storage.md");
+    const original = await readFile(file, "utf8");
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await press("n", document.body);
+    await typeInto(host.querySelector("#panel-text"), "None of these: we need sync");
+    const close = button("Close");
+    close?.focus();
+    expect(document.activeElement).toBe(close);
+    for (const key of ["j", "k", "m", "d", "2", "u", "?"]) await press(key);
+    await press("j", document.body);
+    await settle();
+    expect(pathname()).toBe("/card/demo/0001");
+    expect(posts).toEqual([]);
+    expect(await readFile(file, "utf8")).toBe(original);
+    expect(host.querySelector("dialog")).toBeNull();
+    expect(text()).not.toContain("Selected");
+    expect((host.querySelector("#panel-text") as HTMLTextAreaElement).value).toBe(
+      "None of these: we need sync",
+    );
+    expect(text()).toContain("None of these. What's wrong with them");
+  });
+
+  it("close on Esc and keep what was typed as a draft", async () => {
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await press("m", document.body);
+    await typeInto(host.querySelector("#panel-text"), "Ask Sam first");
+    button("Close")?.focus();
+    await press("Escape");
+    await settle();
+    expect(host.querySelector("#panel-text")).toBeNull();
+    expect(pathname()).toBe("/card/demo/0001");
+    expect(text()).toContain("kept as a draft");
+    await press("m", document.body);
+    expect((host.querySelector("#panel-text") as HTMLTextAreaElement).value).toBe("Ask Sam first");
+    // Discard is the explicit way to throw it away.
+    await act(async () => button("Discard")?.click());
+    await press("m", document.body);
+    expect((host.querySelector("#panel-text") as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("never defers a card over a typed reason, and keeps it when leaving", async () => {
+    const file = join(demo, "decisions", "0001-offline-storage.md");
+    const original = await readFile(file, "utf8");
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await press("1", document.body);
+    await typeInto(host.querySelector(".decision-note"), "Works offline");
+    button("Decide")?.focus();
+    await press("d");
+    await settle();
+    expect(posts).toEqual([]);
+    expect(await readFile(file, "utf8")).toBe(original);
+    expect(text()).toContain("isn't sent");
+    // Esc still goes back to the queue, and nothing typed is lost.
+    await press("Escape");
+    await until(() => pathname() === "/", "the queue");
+    expect(text()).toContain("What you typed on #0001 is kept");
+    await act(async () => navigate("/card/demo/0001"));
+    await until(() => text().includes(CARD_TITLE), "the card again");
+    expect(text()).toContain("Selected");
+    expect((host.querySelector(".decision-note") as HTMLInputElement).value).toBe("Works offline");
+  });
+});
+
+describe("changes under the human (R2-7, R2-8, R2-12)", () => {
+  it("refuses a note written against options an agent has since rewritten", async () => {
+    const file = join(demo, "decisions", "0001-offline-storage.md");
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await press("n", document.body);
+    const panel = host.querySelector("#panel-text");
+    await typeInto(panel, "I reject: ");
+    await agentEdits(file, "title: IndexedDB through Dexie", "title: REWRITTEN OPTION");
+    await until(() => text().includes("An agent changed this card"), "the change notice");
+    expect(text()).toContain('Option 1 ("REWRITTEN OPTION") changed: title.');
+    const before = await readFile(file, "utf8");
+    await act(async () => {
+      host
+        .querySelector("#panel-text")
+        ?.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }),
+        );
+    });
+    await until(() => text().includes("nothing was sent"), "the refusal");
+    expect(await readFile(file, "utf8")).toBe(before);
+    expect((host.querySelector("#panel-text") as HTMLTextAreaElement).value).toBe("I reject: ");
+    // Once they have read the change, the same note goes through.
+    await act(async () => button("I've read it")?.click());
+    await act(async () => {
+      host
+        .querySelector("#panel-text")
+        ?.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }),
+        );
+    });
+    await until(() => text().includes("Asked for new options on #0001"), "the neither toast");
+    expect(await readFile(file, "utf8")).toMatch(/type: neither\n\s+note: "I reject:"\n/);
+  });
+
+  it("never blames an agent for the human's own undo, from any view", async () => {
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await press("1", document.body);
+    await press("Enter", document.body);
+    await until(() => text().includes("Decided #0001"), "the decision toast");
+    // Open the decided card again (as from the Decisions page), then undo.
+    await act(async () => navigate("/card/demo/0001"));
+    await until(() => text().includes("This decision is made"), "the decided card");
+    await press("u", document.body);
+    await until(() => text().includes("Undone"), "the undo toast");
+    await until(() => text().includes("Pick an option"), "the reopened card");
+    await settle();
+    expect(text()).not.toContain("An agent changed");
+  });
+
+  it("says a change came from another president tab, not an agent", async () => {
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    // Another tab adds a note: the server announces the revision it wrote.
+    const card = await (await fetch("/api/cards/demo/0001")).json();
+    const res = await (
+      await fetch("/api/cards/demo/0001/actions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "note", note: "from tab 2", revision: card.card.revision }),
+      })
+    ).json();
+    await act(async () => {
+      FakeEventSource.instances[0]?.emit("cards", {
+        type: "cards",
+        project: "demo",
+        id: "0001",
+        revision: res.card.revision,
+      } satisfies HubEvent);
+    });
+    await until(() => text().includes("another president tab"), "the notice");
+    expect(text()).not.toContain("An agent changed");
+    expect(text()).toContain("A note was added.");
+  });
+
+  it("drops a card's undo once the human acts on that card again", async () => {
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await press("1", document.body);
+    await press("Enter", document.body);
+    await until(() => text().includes("Decided #0001"), "the decision toast");
+    await act(async () => navigate("/card/demo/0001"));
+    await until(() => text().includes("This decision is made"), "the decided card");
+    await act(async () => button("Reopen")?.click());
+    await until(() => text().includes("Reopened #0001"), "the reopen toast");
+    expect(button("Undo")).toBeUndefined();
+    const before = posts.length;
+    await press("u", document.body);
+    await settle();
+    expect(posts.length).toBe(before);
+  });
+});
+
+describe("focus after leaving a card (R2-15)", () => {
+  it("lands on the queue's heading, not on the page body", async () => {
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await press("Escape", document.body);
+    await until(() => pathname() === "/", "the queue");
+    await until(() => document.activeElement?.tagName === "H1", "focus on the heading");
+    expect(document.activeElement?.textContent).toBe("Queue");
   });
 });
 

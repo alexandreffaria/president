@@ -79,8 +79,14 @@ Because it's a symlink, pulling this repo updates the skill.
    | `u` | undo the last decision, deferral or "neither" (while its notice is shown) |
    | `?` | all shortcuts |
 
-   Shortcuts never act while you are typing, while a button or link has focus (`Enter` then
-   presses that button), or while the help is open.
+   Shortcuts never act while you are typing or while the help is open. `Enter` and `Space` on a
+   focused button or link press that control instead. While the Neither or Note panel is open,
+   only `Esc` works (it closes the panel). What you type on a card and haven't sent (a note, a
+   "why", your own answer) is kept until you send it, even if you close the panel or leave the
+   card, and `d` does nothing while there is any.
+
+   If an agent changes a card while you have it open, president shows what changed and refuses
+   to send anything until you press **I've read it**, so you never decide on text you didn't see.
 
    After you decide, president moves to the next card. Undo puts the card back exactly as it
    was, as long as nothing changed it since (an agent applying it, for example); after that,
@@ -155,12 +161,14 @@ How it fits together:
   `decisions/` folder that points outside the project, are refused. The server refuses requests
   whose Host isn't localhost (DNS rebinding) and writes whose Origin isn't the hub itself (scripts
   and curl must send `Origin: http://127.0.0.1:4747`).
-- Every action must send the card's revision (a content hash). If an agent changed the file in the
-  meantime, the action is refused and the card reloads, so you never decide on text you didn't
-  see. Undo sends the revision its action returned, and restores the file only if it is still at
-  that revision.
+- Every action must send the revision (a content hash) of the card the human last read, not the
+  newest one the page has loaded. If the file changed since, the action is refused and the page
+  lists what changed. Undo sends the revision its action returned, and restores the file only if
+  it is still at that revision. Actions and undos announce the revision they wrote, so no tab
+  mistakes the human's own change for an agent's.
 - A watcher on every `decisions/` folder and on the registry pushes changes to the UI over
-  server-sent events.
+  server-sent events. All president tabs share one stream (one tab holds it and relays events to
+  the others), so any number of tabs stays under the browser's 6 connections per host.
 - State transitions live in `src/core/actions.ts`, shared by the API and the CLI. The coming
   per-card chat ("ask", "teach me", "research") plugs in there and in
   `src/web/components/CardAssistant.tsx`.

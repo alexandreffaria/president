@@ -4,15 +4,18 @@ import type { BrokenCardDto, CardDetailDto, CardDto } from "../../core/api.ts";
 import { CUSTOM_CHOICE } from "../../core/model.ts";
 import { buildQueue, openDependencies, unknownDependencies } from "../../core/queue.ts";
 import { api, RequestError } from "../api.ts";
+import { writtenBy } from "../app-writes.ts";
+import { describeChanges } from "../card-changes.ts";
 import { CardAssistant } from "../components/CardAssistant.tsx";
 import { FeedbackHistory } from "../components/FeedbackHistory.tsx";
 import { Markdown } from "../components/Markdown.tsx";
 import { OptionCard } from "../components/OptionCard.tsx";
+import { type Draft, unsentText, useDraft } from "../drafts.ts";
 import { fullDate, KIND_LABEL, optionLabel, PRIORITY_LABEL, timeAgo } from "../format.ts";
 import { useHub } from "../hub.tsx";
-import { type KeyMap, useKeyboard } from "../keyboard.ts";
+import { type KeyMap, useKeyboard, useKeyLayer } from "../keyboard.ts";
 import { cardPath, Link, navigate } from "../router.tsx";
-import { useToast } from "../toast.tsx";
+import { useDismissToasts, useToast } from "../toast.tsx";
 
 type Loaded =
   | { state: "loading" }
@@ -22,50 +25,76 @@ type Loaded =
 
 type Panel = "neither" | "note" | null;
 
+/**
+ * Who changed the card since the human last read it: an agent (or someone editing the file),
+ * or the human themselves in another president tab.
+ */
+type ChangedBy = "agent" | "other-tab";
+
 export function CardView({ project, id }: { project: string; id: string }) {
   const hub = useHub();
   const toast = useToast();
+  const dismissToasts = useDismissToasts();
   const [loaded, setLoaded] = useState<Loaded>({ state: "loading" });
-  const [selected, setSelected] = useState<string>();
-  const [decisionNote, setDecisionNote] = useState("");
+  // `latest` is read inside async callbacks, where `draft` would be stale.
+  const [draft, updateDraft, latest] = useDraft(project, id);
   const [panel, setPanel] = useState<Panel>(null);
   const [busy, setBusy] = useState(false);
-  /** Set when an agent changed the card while it was open: "cleared" if a choice was undone. */
-  const [changedOnDisk, setChangedOnDisk] = useState<"changed" | "cleared" | null>(null);
-  const ownRevision = useRef<string | undefined>(undefined);
-  /** What the human has started but not submitted, read when the card changes on disk. */
-  const pending = useRef({ selected: undefined as string | undefined });
-  pending.current.selected = selected;
+  const [changedBy, setChangedBy] = useState<ChangedBy | null>(null);
+  /** Set when a change on disk cleared the option the human had picked. */
+  const [choiceCleared, setChoiceCleared] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const version = hub.versions[project] ?? 0;
+  const undoGroup = `undo:${project}/${id}`;
 
   const queue = buildQueue(hub.cards, hub.projectFilter);
   const position = queue.findIndex((c) => c.project === project && c.id === id);
 
-  const currentRevision = useRef<string | undefined>(undefined);
-  const load = useCallback(async () => {
+  /** The human has read this version: from now on actions are taken on it. */
+  const acknowledge = useCallback(
+    (card: CardDetailDto) => {
+      updateDraft({ seen: card });
+      setChangedBy(null);
+      setChoiceCleared(false);
+    },
+    [updateDraft],
+  );
+
+  /** Loads the card; true if it changed in a way the human has to read again. */
+  const load = useCallback(async (): Promise<boolean> => {
     try {
       const res = await api.card(project, id);
       if (!res.ok) {
         setLoaded({ state: "broken", broken: res.broken });
-        return;
+        return false;
       }
-      const previous = currentRevision.current;
-      if (previous && previous !== res.card.revision && res.card.revision !== ownRevision.current) {
+      const card = res.card;
+      setLoaded({ state: "ok", card });
+      const seen = latest.current.seen;
+      if (seen?.revision === card.revision) return false;
+      const writer = writtenBy(project, id, card.revision);
+      // First load, our own action (here, or undone from a toast), or nothing the human has
+      // to look at again (an agent marking notes read): nothing to point out.
+      if (!seen || writer === "this-tab" || describeChanges(seen, card).length === 0) {
+        acknowledge(card);
+        return false;
+      }
+      // The human hasn't read this version: actions keep carrying the revision they read,
+      // so the server refuses them until they acknowledge the change.
+      setChangedBy((current) =>
+        current === "agent" || writer === undefined ? "agent" : "other-tab",
+      );
+      if (latest.current.selected) {
         // The options may now mean something else: never keep a choice made on the old text.
-        if (pending.current.selected) {
-          setSelected(undefined);
-          setChangedOnDisk("cleared");
-        } else {
-          setChangedOnDisk((current) => current ?? "changed");
-        }
+        updateDraft({ selected: undefined });
+        setChoiceCleared(true);
       }
-      currentRevision.current = res.card.revision;
-      setLoaded({ state: "ok", card: res.card });
+      return true;
     } catch (error) {
       setLoaded({ state: "error", message: (error as Error).message });
+      return false;
     }
-  }, [project, id]);
+  }, [project, id, acknowledge, updateDraft, latest]);
 
   // Load on open and again whenever this project's files change on disk.
   // biome-ignore lint/correctness/useExhaustiveDependencies: `version` is the refetch trigger
@@ -75,17 +104,31 @@ export function CardView({ project, id }: { project: string; id: string }) {
 
   const card = loaded.state === "ok" ? loaded.card : undefined;
   const fm = card?.frontmatter;
+  const seen = draft.seen;
+  const changes = card && seen && changedBy ? describeChanges(seen, card) : [];
 
   // Forget a selection whose option an agent removed.
   useEffect(() => {
-    if (fm && selected && !fm.options.some((o) => o.id === selected)) setSelected(undefined);
-  }, [fm, selected]);
+    if (fm && draft.selected && !fm.options.some((o) => o.id === draft.selected)) {
+      updateDraft({ selected: undefined });
+    }
+  }, [fm, draft.selected, updateDraft]);
 
   // Move focus to the new card's title, so keyboard and screen reader users start there.
   const ready = loaded.state !== "loading";
   useEffect(() => {
     if (ready) heading.current?.focus();
   }, [ready]);
+
+  // Leaving the card with unsent text keeps it (drafts.ts); say so, so nobody retypes it.
+  useEffect(
+    () => () => {
+      if (unsentText(latest.current)) {
+        toast(`What you typed on #${id} is kept; it's there when you come back.`);
+      }
+    },
+    [id, toast, latest],
+  );
 
   const goTo = (target: CardDto | undefined) => {
     if (target) navigate(cardPath(target.project, target.id));
@@ -96,15 +139,22 @@ export function CardView({ project, id }: { project: string; id: string }) {
     return queue[position + 1] ?? queue[position - 1];
   };
 
-  const act = async (action: CardAction, options: { leave?: boolean; done?: string } = {}) => {
-    if (!card || busy) return false;
+  const act = async (
+    action: CardAction,
+    options: { leave?: boolean; done?: string; sent?: Partial<Draft> } = {},
+  ) => {
+    if (!card || !seen || busy) return false;
     setBusy(true);
     const next = afterThis();
+    // A new action on this card makes an older undo for it meaningless.
+    dismissToasts(undoGroup);
     try {
-      const res = await api.act(project, id, action, card.revision);
-      ownRevision.current = res.card.revision;
-      currentRevision.current = res.card.revision;
+      // The revision the human read, not the newest one: if the card changed since, the
+      // server refuses, and they see what changed first.
+      const res = await api.act(project, id, action, seen.revision);
       setLoaded({ state: "ok", card: res.card });
+      acknowledge(res.card);
+      if (options.sent) updateDraft(options.sent);
       void hub.refresh();
       if (options.done) {
         const after = res.card.revision;
@@ -116,8 +166,8 @@ export function CardView({ project, id }: { project: string; id: string }) {
                 run: () => {
                   api
                     .undo(project, id, after)
-                    .then((undone) => {
-                      ownRevision.current = undone.card.revision;
+                    .then(() => {
+                      hub.cardsChanged(project);
                       return hub.refresh();
                     })
                     .then(() => {
@@ -130,7 +180,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
                 },
               }
             : undefined;
-        toast(options.done, { action: undo });
+        toast(options.done, { action: undo, group: undo ? undoGroup : undefined });
       }
       if (options.leave) {
         if (next) goTo(next);
@@ -142,10 +192,13 @@ export function CardView({ project, id }: { project: string; id: string }) {
       return true;
     } catch (error) {
       if (error instanceof RequestError && error.code === "conflict") {
-        toast("This card was changed on disk. It has been reloaded; please look again.", {
-          tone: "error",
-        });
-        void load();
+        const mustRead = await load();
+        toast(
+          mustRead
+            ? "This card changed since you read it, so nothing was sent. See what changed at the top of the card; what you typed is kept."
+            : "This card was updated on disk (nothing you need to read again), so nothing was sent. Please try again.",
+          { tone: "error" },
+        );
       } else {
         toast((error as Error).message, { tone: "error" });
       }
@@ -157,26 +210,36 @@ export function CardView({ project, id }: { project: string; id: string }) {
 
   const isActive = fm?.status === "open" || fm?.status === "deferred";
   const options = fm?.options ?? [];
+  const selected = draft.selected;
 
-  const decide = async (choice: string | undefined, note: string) => {
+  const decide = async (choice: string | undefined, note: string, sent: Partial<Draft>) => {
     if (!card || !fm || !choice) return;
     const option = fm.options.find((o) => o.id === choice);
     const label = option ? option.title : "your own answer";
-    const ok = await act(
+    await act(
       { type: "resolve", choice, note: note.trim() || undefined },
-      { leave: true, done: `Decided #${id}: ${label}.` },
+      { leave: true, done: `Decided #${id}: ${label}.`, sent },
     );
-    if (ok) {
-      setSelected(undefined);
-      setDecisionNote("");
-    }
   };
 
   const selectIndex = (index: number) => {
     const option = options[index];
     if (!isActive || !option) return false;
-    setSelected(option.id);
+    updateDraft({ selected: option.id });
     return undefined;
+  };
+
+  const openPanel = (next: Panel) => {
+    setPanel(next);
+  };
+  /** Closes the Neither/Note panel. What was typed stays as a draft. */
+  const closePanel = () => {
+    if (panel && latest.current[panel].trim()) {
+      toast(
+        `Your ${panel === "neither" ? "answer" : "note"} is kept as a draft; press ${panel === "neither" ? "n" : "m"} to finish it.`,
+      );
+    }
+    setPanel(null);
   };
 
   const keys: KeyMap = {
@@ -184,24 +247,26 @@ export function CardView({ project, id }: { project: string; id: string }) {
     k: () => goTo(position === -1 ? queue.at(-1) : queue[position - 1]),
     enter: () => {
       if (!selected) return false;
-      void decide(selected, decisionNote);
+      void decide(selected, draft.decisionNote, { selected: undefined, decisionNote: "" });
     },
     n: () => {
       if (!isActive || options.length === 0) return false;
-      setPanel("neither");
+      openPanel("neither");
     },
     m: () => {
       if (!isActive) return false;
-      setPanel("note");
+      openPanel("note");
     },
     d: () => {
       if (fm?.status !== "open") return false;
+      // A shortcut must not act on the card without what the human typed for it.
+      if (unsentText(draft)) {
+        toast("You have typed something on this card that isn't sent. Send or clear it first.");
+        return;
+      }
       void act({ type: "defer" }, { leave: true, done: `Deferred #${id}.` });
     },
-    escape: () => {
-      if (panel) setPanel(null);
-      else navigate("/");
-    },
+    escape: () => navigate("/"),
   };
   for (let i = 0; i < 9; i++) keys[String(i + 1)] = () => selectIndex(i);
   if (fm?.kind === "ab") {
@@ -209,6 +274,8 @@ export function CardView({ project, id }: { project: string; id: string }) {
     keys.b = () => selectIndex(1);
   }
   useKeyboard(keys, loaded.state !== "loading");
+  // While the Neither/Note panel is open, nothing else on the page reacts to keys.
+  useKeyLayer({ escape: closePanel }, panel !== null);
 
   if (loaded.state === "loading") return <p className="muted">Loading…</p>;
   if (loaded.state === "error") {
@@ -296,22 +363,31 @@ export function CardView({ project, id }: { project: string; id: string }) {
         )}
       </header>
 
-      {changedOnDisk && (
+      {changedBy && (
         <div
-          className={`notice ${changedOnDisk === "cleared" ? "notice-warn" : "notice-info"} notice-dismissable`}
+          className={`notice ${choiceCleared ? "notice-warn" : "notice-info"} notice-dismissable`}
           role="alert"
         >
-          <p>
-            {changedOnDisk === "cleared"
-              ? "An agent changed this card while you had it open, so your choice was cleared. Read it again before deciding."
-              : "An agent changed this card while you had it open. What you see now is the new version."}
-          </p>
-          <button
-            type="button"
-            className="button button-quiet"
-            onClick={() => setChangedOnDisk(null)}
-          >
-            Dismiss
+          <div className="notice-body">
+            <p>
+              {changedBy === "agent"
+                ? "An agent changed this card while you had it open."
+                : "You changed this card in another president tab."}{" "}
+              {choiceCleared
+                ? "Your choice was cleared. Read it again before deciding."
+                : "What you see now is the new version. Read what changed before you act on it."}
+            </p>
+            {changes.length > 0 && (
+              <ul className="changes">
+                {changes.map((change, i) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: descriptions may repeat
+                  <li key={i}>{change}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <button type="button" className="button" onClick={() => acknowledge(card)}>
+            I've read it
           </button>
         </div>
       )}
@@ -355,7 +431,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
                 selected={selected === option.id}
                 chosen={chosen === option.id}
                 selectable={isActive}
-                onSelect={() => setSelected(option.id)}
+                onSelect={() => updateDraft({ selected: option.id })}
               />
             ))}
           </div>
@@ -387,12 +463,15 @@ export function CardView({ project, id }: { project: string; id: string }) {
       <ActionBar
         card={card}
         busy={busy}
-        selected={selected}
-        decisionNote={decisionNote}
-        onDecisionNote={setDecisionNote}
+        draft={draft}
+        onDraft={updateDraft}
         panel={panel}
-        onPanel={setPanel}
-        onDecide={(choice, note) => void decide(choice, note)}
+        onPanel={(next) => (next ? openPanel(next) : closePanel())}
+        onDiscard={() => {
+          if (panel) updateDraft({ [panel]: "" });
+          setPanel(null);
+        }}
+        onDecide={decide}
         onAct={act}
       />
     </div>
@@ -444,27 +523,28 @@ function StatusNotice({ card }: { card: CardDetailDto }) {
 function ActionBar(props: {
   card: CardDetailDto;
   busy: boolean;
-  selected: string | undefined;
-  decisionNote: string;
-  onDecisionNote: (note: string) => void;
+  draft: Draft;
+  onDraft: (patch: Partial<Draft>) => void;
   panel: Panel;
   onPanel: (panel: Panel) => void;
-  onDecide: (choice: string | undefined, note: string) => void;
-  onAct: (action: CardAction, options?: { leave?: boolean; done?: string }) => Promise<boolean>;
+  onDiscard: () => void;
+  onDecide: (choice: string | undefined, note: string, sent: Partial<Draft>) => void;
+  onAct: (
+    action: CardAction,
+    options?: { leave?: boolean; done?: string; sent?: Partial<Draft> },
+  ) => Promise<boolean>;
 }) {
-  const { card, busy, selected, panel } = props;
+  const { card, busy, draft, panel } = props;
+  const { selected, answer } = draft;
   const fm = card.frontmatter;
-  const [text, setText] = useState("");
-  const [answer, setAnswer] = useState("");
   const neitherButton = useRef<HTMLButtonElement>(null);
   const noteButton = useRef<HTMLButtonElement>(null);
   const lastPanel = useRef<Panel>(null);
 
   useEffect(() => {
-    if (panel) setText("");
     // When a panel closes, put focus back on the button that opens it.
-    else if (lastPanel.current === "neither") neitherButton.current?.focus();
-    else if (lastPanel.current === "note") noteButton.current?.focus();
+    if (!panel && lastPanel.current === "neither") neitherButton.current?.focus();
+    else if (!panel && lastPanel.current === "note") noteButton.current?.focus();
     lastPanel.current = panel;
   }, [panel]);
 
@@ -491,13 +571,15 @@ function ActionBar(props: {
 
   if (panel) {
     const neither = panel === "neither";
+    const text = draft[panel];
     const submit = async () => {
       if (!text.trim()) return;
+      const sent = { [panel]: "" };
       const ok = await props.onAct(
         { type: neither ? "neither" : "note", note: text },
         neither
-          ? { leave: true, done: `Asked for new options on #${card.id}.` }
-          : { done: "Note added." },
+          ? { leave: true, done: `Asked for new options on #${card.id}.`, sent }
+          : { done: "Note added.", sent },
       );
       if (ok) props.onPanel(null);
     };
@@ -521,19 +603,23 @@ function ActionBar(props: {
             autoFocus
             rows={3}
             value={text}
-            onChange={(event) => setText(event.target.value)}
+            onChange={(event) => props.onDraft({ [panel]: event.target.value })}
             onKeyDown={(event) => {
+              // Esc is handled by the panel's key layer (CardView), wherever focus is.
               if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                 event.preventDefault();
                 void submit();
-              } else if (event.key === "Escape") {
-                props.onPanel(null);
               }
             }}
           />
           <div className="action-panel-buttons">
+            {text.trim() && (
+              <button type="button" className="button button-quiet" onClick={props.onDiscard}>
+                Discard
+              </button>
+            )}
             <button type="button" className="button" onClick={() => props.onPanel(null)}>
-              Cancel <kbd>Esc</kbd>
+              Close <kbd>Esc</kbd>
             </button>
             <button type="submit" className="button button-primary" disabled={busy || !text.trim()}>
               {neither ? "Ask for new options" : "Add note"} <kbd>Ctrl ⏎</kbd>
@@ -552,8 +638,14 @@ function ActionBar(props: {
         className="action-bar-inner"
         onSubmit={(event) => {
           event.preventDefault();
-          if (customAnswer) props.onDecide(answer.trim() ? CUSTOM_CHOICE : undefined, answer);
-          else props.onDecide(selected, props.decisionNote);
+          if (customAnswer) {
+            props.onDecide(answer.trim() ? CUSTOM_CHOICE : undefined, answer, { answer: "" });
+          } else {
+            props.onDecide(selected, draft.decisionNote, {
+              selected: undefined,
+              decisionNote: "",
+            });
+          }
         }}
       >
         {customAnswer ? (
@@ -565,7 +657,7 @@ function ActionBar(props: {
             }
             rows={2}
             value={answer}
-            onChange={(event) => setAnswer(event.target.value)}
+            onChange={(event) => props.onDraft({ answer: event.target.value })}
             onKeyDown={(event) => {
               if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                 event.preventDefault();
@@ -591,9 +683,9 @@ function ActionBar(props: {
               className="decision-note"
               aria-label="Why (optional)"
               placeholder="Why? (optional)"
-              value={props.decisionNote}
+              value={draft.decisionNote}
               disabled={!selectedOption}
-              onChange={(event) => props.onDecisionNote(event.target.value)}
+              onChange={(event) => props.onDraft({ decisionNote: event.target.value })}
             />
           </>
         )}

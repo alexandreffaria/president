@@ -68,8 +68,23 @@ export function shortcutAllowed(event: KeyboardEvent): boolean {
 }
 
 /**
+ * Open layers: panels that hold input the human hasn't sent (the Neither and Note panels).
+ * The rule: while any layer is open, page shortcuts are off, wherever focus is, and only
+ * the innermost layer's own keys work (typically Esc, which closes it and keeps the draft).
+ * So a key pressed on the panel's buttons, or after clicking elsewhere, can never act on the
+ * card behind the panel or navigate away from it.
+ */
+const layers: { current: KeyMap }[] = [];
+
+/** True while a panel holding unsent input is open (see {@link useKeyLayer}). */
+export function layerOpen(): boolean {
+  return layers.length > 0;
+}
+
+/**
  * Single-key shortcuts (j, k, 1-9, ?). Named keys are lowercase: "enter", "escape",
- * "arrowdown". See {@link shortcutAllowed} for when they are ignored.
+ * "arrowdown". See {@link shortcutAllowed} for when they are ignored; they are also off
+ * while a layer is open.
  */
 export function useKeyboard(keys: KeyMap, enabled = true): void {
   const ref = useRef(keys);
@@ -77,11 +92,39 @@ export function useKeyboard(keys: KeyMap, enabled = true): void {
   useEffect(() => {
     if (!enabled) return;
     const onKey = (event: KeyboardEvent) => {
-      if (!shortcutAllowed(event)) return;
+      if (layerOpen() || !shortcutAllowed(event)) return;
       const handler = ref.current[keyName(event)];
       if (handler && handler(event) !== false) event.preventDefault();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [enabled]);
+}
+
+/**
+ * Opens a layer while `active`: page shortcuts stop, and `keys` handle key presses instead.
+ * Esc reaches the layer even from a text field (it never types anything); other keys follow
+ * {@link shortcutAllowed}.
+ */
+export function useKeyLayer(keys: KeyMap, active: boolean): void {
+  const ref = useRef(keys);
+  ref.current = keys;
+  useEffect(() => {
+    if (!active) return;
+    const layer = ref;
+    layers.push(layer);
+    const onKey = (event: KeyboardEvent) => {
+      if (layers.at(-1) !== layer) return;
+      const name = keyName(event);
+      if (name !== "escape" && !shortcutAllowed(event)) return;
+      if (name === "escape" && (event.defaultPrevented || modalOpen())) return;
+      const handler = layer.current[name];
+      if (handler && handler(event) !== false) event.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      layers.splice(layers.indexOf(layer), 1);
+    };
+  }, [active]);
 }

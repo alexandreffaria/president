@@ -371,7 +371,7 @@ export async function undoLastAction(
     const card = await lockedCard(project, id);
     if (card.revision !== revision) {
       throw conflict(
-        "the card changed after your action (an agent may have acted on it), so it can't be undone; review it and reopen it if needed",
+        "the card changed after this action, so it can't be undone; review it and reopen it if needed",
       );
     }
     const entry = undoJournal.get(card.path);
