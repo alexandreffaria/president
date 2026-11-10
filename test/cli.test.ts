@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CARD_FORMAT_DOC, DEMO_SOURCE, run } from "../src/cli/main.ts";
@@ -18,17 +18,19 @@ async function cli(...args: string[]) {
   return { code, out: stdout.join("\n"), err: stderr.join("\n") };
 }
 
-/** Runs the `done:` command that `president pending` printed for a card file. */
+/**
+ * Runs the `done:` command that `president pending` printed for a card file, the way an
+ * agent does: the line goes through a real shell, where `president` is a function that
+ * hands the words the shell made of it to the CLI.
+ */
 async function runDone(pendingOut: string, file: string) {
   const line = pendingOut
     .split("\n")
-    .find((l) => l.trim().startsWith(`done: president `) && l.includes(file));
+    .find((l) => l.trim().startsWith(`done: president `) && l.includes(basename(file)));
   if (!line) throw new Error(`no done command for ${file} in:\n${pendingOut}`);
-  const [, ...args] = line
-    .trim()
-    .replace(/^done: /, "")
-    .split(" ");
-  return cli(...args);
+  const script = `president() { printf '%s\\0' "$@"; }\n${line.trim().replace(/^done: /, "")}`;
+  const { stdout } = await promisify(execFile)("sh", ["-c", script]);
+  return cli(...stdout.split("\0").slice(0, -1));
 }
 
 /** Acts on a card the way the UI does (with the revision it has now). */
@@ -241,6 +243,17 @@ describe("president CLI", () => {
       previous_resolution: { choice: "protomaps" },
       previous_applied_at: "2026-11-03T16:45:00Z",
     });
+  });
+
+  it("prints a done line a shell runs as is, whatever the folder is called (R3-1)", async () => {
+    // A space, a quote and characters a shell would expand or act on.
+    const demo = await copyDemoProject("My Projects, Sam's $HOME `x`; app");
+    const file = join(demo, "decisions", "0002-api-errors.md");
+    await human(demo, "0002", { type: "note", note: "a note" });
+    const shown = (await cli("pending", demo)).out;
+    expect(shown).toContain(`done: president seen '${file.replaceAll("'", "'\\''")}' --token `);
+    expect(await runDone(shown, file)).toMatchObject({ code: 0 });
+    expect((await cli("pending", demo)).out).toBe("Nothing pending.");
   });
 
   it("requires the token that pending printed", async () => {

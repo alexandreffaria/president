@@ -25,6 +25,7 @@ import { UserError } from "../server/errors.ts";
 import { DECISIONS_DIR, type Project, Registry } from "../server/registry.ts";
 
 import { CARD_FORMAT_DOC, DEMO_SOURCE, type Output } from "./main.ts";
+import { shellQuote } from "./shell.ts";
 
 export async function add(args: string[], out: Output): Promise<number> {
   const { values, positionals } = parseArgs({
@@ -45,7 +46,7 @@ export async function add(args: string[], out: Output): Promise<number> {
   }
   if (alreadyRegistered && values.name !== undefined && values.name !== project.name) {
     out.error(
-      `president: --name ignored: this folder is already registered as "${project.name}". To rename it, run \`president remove ${project.name}\` and add it again.`,
+      `president: --name ignored: this folder is already registered as "${project.name}". To rename it, run \`president remove ${shellQuote(project.name)}\` and add it again.`,
     );
   }
   out.log(
@@ -80,7 +81,7 @@ export async function demo(args: string[], out: Output): Promise<number> {
   const { project } = await registry.add({ path: target, name });
   out.log(`Copied the demo project to ${project.path} and registered it as "${project.name}".`);
   out.log(
-    `Open the hub (\`president serve\`, http://127.0.0.1:${process.env.PRESIDENT_PORT || 4747}) to see its cards. When you are done: president remove ${project.name}`,
+    `Open the hub (\`president serve\`, http://127.0.0.1:${process.env.PRESIDENT_PORT || 4747}) to see its cards. When you are done: president remove ${shellQuote(project.name)}`,
   );
   return 0;
 }
@@ -189,7 +190,7 @@ export async function pending(args: string[], out: Output): Promise<number> {
   );
   /** The command that marks exactly what this output showed about the card. */
   const done = (c: LoadedCard) =>
-    `president ${needsApplying(c.frontmatter) ? "applied" : "seen"} ${c.path} --token ${agentToken(c)}`;
+    `president ${needsApplying(c.frontmatter) ? "applied" : "seen"} ${shellQuote(c.path)} --token ${shellQuote(agentToken(c))}`;
 
   if (values.json) {
     const describe = (c: LoadedCard) => ({

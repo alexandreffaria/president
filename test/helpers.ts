@@ -23,9 +23,9 @@ export async function tempDir(prefix = "president-test-"): Promise<string> {
 }
 
 /** A copy of the demo project in a temp folder, safe to modify. */
-export async function copyDemoProject(): Promise<string> {
+export async function copyDemoProject(name = "demo"): Promise<string> {
   const root = await tempDir();
-  const dir = join(root, "demo");
+  const dir = join(root, name);
   await cp(DEMO_PROJECT, dir, { recursive: true });
   return dir;
 }

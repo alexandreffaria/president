@@ -54,7 +54,8 @@ the part that is the same for every option.
 
    Each card in the output ends with a `done:` line, for example
    `done: president seen /abs/path/decisions/0012-x.md --token 2-0k3j5h2g9fd`. When you have
-   handled that card, run that line exactly as printed. The token records what `pending`
+   handled that card, run that line exactly as printed, in a shell (a path that needs it is
+   already in single quotes; don't add or remove any). The token records what `pending`
    showed you, so only that is marked as handled. If the human changed the card in the
    meantime, the command refuses and says so: run `president pending` again and handle the
    card as it is now. Never write a token yourself or reuse one from an earlier run.
