@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HelpOverlay } from "../../src/web/components/HelpOverlay.tsx";
-import { type KeyMap, shortcutAllowed, useKeyboard } from "../../src/web/keyboard.ts";
+import { type KeyMap, shortcutAllowed, useKeyboard, useKeyLayer } from "../../src/web/keyboard.ts";
 import { parseRoute } from "../../src/web/router.tsx";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -195,6 +195,42 @@ describe("the help dialog", () => {
     expect(document.activeElement).toBe(close);
     act(() => root.render(<Help keys={{}} open={false} onClose={() => {}} />));
     expect(document.activeElement).toBe(opener);
+  });
+});
+
+function Panel(props: { page: KeyMap; layer: KeyMap; open: boolean }) {
+  useKeyboard(props.page);
+  useKeyLayer(props.layer, props.open);
+  return props.open ? (
+    <div>
+      <textarea />
+      <button type="button">Close</button>
+    </div>
+  ) : null;
+}
+
+describe("key layers (panels holding input)", () => {
+  it("turn page shortcuts off wherever focus is, and get Esc even from a text field", () => {
+    const page = { j: vi.fn(), d: vi.fn(), escape: vi.fn() };
+    const layer = { escape: vi.fn(), j: vi.fn() };
+    act(() => root.render(<Panel page={page} layer={layer} open />));
+    const button = host.querySelector("button") as HTMLButtonElement;
+    for (const target of [button, document.body]) {
+      press(target, "j");
+      press(target, "d");
+    }
+    expect(page.j).not.toHaveBeenCalled();
+    expect(page.d).not.toHaveBeenCalled();
+    // The layer's own keys follow the usual rules (here, focus on a button is fine)...
+    expect(layer.j).toHaveBeenCalledTimes(2);
+    // ...and Esc reaches it from the textarea, while the page's Esc does not run.
+    press(host.querySelector("textarea") as HTMLTextAreaElement, "Escape");
+    expect(layer.escape).toHaveBeenCalledTimes(1);
+    expect(page.escape).not.toHaveBeenCalled();
+
+    act(() => root.render(<Panel page={page} layer={layer} open={false} />));
+    press(document.body, "j");
+    expect(page.j).toHaveBeenCalledTimes(1);
   });
 });
 

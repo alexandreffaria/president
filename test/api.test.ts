@@ -520,7 +520,11 @@ describe("undo", () => {
     );
     const res = await post("/api/cards/demo/0002/undo", { revision });
     expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ code: "conflict" });
+    // Neutral: the change may have been the human's own (R2-12).
+    expect(await res.json()).toMatchObject({
+      code: "conflict",
+      error: expect.stringMatching(/^the card changed after this action, so it can't be undone/),
+    });
     expect(await readFile(file, "utf8")).toMatch(/^applied_at: /m);
   });
 
