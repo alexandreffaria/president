@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
@@ -85,6 +85,35 @@ describe("president CLI", () => {
 
     const tracked = await cli("add", DEMO_SOURCE, "--name", "tracked");
     expect(tracked.err).toMatch(/warning: this is president's own sample folder.*president demo/);
+  });
+
+  it("names demos under the registry lock when several start at once (R4-9)", async () => {
+    const scratch = await tempDir();
+    const dirs = ["d0", "d1", "d2", "d3"].map((d) => join(scratch, d));
+    const results = await Promise.all(dirs.map((dir) => cli("demo", dir)));
+    expect(results.map((r) => r.code)).toEqual([0, 0, 0, 0]);
+    const listed = JSON.parse((await cli("list", "--json")).out) as { name: string }[];
+    expect(listed.map((p) => p.name).sort()).toEqual(["demo", "demo-2", "demo-3", "demo-4"]);
+  });
+
+  it("removes the demo copy when it can't be registered (R4-9)", async () => {
+    const scratch = await tempDir();
+    expect((await cli("demo", join(scratch, "first"))).code).toBe(0);
+    const taken = await cli("demo", join(scratch, "second"), "--name", "demo");
+    expect(taken).toMatchObject({ code: 1, err: expect.stringMatching(/already registered/) });
+    await mkdir(join(scratch, "empty"));
+    expect((await cli("demo", join(scratch, "empty"), "--name", "demo")).code).toBe(1);
+    // A folder the demo made is gone; one that was there (empty) is left empty.
+    expect((await readdir(scratch)).sort()).toEqual(["empty", "first"]);
+    expect(await readdir(join(scratch, "empty"))).toEqual([]);
+    vi.stubEnv("TMPDIR", join(scratch, "tmp"));
+    await mkdir(join(scratch, "tmp"));
+    expect((await cli("demo", "--name", "demo")).code).toBe(1);
+    expect(await readdir(join(scratch, "tmp"))).toEqual([]);
+    // A file in the way is refused and left alone.
+    await writeFile(join(scratch, "notes.txt"), "mine");
+    expect((await cli("demo", join(scratch, "notes.txt"))).err).toMatch(/is not a folder/);
+    expect(await readFile(join(scratch, "notes.txt"), "utf8")).toBe("mine");
   });
 
   it("needs --create for a folder without decisions/", async () => {

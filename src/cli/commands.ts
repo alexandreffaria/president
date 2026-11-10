@@ -1,7 +1,7 @@
 /**
  * The \`president\` commands (see main.ts for the dispatch and the help text).
  */
-import { cp, mkdtemp, readdir, readFile, realpath, stat } from "node:fs/promises";
+import { cp, mkdtemp, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
@@ -70,20 +70,35 @@ export async function demo(args: string[], out: Output): Promise<number> {
     options: { name: { type: "string" } },
   });
   if (positionals.length > 1) throw new UserError("usage: president demo [path] [--name <name>]");
-  const target = positionals[0]
-    ? resolve(positionals[0])
-    : join(await mkdtemp(join(tmpdir(), "president-demo-")), "demo");
-  const existing = await readdir(target).catch(() => undefined);
+  const tempParent = positionals[0] ? undefined : await mkdtemp(join(tmpdir(), "president-demo-"));
+  const target = tempParent ? join(tempParent, "demo") : resolve(positionals[0] ?? ".");
+  const info = await stat(target).catch(() => undefined);
+  if (info && !info.isDirectory()) {
+    throw new UserError(`"${target}" is not a folder; give a new or empty folder for the demo`);
+  }
+  const existing = info ? await readdir(target) : undefined;
   if (existing && existing.length > 0) {
     throw new UserError(`"${target}" is not empty; give a new or empty folder for the demo`);
   }
-  await cp(DEMO_SOURCE, target, { recursive: true });
-
-  const registry = new Registry();
-  const taken = new Set((await registry.list()).map((p) => p.name));
-  let name = values.name ?? "demo";
-  for (let i = 2; values.name === undefined && taken.has(name); i++) name = `demo-${i}`;
-  const { project } = await registry.add({ path: target, name });
+  let project: Project;
+  try {
+    await cp(DEMO_SOURCE, target, { recursive: true });
+    // The registry picks a free name ("demo", "demo-2"...) under its lock.
+    ({ project } = await new Registry().add({
+      path: target,
+      name: values.name,
+      defaultName: "demo",
+    }));
+  } catch (error) {
+    // Leave no unregistered copy behind: the folder as it was (missing, or empty).
+    if (existing) {
+      const copied = await readdir(target).catch(() => []);
+      await Promise.all(copied.map((f) => rm(join(target, f), { recursive: true, force: true })));
+    } else {
+      await rm(tempParent ?? target, { recursive: true, force: true });
+    }
+    throw error;
+  }
   out.log(`Copied the demo project to ${project.path} and registered it as "${project.name}".`);
   out.log(
     `Open the hub (\`president serve\`, http://127.0.0.1:${process.env.PRESIDENT_PORT || 4747}) to see its cards. When you are done: president remove ${shellQuote(project.name)}`,

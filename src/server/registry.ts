@@ -45,6 +45,8 @@ export function decisionsDirOf(project: Pick<Project, "path">): string {
 export interface AddProjectInput {
   path: string;
   name?: string | undefined;
+  /** Without `name`: the name to start from instead of the folder's ("-2"... if taken). */
+  defaultName?: string | undefined;
   /** Create `<path>/decisions/` when it is missing. Without it, a missing folder is an error. */
   createDecisions?: boolean | undefined;
 }
@@ -83,8 +85,9 @@ export class Registry {
   }
 
   /**
-   * Registers a folder. Without a name it is named after the folder, with "-2", "-3"... added
-   * when another project has that name (`renamedFrom` is then the folder's name).
+   * Registers a folder. Without a name it is named after the folder (or `defaultName`), with
+   * "-2", "-3"... added when another project has that name (`renamedFrom` is then the name
+   * it started from). The free name is picked while holding the registry lock.
    */
   async add(
     input: AddProjectInput,
@@ -104,7 +107,7 @@ export class Registry {
 
       const taken = new Set(projects.map((p) => p.name));
       const given = input.name?.trim();
-      let name = given || suggestName(path);
+      let name = given || input.defaultName || suggestName(path);
       if (!PROJECT_NAME_PATTERN.test(name)) {
         throw new UserError(
           `"${name}" is not a valid project name: use letters, digits, ".", "_" and "-" (max 64)`,
