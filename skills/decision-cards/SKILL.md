@@ -11,8 +11,9 @@ don't guess and don't bury it in chat: write a **decision card**, a markdown fil
 project's `decisions/` folder. The human goes through cards in the president app, picks an
 option (or rejects them all with a note), and you act on the answer.
 
-The full format is in `docs/card-format.md` of the president repo. This skill has what you need
-to write cards correctly.
+The full format is in `docs/card-format.md` of the president repo (`president help` and
+`president validate` print its absolute path). This skill has what you need to write cards
+correctly.
 
 ## When to write a card
 
@@ -47,19 +48,27 @@ the part that is the same for every option.
    president pending
    ```
 
-   It lists cards that were **resolved but not applied** and cards that **need new options**.
-   Handle both (below) before starting new work.
+   It lists cards that were **resolved but not applied**, cards that **need new options**, and
+   **new notes from the human** you haven't read yet. Handle all of them (below) before starting
+   new work.
 
 ## Writing a card
 
 1. Pick the id: list `decisions/`, take the highest number and add one, zero-padded to 4 digits.
    The file is `decisions/<id>-<short-slug>.md`, e.g. `decisions/0012-empty-state-copy.md`.
-2. Choose the kind:
+2. Get the current time for `created`; don't guess it or copy the example's:
+
+   ```sh
+   date -u +%Y-%m-%dT%H:%M:%SZ
+   ```
+
+3. Choose the kind:
    - `ab`: two concrete alternatives the human should compare side by side (two code styles,
      two wordings, two layouts). Exactly 2 options.
    - `choice`: 2 to 4 options shown one under another.
    - `open`: there is no sensible list of options ("what should the welcome text say?").
-3. Write the frontmatter and the body. Template:
+4. Write the frontmatter and the body. Template (every `...` is a placeholder you must replace;
+   `president validate` rejects cards that still have them):
 
 ````markdown
 ---
@@ -109,7 +118,25 @@ The concrete example: the actual text, a code snippet, a sketch of the screen.
 - Where facts came from, with links and short quotes.
 ````
 
-4. Check it: `president validate` must print `ok` for your file. Fix anything it reports.
+   An `open` card needs no options; the human answers in their own words:
+
+   ```markdown
+   ---
+   id: "0013"
+   title: What should the app say the first time someone opens it?
+   status: open
+   kind: open
+   created: 2026-11-10T14:03:00Z
+   created_by: claude-code
+   ---
+
+   ## Context
+
+   The first screen is empty: one short line and a button. What tone do you want?
+   ```
+
+5. Check it: `president validate decisions/0012-empty-state-copy.md` must print `ok`. Fix
+   anything it reports (each problem names the field and the line).
 
 ### What makes a good card
 
@@ -147,9 +174,13 @@ For each one that `president pending` lists:
    the chosen option; follow it.
 2. Record the decision in the project's docs (for example `docs/decisions.md`, or wherever the
    project keeps settled decisions): what was decided, the short reason, and the card id.
+   **If pending says "Decided again"** (the human reopened the card and decided differently;
+   `feedback` has a `reopen` entry with `previous_resolution`), don't add a second entry:
+   update or replace the earlier record for this card id, and undo work for the old decision
+   that no longer applies.
 3. Do the work it implies, or note it as a follow-up task if it's large.
 4. Mark it applied: `president applied decisions/0012-empty-state-copy.md` (this sets
-   `applied_at`). Don't change `status` or `resolution`.
+   `applied_at` and `seen_at`). Don't change `status` or `resolution`.
 
 ## Cards that need new options
 
@@ -161,7 +192,21 @@ When the human rejects all options, president appends their note to `feedback` (
 3. Replace `options` with new ones that answer the feedback (new ids are fine), rewrite the
    `## Option <id>` sections in the body to match, and update `recommendation`.
 4. Remove `needs_new_options`. Keep `feedback`, `id`, `created` and `status: open` as they are.
-5. Run `president validate`.
+5. Run `president validate decisions/<file>`, then `president seen decisions/<file>`.
+
+## New notes from the human
+
+The human can add a note to an open or deferred card without deciding, give a reason when
+deferring, or reopen a decided card. These land in `feedback` (`type: note`, `defer` or
+`reopen`), and `president pending` lists every card with feedback newer than its `seen_at`.
+For each:
+
+1. Read the new entries. They may ask a question, add a constraint, ask for research, or say
+   why the card is on hold.
+2. Act on them: update the context or the options (and `recommendation`), do the research and
+   add sources, or change the code if the note is about work already done. If a note needs an
+   answer, put it in the card's body where the human will read it.
+3. Mark them read: `president seen decisions/<file>`. Don't edit or remove `feedback`.
 
 ## Rules
 

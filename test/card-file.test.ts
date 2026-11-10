@@ -383,3 +383,25 @@ describe("validation details", () => {
     expectCard(cardText({ title: '"Wait... which colour?"' }));
   });
 });
+
+describe("skills/decision-cards/SKILL.md", async () => {
+  const skill = await readFile(
+    join(import.meta.dirname, "..", "skills", "decision-cards", "SKILL.md"),
+    "utf8",
+  );
+
+  it("has a template that validate refuses until the placeholders are replaced", () => {
+    const template = /^````markdown\n([\s\S]*?)\n````$/m.exec(skill)?.[1];
+    expect(template).toBeDefined();
+    const errors = expectErrors(`${template}\n`, "0012-empty-state-copy.md");
+    expect(errors.every((e) => /placeholder|only "\.\.\."/.test(e))).toBe(true);
+    expect(errors.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("has an open card example that is valid", () => {
+    const example = /^ {3}```markdown\n([\s\S]*?)\n {3}```$/m.exec(skill)?.[1];
+    expect(example).toBeDefined();
+    const card = expectCard(`${example?.replace(/^ {3}/gm, "")}\n`, "0013-first-run.md");
+    expect(card.frontmatter.kind).toBe("open");
+  });
+});

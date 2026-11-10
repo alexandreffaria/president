@@ -76,10 +76,17 @@ Because it's a symlink, pulling this repo updates the skill.
    | `m` | add a note without deciding |
    | `d` | defer |
    | `j` / `k` | next / previous card |
+   | `u` | undo the last decision, deferral or "neither" (while its notice is shown) |
    | `?` | all shortcuts |
 
-   After you decide, president moves to the next card. Decisions can be undone from the toast or
-   reopened later.
+   Shortcuts never act while you are typing, while a button or link has focus (`Enter` then
+   presses that button), or while the help is open.
+
+   After you decide, president moves to the next card. Undo puts the card back exactly as it
+   was, as long as nothing changed it since (an agent applying it, for example); after that,
+   reopen it instead.
+
+   Notes (`m`) reach agents through `president pending`, which lists notes they haven't read yet.
 
 4. **Decisions** lists everything you decided, newest first, and whether an agent has applied it.
 
@@ -95,9 +102,11 @@ president add examples/demo-project
 president add <path> [--name <name>] [--create]   register a project
 president list [--json]                           show registered projects
 president remove <name-or-path>                   unregister (files are not touched)
-president validate [path]                         check the cards in <path>/decisions
-president pending [path] [--json]                 resolved-but-unapplied and needs-new-options cards
+president validate [path]                         check the cards in <path>/decisions, or one card file
+president pending [path] [--json]                 what agents should act on: unapplied decisions,
+                                                  rejected options, unread notes
 president applied <card-file>                     mark a resolved card as applied
+president seen <card-file>                        mark the human's notes on a card as read
 president serve                                   start the hub (same as npm start)
 ```
 
@@ -107,8 +116,8 @@ The registry is `$XDG_CONFIG_HOME/president/projects.json` (default `~/.config/p
 
 ```sh
 npm run dev         # API on :4747 (restarts on change) + Vite with HMR on http://127.0.0.1:5173
-npm test            # vitest
-npm run typecheck   # tsc for the server/CLI and for the web app
+npm test            # vitest (UI tests run in happy-dom)
+npm run typecheck   # tsc for the server/CLI, the web app and the UI tests
 npm run lint        # biome (npm run format to fix)
 npm run build       # builds the UI into dist/web, which npm start serves
 ```
@@ -127,13 +136,19 @@ examples/     a demo project with sample cards (also used by the tests)
 How it fits together:
 
 - Cards are plain files; president is never the only copy of anything. Status lives in the
-  frontmatter. Writes patch only the YAML fields that changed (comments and unknown fields
-  survive) and go through a temp file + rename.
+  frontmatter. A write changes only the bytes of the fields whose values changed: everything else
+  (comments, quoting, folded text, line endings, the body) is kept byte for byte. Writes go
+  through a temp file that is flushed to disk, keeps the file's permissions, and is renamed over
+  the card.
 - Cards are addressed only by project name and card id; files are found by listing the project's
-  `decisions/` folder, so the API can't be pointed at other paths. The server refuses requests
-  whose Host isn't localhost (DNS rebinding) and cross-site writes.
-- Every action sends the card's revision (a content hash). If an agent changed the file in the
-  meantime, the action is refused and the card reloads, so you never decide on text you didn't see.
+  `decisions/` folder, so the API can't be pointed at other paths. Symlinked cards, and a
+  `decisions/` folder that points outside the project, are refused. The server refuses requests
+  whose Host isn't localhost (DNS rebinding) and writes whose Origin isn't the hub itself (scripts
+  and curl must send `Origin: http://127.0.0.1:4747`).
+- Every action must send the card's revision (a content hash). If an agent changed the file in the
+  meantime, the action is refused and the card reloads, so you never decide on text you didn't
+  see. Undo sends the revision its action returned, and restores the file only if it is still at
+  that revision.
 - A watcher on every `decisions/` folder and on the registry pushes changes to the UI over
   server-sent events.
 - State transitions live in `src/core/actions.ts`, shared by the API and the CLI. The coming
