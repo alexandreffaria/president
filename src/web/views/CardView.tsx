@@ -31,6 +31,9 @@ type Panel = "neither" | "note" | null;
  */
 type ChangedBy = "agent" | "other-tab";
 
+/** How many views of each card are mounted ("project/id"). */
+const openViews = new Map<string, number>();
+
 export function CardView({ project, id }: { project: string; id: string }) {
   const hub = useHub();
   const toast = useToast();
@@ -121,14 +124,19 @@ export function CardView({ project, id }: { project: string; id: string }) {
   }, [ready]);
 
   // Leaving the card with unsent text keeps it (drafts.ts); say so, so nobody retypes it.
-  useEffect(
-    () => () => {
-      if (unsentText(latest.current)) {
-        toast(`What you typed on #${id} is kept; it's there when you come back.`);
-      }
-    },
-    [id, toast, latest],
-  );
+  useEffect(() => {
+    const key = `${project}/${id}`;
+    openViews.set(key, (openViews.get(key) ?? 0) + 1);
+    return () => {
+      openViews.set(key, (openViews.get(key) ?? 1) - 1);
+      // Checked a moment later: React's StrictMode unmounts and mounts again at once.
+      setTimeout(() => {
+        if (!openViews.get(key) && unsentText(latest.current)) {
+          toast(`What you typed on #${id} is kept; it's there when you come back.`);
+        }
+      }, 0);
+    };
+  }, [project, id, toast, latest]);
 
   const goTo = (target: CardDto | undefined) => {
     if (target) navigate(cardPath(target.project, target.id));

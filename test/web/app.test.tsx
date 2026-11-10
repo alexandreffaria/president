@@ -310,7 +310,7 @@ describe("panels holding unsent text (R2-3)", () => {
     // Esc still goes back to the queue, and nothing typed is lost.
     await press("Escape");
     await until(() => pathname() === "/", "the queue");
-    expect(text()).toContain("What you typed on #0001 is kept");
+    await until(() => text().includes("What you typed on #0001 is kept"), "the kept toast");
     await act(async () => navigate("/card/demo/0001"));
     await until(() => text().includes(CARD_TITLE), "the card again");
     expect(text()).toContain("Selected");
