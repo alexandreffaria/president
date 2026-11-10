@@ -49,6 +49,7 @@ feedback:
     note: >-
       The first options were all server databases. Everything has to work with no signal,
       so I only want to compare on-device storage.
+seen_at: 2026-11-06T09:00:00Z
 ---
 
 ## Context

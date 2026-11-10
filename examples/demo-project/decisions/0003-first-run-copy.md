@@ -12,6 +12,7 @@ feedback:
   - at: 2026-11-08T21:15:00Z
     type: defer
     note: I want to see the trip screen working before I write words for it.
+seen_at: 2026-11-09T08:00:00Z
 ---
 
 ## Context

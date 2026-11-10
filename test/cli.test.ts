@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { beforeEach, describe, expect, it } from "vitest";
-import { run } from "../src/cli/main.ts";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CARD_FORMAT_DOC, run } from "../src/cli/main.ts";
 import { cardText, copyDemoProject, tempDir } from "./helpers.ts";
 
 const BIN = join(import.meta.dirname, "..", "bin", "president.js");
@@ -15,8 +16,13 @@ async function cli(...args: string[]) {
   return { code, out: stdout.join("\n"), err: stderr.join("\n") };
 }
 
+let configHome: string;
 beforeEach(async () => {
-  process.env.XDG_CONFIG_HOME = await tempDir();
+  configHome = await tempDir();
+  vi.stubEnv("XDG_CONFIG_HOME", configHome);
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("president CLI", () => {
@@ -52,6 +58,44 @@ describe("president CLI", () => {
     expect(result.code).toBe(1);
     expect(result.err).toMatch(/broken {2}0009-bad\.md\n\s+- status: Invalid option/);
     expect(result.out).toMatch(/4 valid, 1 broken/);
+    expect(result.out).toContain(`Format: ${CARD_FORMAT_DOC}`);
+  });
+
+  it("points at the card format spec by absolute path", async () => {
+    expect(CARD_FORMAT_DOC).toMatch(/^\/.*\/docs\/card-format\.md$/);
+    expect(await readFile(CARD_FORMAT_DOC, "utf8")).toMatch(/^# Decision card format/);
+  });
+
+  it("validates a single card file", async () => {
+    const demo = await copyDemoProject();
+    const good = await cli("validate", join(demo, "decisions", "0002-api-errors.md"));
+    expect(good).toMatchObject({ code: 0 });
+    expect(good.out).toMatch(/^ok {6}0002-api-errors\.md/);
+    const bad = join(demo, "decisions", "0009-bad.md");
+    await writeFile(bad, cardText({ id: '"0009"', status: "maybe" }));
+    const result = await cli("validate", bad);
+    expect(result.code).toBe(1);
+    expect(result.err).toMatch(/broken {2}0009-bad\.md\n\s+- status: Invalid option/);
+    expect(result.out).not.toMatch(/0002/);
+    // Outside a decisions/ folder the file is checked on its own.
+    const loose = join(await tempDir(), "0001-loose.md");
+    await writeFile(loose, cardText());
+    expect(await cli("validate", loose)).toMatchObject({ code: 0 });
+    expect((await cli("validate", join(demo, "decisions", "README.md"))).code).toBe(1);
+  });
+
+  it("warns about depends_on ids that are not cards", async () => {
+    const demo = await copyDemoProject();
+    await writeFile(
+      join(demo, "decisions", "0009-deps.md"),
+      cardText({ id: '"0009"', depends_on: '["0002", "9999", "0009"]' }),
+    );
+    const result = await cli("validate", demo);
+    expect(result.code).toBe(0);
+    expect(result.err).toContain(
+      'warning 0009-deps.md: depends_on "9999" is not a card in this project',
+    );
+    expect(result.err).toContain("warning 0009-deps.md: depends_on lists itself");
   });
 
   it("lists pending work and marks cards applied", async () => {
@@ -68,12 +112,140 @@ describe("president CLI", () => {
 
     const applied = await cli("applied", file);
     expect(applied).toMatchObject({ code: 0 });
-    expect(await readFile(file, "utf8")).toMatch(/^applied_at: \d{4}-/m);
+    const text = await readFile(file, "utf8");
+    expect(text).toMatch(/^applied_at: \d{4}-/m);
     expect((await cli("pending", demo)).out).toBe("Nothing pending.");
 
-    const again = await cli("applied", join(demo, "decisions", "0002-api-errors.md"));
-    expect(again).toMatchObject({ code: 1 });
-    expect(again.err).toMatch(/cannot mark a card as applied while it is open/);
+    // Applying twice changes nothing.
+    const twice = await cli("applied", file);
+    expect(twice).toMatchObject({ code: 0, out: expect.stringMatching(/already applied at/) });
+    expect(await readFile(file, "utf8")).toBe(text);
+
+    const open = await cli("applied", join(demo, "decisions", "0002-api-errors.md"));
+    expect(open).toMatchObject({ code: 1 });
+    expect(open.err).toMatch(/cannot mark a card as applied while it is open/);
+  });
+
+  it("only marks the card file it was given", async () => {
+    const demo = await copyDemoProject();
+    const wrongSlug = await cli("applied", join(demo, "decisions", "0004-other-slug.md"));
+    expect(wrongSlug).toMatchObject({ code: 1, err: expect.stringMatching(/does not exist/) });
+    await writeFile(join(demo, "decisions", "0004-copy.md"), "x");
+    const other = await cli("applied", join(demo, "decisions", "0004-copy.md"));
+    expect(other.code).toBe(1);
+  });
+
+  it("lists new notes from the human until an agent marks them seen", async () => {
+    const demo = await copyDemoProject();
+    const file = join(demo, "decisions", "0002-api-errors.md");
+    const text = await readFile(file, "utf8");
+    await writeFile(
+      file,
+      text.replace(
+        "depends_on: []",
+        "depends_on: []\nfeedback:\n  - at: 2026-11-10T09:00:00Z\n    type: note\n    note: Ask Sam about retries.",
+      ),
+    );
+    const listed = await cli("pending", demo);
+    expect(listed.out).toMatch(/New notes from the human/);
+    expect(listed.out).toContain("note 2026-11-10T09:00:00Z: Ask Sam about retries.");
+    const json = JSON.parse((await cli("pending", demo, "--json")).out);
+    expect(json.new_notes).toMatchObject([
+      { id: "0002", status: "open", notes: [{ note: "Ask Sam about retries." }] },
+    ]);
+
+    expect(await cli("seen", file)).toMatchObject({ code: 0 });
+    expect(await readFile(file, "utf8")).toMatch(/^seen_at: \d{4}-/m);
+    expect((await cli("pending", demo)).out).toBe("Nothing pending.");
+  });
+
+  it("flags a card that was reopened and decided again", async () => {
+    const demo = await copyDemoProject();
+    const file = join(demo, "decisions", "0004-map-tiles.md");
+    const { actOnCard, findCard } = await import("../src/server/cards.ts");
+    const project = { name: "demo", path: demo };
+    const step = async (action: Parameters<typeof actOnCard>[2]) => {
+      const found = await findCard(project, "0004");
+      if (!found.ok) throw new Error("broken");
+      await actOnCard(project, "0004", action, { revision: found.card.revision });
+    };
+    await step({ type: "reopen", note: "Costs changed." });
+    const reopened = await cli("pending", demo);
+    expect(reopened.out).toMatch(/New notes from the human/);
+    expect(reopened.out).toMatch(/reopen .*Reopened; it was resolved as "protomaps"/);
+    await step({ type: "resolve", choice: "maptiler" });
+    const again = await cli("pending", demo);
+    expect(again.out).toContain(file);
+    expect(again.out).toMatch(
+      /Decided again: it was "protomaps" before, applied at 2026-11-03T16:45:00Z\. Replace the earlier record/,
+    );
+    expect(again.out).not.toMatch(/New notes/);
+    const json = JSON.parse((await cli("pending", demo, "--json")).out);
+    expect(json.resolved_not_applied[0]).toMatchObject({
+      previous_resolution: { choice: "protomaps" },
+      previous_applied_at: "2026-11-03T16:45:00Z",
+    });
+  });
+
+  it("warns when --name is ignored for a registered folder", async () => {
+    const demo = await copyDemoProject();
+    await cli("add", demo);
+    const again = await cli("add", demo, "--name", "other");
+    expect(again.code).toBe(0);
+    expect(again.err).toMatch(/--name ignored: this folder is already registered as "demo"/);
+  });
+
+  it("treats . and .. as paths when removing", async () => {
+    const demo = await copyDemoProject();
+    await cli("add", demo);
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(join(demo, "decisions"));
+    try {
+      expect(await cli("remove", "..")).toMatchObject({
+        code: 0,
+        out: expect.stringMatching(/^Removed demo/),
+      });
+    } finally {
+      cwd.mockRestore();
+    }
+  });
+
+  it("explains an invalid registry instead of crashing", async () => {
+    await mkdir(join(configHome, "president"), { recursive: true });
+    await writeFile(
+      join(configHome, "president", "projects.json"),
+      JSON.stringify({ projects: [{ name: "bad name", path: "/tmp" }] }),
+    );
+    const result = await cli("list");
+    expect(result.code).toBe(1);
+    expect(result.err).toMatch(/^president: .*projects\.json is invalid: projects\[0\]\.name/);
+  });
+
+  it.skipIf(process.getuid?.() === 0)("explains a folder it may not create", async () => {
+    const dir = await tempDir();
+    await chmod(dir, 0o500);
+    try {
+      const result = await cli("add", dir, "--create");
+      expect(result.code).toBe(1);
+      expect(result.err).toBe(
+        `president: cannot create ${join(dir, "decisions")}: permission denied`,
+      );
+    } finally {
+      await chmod(dir, 0o700);
+    }
+  });
+
+  it("says when the port is busy instead of printing a stack trace", async () => {
+    const blocker = createServer();
+    await new Promise<void>((resolve) => blocker.listen(0, "127.0.0.1", resolve));
+    const address = blocker.address();
+    vi.stubEnv("PRESIDENT_PORT", String(typeof address === "object" && address?.port));
+    try {
+      const result = await cli("serve");
+      expect(result.code).toBe(1);
+      expect(result.err).toMatch(/^president: the port is already in use/);
+    } finally {
+      blocker.close();
+    }
   });
 
   it("explains unknown commands and bad arguments", async () => {
