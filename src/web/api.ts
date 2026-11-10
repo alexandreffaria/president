@@ -9,7 +9,6 @@ import type {
   CardDetailDto,
   CardListResponse,
   CardResponse,
-  ProjectDto,
 } from "../core/api.ts";
 
 export class RequestError extends Error {
@@ -46,12 +45,18 @@ export const api = {
   cards: () => call<CardListResponse>("/api/cards"),
   card: (project: string, id: string) =>
     call<CardResponse>(`/api/cards/${segment(project)}/${segment(id)}`),
-  act: (project: string, id: string, action: CardAction, revision?: string) =>
+  /** `revision` is the revision of the card the human is looking at. */
+  act: (project: string, id: string, action: CardAction, revision: string) =>
     call<{ ok: true; card: CardDetailDto }>(
       `/api/cards/${segment(project)}/${segment(id)}/actions`,
       { method: "POST", body: JSON.stringify({ ...action, revision }) },
     ),
-  projects: () => call<{ projects: ProjectDto[] }>("/api/projects"),
+  /** Reverts the action that returned `revision`, if nothing changed the card since. */
+  undo: (project: string, id: string, revision: string) =>
+    call<{ ok: true; card: CardDetailDto }>(`/api/cards/${segment(project)}/${segment(id)}/undo`, {
+      method: "POST",
+      body: JSON.stringify({ revision }),
+    }),
   addProject: (input: AddProjectRequest) =>
     call<AddProjectResponse>("/api/projects", { method: "POST", body: JSON.stringify(input) }),
   removeProject: (name: string) =>

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { buildQueue } from "../core/queue.ts";
+import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import { HelpOverlay } from "./components/HelpOverlay.tsx";
 import { HubProvider, useHub } from "./hub.tsx";
 import { useKeyboard } from "./keyboard.ts";
@@ -12,37 +13,64 @@ import { QueueView } from "./views/QueueView.tsx";
 
 export function App() {
   return (
-    <ToastProvider>
-      <HubProvider>
-        <Shell />
-      </HubProvider>
-    </ToastProvider>
+    <ErrorBoundary>
+      <ToastProvider>
+        <HubProvider>
+          <Shell />
+        </HubProvider>
+      </ToastProvider>
+    </ErrorBoundary>
   );
 }
 
 function Shell() {
-  const route = parseRoute(usePathname());
+  const pathname = usePathname();
+  const route = parseRoute(pathname);
   const [help, setHelp] = useState(false);
-  useKeyboard({ "?": () => setHelp((open) => !open) });
+  // While the help is open it handles `?` itself (and every other shortcut is off).
+  useKeyboard({ "?": () => setHelp(true) });
 
   return (
     <>
       <Header current={route.name} onHelp={() => setHelp(true)} />
+      <LoadErrorBanner />
       <main className="main">
-        {route.name === "queue" && <QueueView />}
-        {route.name === "card" && (
-          <CardView key={`${route.project}/${route.id}`} project={route.project} id={route.id} />
-        )}
-        {route.name === "log" && <LogView />}
-        {route.name === "projects" && <ProjectsView />}
-        {route.name === "not-found" && (
-          <div className="empty">
-            <p>There's nothing at this address.</p>
-            <Link to="/">Go to the queue</Link>
-          </div>
-        )}
+        <ErrorBoundary key={pathname}>
+          <Route route={route} />
+        </ErrorBoundary>
       </main>
       {help && <HelpOverlay onClose={() => setHelp(false)} />}
+    </>
+  );
+}
+
+/** Shown whenever the last refresh failed, even if older cards are still on screen. */
+function LoadErrorBanner() {
+  const { loaded, loadError, cards } = useHub();
+  if (!loaded || !loadError) return null;
+  return (
+    <p className="notice notice-warn load-error" role="alert">
+      {cards.length > 0 ? "Couldn't refresh; what you see may be out of date. " : ""}
+      {loadError}
+    </p>
+  );
+}
+
+function Route({ route }: { route: ReturnType<typeof parseRoute> }) {
+  return (
+    <>
+      {route.name === "queue" && <QueueView />}
+      {route.name === "card" && (
+        <CardView key={`${route.project}/${route.id}`} project={route.project} id={route.id} />
+      )}
+      {route.name === "log" && <LogView />}
+      {route.name === "projects" && <ProjectsView />}
+      {route.name === "not-found" && (
+        <div className="empty">
+          <p>There's nothing at this address.</p>
+          <Link to="/">Go to the queue</Link>
+        </div>
+      )}
     </>
   );
 }

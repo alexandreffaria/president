@@ -11,7 +11,12 @@ export type Route =
   | { name: "not-found" };
 
 export function parseRoute(pathname: string): Route {
-  const parts = pathname.split("/").filter(Boolean).map(decodeURIComponent);
+  let parts: string[];
+  try {
+    parts = pathname.split("/").filter(Boolean).map(decodeURIComponent);
+  } catch {
+    return { name: "not-found" }; // a malformed escape such as %E0%A4%A
+  }
   if (parts.length === 0) return { name: "queue" };
   if (parts[0] === "card" && parts.length === 3 && parts[1] && parts[2]) {
     return { name: "card", project: parts[1], id: parts[2] };
@@ -53,6 +58,7 @@ export function Link(props: {
   className?: string;
   children: ReactNode;
   title?: string;
+  "aria-current"?: "true" | "page" | undefined;
 }) {
   const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
@@ -62,7 +68,13 @@ export function Link(props: {
     navigate(props.to);
   };
   return (
-    <a href={props.to} className={props.className} title={props.title} onClick={onClick}>
+    <a
+      href={props.to}
+      className={props.className}
+      title={props.title}
+      aria-current={props["aria-current"]}
+      onClick={onClick}
+    >
       {props.children}
     </a>
   );

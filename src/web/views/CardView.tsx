@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CardAction } from "../../core/actions.ts";
 import type { BrokenCardDto, CardDetailDto, CardDto } from "../../core/api.ts";
 import { CUSTOM_CHOICE } from "../../core/model.ts";
-import { buildQueue, openDependencies } from "../../core/queue.ts";
+import { buildQueue, openDependencies, unknownDependencies } from "../../core/queue.ts";
 import { api, RequestError } from "../api.ts";
 import { CardAssistant } from "../components/CardAssistant.tsx";
 import { FeedbackHistory } from "../components/FeedbackHistory.tsx";
@@ -30,8 +30,13 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const [decisionNote, setDecisionNote] = useState("");
   const [panel, setPanel] = useState<Panel>(null);
   const [busy, setBusy] = useState(false);
-  const [changedOnDisk, setChangedOnDisk] = useState(false);
+  /** Set when an agent changed the card while it was open: "cleared" if a choice was undone. */
+  const [changedOnDisk, setChangedOnDisk] = useState<"changed" | "cleared" | null>(null);
   const ownRevision = useRef<string | undefined>(undefined);
+  /** What the human has started but not submitted, read when the card changes on disk. */
+  const pending = useRef({ selected: undefined as string | undefined });
+  pending.current.selected = selected;
+  const heading = useRef<HTMLHeadingElement>(null);
   const version = hub.versions[project] ?? 0;
 
   const queue = buildQueue(hub.cards, hub.projectFilter);
@@ -47,7 +52,13 @@ export function CardView({ project, id }: { project: string; id: string }) {
       }
       const previous = currentRevision.current;
       if (previous && previous !== res.card.revision && res.card.revision !== ownRevision.current) {
-        setChangedOnDisk(true);
+        // The options may now mean something else: never keep a choice made on the old text.
+        if (pending.current.selected) {
+          setSelected(undefined);
+          setChangedOnDisk("cleared");
+        } else {
+          setChangedOnDisk((current) => current ?? "changed");
+        }
       }
       currentRevision.current = res.card.revision;
       setLoaded({ state: "ok", card: res.card });
@@ -70,11 +81,11 @@ export function CardView({ project, id }: { project: string; id: string }) {
     if (fm && selected && !fm.options.some((o) => o.id === selected)) setSelected(undefined);
   }, [fm, selected]);
 
+  // Move focus to the new card's title, so keyboard and screen reader users start there.
+  const ready = loaded.state !== "loading";
   useEffect(() => {
-    if (!changedOnDisk) return;
-    const timer = window.setTimeout(() => setChangedOnDisk(false), 6000);
-    return () => window.clearTimeout(timer);
-  }, [changedOnDisk]);
+    if (ready) heading.current?.focus();
+  }, [ready]);
 
   const goTo = (target: CardDto | undefined) => {
     if (target) navigate(cardPath(target.project, target.id));
@@ -96,16 +107,26 @@ export function CardView({ project, id }: { project: string; id: string }) {
       setLoaded({ state: "ok", card: res.card });
       void hub.refresh();
       if (options.done) {
+        const after = res.card.revision;
         const undo =
-          action.type === "resolve" || action.type === "defer"
+          action.type === "resolve" || action.type === "defer" || action.type === "neither"
             ? {
                 label: "Undo",
+                key: "u",
                 run: () => {
                   api
-                    .act(project, id, { type: "reopen" })
-                    .then(() => hub.refresh())
-                    .then(() => navigate(cardPath(project, id)))
-                    .catch((error: Error) => toast(error.message, { tone: "error" }));
+                    .undo(project, id, after)
+                    .then((undone) => {
+                      ownRevision.current = undone.card.revision;
+                      return hub.refresh();
+                    })
+                    .then(() => {
+                      navigate(cardPath(project, id));
+                      toast(`Undone. #${id} is back as it was.`);
+                    })
+                    .catch((error: Error) =>
+                      toast(`Couldn't undo: ${error.message}`, { tone: "error" }),
+                    );
                 },
               }
             : undefined;
@@ -203,6 +224,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
 
   const sections = new Map(card.sections.options.map((s) => [s.id, s.markdown]));
   const blockers = openDependencies(card, hub.cards);
+  const unknown = hub.loaded ? unknownDependencies(card, hub.cards) : [];
   const chosen = fm.resolution?.choice;
   const recommended = fm.recommendation
     ? options.findIndex((o) => o.id === fm.recommendation?.option)
@@ -254,11 +276,19 @@ export function CardView({ project, id }: { project: string; id: string }) {
             </time>
           </span>
         </p>
-        <h1 className="card-title">{fm.title}</h1>
+        <h1 className="card-title" ref={heading} tabIndex={-1}>
+          {fm.title}
+          {position !== -1 && (
+            <span className="sr-only">
+              , card {position + 1} of {queue.length}
+            </span>
+          )}
+        </h1>
         {fm.tags.length > 0 && (
           <p className="tags">
-            {fm.tags.map((t) => (
-              <span key={t} className="tag">
+            {fm.tags.map((t, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: tags may repeat
+              <span key={i} className="tag">
                 {t}
               </span>
             ))}
@@ -267,9 +297,23 @@ export function CardView({ project, id }: { project: string; id: string }) {
       </header>
 
       {changedOnDisk && (
-        <p className="notice notice-info" role="status">
-          This card was just updated on disk.
-        </p>
+        <div
+          className={`notice ${changedOnDisk === "cleared" ? "notice-warn" : "notice-info"} notice-dismissable`}
+          role="alert"
+        >
+          <p>
+            {changedOnDisk === "cleared"
+              ? "An agent changed this card while you had it open, so your choice was cleared. Read it again before deciding."
+              : "An agent changed this card while you had it open. What you see now is the new version."}
+          </p>
+          <button
+            type="button"
+            className="button button-quiet"
+            onClick={() => setChangedOnDisk(null)}
+          >
+            Dismiss
+          </button>
+        </div>
       )}
       <StatusNotice card={card} />
       {blockers.length > 0 && isActive && (
@@ -278,12 +322,27 @@ export function CardView({ project, id }: { project: string; id: string }) {
           {blockers.length === 1 ? "isn't" : "aren't"} decided yet.
         </p>
       )}
+      {unknown.length > 0 && (
+        <p className="notice notice-warn">
+          This card lists {unknown.map((b) => `#${b}`).join(", ")} in depends_on, but{" "}
+          {unknown.length === 1 ? "that isn't another card" : "those aren't other cards"} in{" "}
+          {project}. Ask an agent to fix it.
+        </p>
+      )}
 
       <Markdown className="card-context">{card.sections.context}</Markdown>
 
       {options.length > 0 && (
-        <section aria-label="Options">
-          {fm.kind === "open" && <h2 className="section-heading">Suggestions</h2>}
+        <section aria-labelledby="options-heading">
+          {fm.kind === "open" ? (
+            <h2 id="options-heading" className="section-heading">
+              Suggestions
+            </h2>
+          ) : (
+            <h2 id="options-heading" className="sr-only">
+              Options
+            </h2>
+          )}
           <div className={fm.kind === "ab" ? "options options-ab" : "options"}>
             {options.map((option, index) => (
               <OptionCard
@@ -318,7 +377,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
 
       <Markdown className="card-appendix">{card.sections.appendix}</Markdown>
 
-      <FeedbackHistory feedback={fm.feedback} />
+      <FeedbackHistory feedback={fm.feedback} seenAt={fm.seen_at} />
       <CardAssistant card={card} />
 
       <p className="muted small file-path">
@@ -397,9 +456,16 @@ function ActionBar(props: {
   const fm = card.frontmatter;
   const [text, setText] = useState("");
   const [answer, setAnswer] = useState("");
+  const neitherButton = useRef<HTMLButtonElement>(null);
+  const noteButton = useRef<HTMLButtonElement>(null);
+  const lastPanel = useRef<Panel>(null);
 
   useEffect(() => {
     if (panel) setText("");
+    // When a panel closes, put focus back on the button that opens it.
+    else if (lastPanel.current === "neither") neitherButton.current?.focus();
+    else if (lastPanel.current === "note") noteButton.current?.focus();
+    lastPanel.current = panel;
   }, [panel]);
 
   if (fm.status === "resolved") {
@@ -541,6 +607,7 @@ function ActionBar(props: {
         <span className="action-bar-secondary">
           {fm.options.length > 0 && (
             <button
+              ref={neitherButton}
               type="button"
               className="button"
               disabled={busy}
@@ -550,6 +617,7 @@ function ActionBar(props: {
             </button>
           )}
           <button
+            ref={noteButton}
             type="button"
             className="button"
             disabled={busy}
@@ -602,8 +670,9 @@ function BrokenCard({ broken }: { broken: BrokenCardDto }) {
         <code>{broken.fileName}</code> in <strong>{broken.project}</strong> couldn't be read:
       </p>
       <ul className="broken">
-        {broken.errors.map((error) => (
-          <li key={error}>{error}</li>
+        {broken.errors.map((error, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: messages may repeat
+          <li key={i}>{error}</li>
         ))}
       </ul>
       <p className="muted">

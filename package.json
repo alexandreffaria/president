@@ -12,14 +12,14 @@
     "president": "bin/president.js"
   },
   "scripts": {
-    "dev": "concurrently --kill-others-on-fail --names api,web --prefix-colors blue,magenta \"node --watch-path=src src/server/main.ts\" \"vite\"",
+    "dev": "concurrently --kill-others-on-fail --names api,web --prefix-colors blue,magenta \"node --watch-path=src/server --watch-path=src/core --watch-path=src/cli src/server/main.ts\" \"vite\"",
     "build": "vite build",
     "start": "node src/server/main.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "biome check .",
     "format": "biome check --write .",
-    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.web.json"
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.web.json && tsc -p tsconfig.web-test.json"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.6",
@@ -40,6 +40,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",
     "concurrently": "^10.0.7",
+    "happy-dom": "^21.0.4",
     "typescript": "^7.0.2",
     "vite": "^8.3.7",
     "vitest": "^5.1.0"

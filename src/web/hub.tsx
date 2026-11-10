@@ -67,11 +67,12 @@ export function HubProvider({ children }: { children: ReactNode }) {
       do {
         again.current = false;
         try {
-          const [list, projectList] = await Promise.all([api.cards(), api.projects()]);
+          // One request: the card list carries the projects and their counts.
+          const list = await api.cards();
           setCards(list.cards);
           setBroken(list.broken);
           setProjectErrors(list.projectErrors);
-          setProjects(projectList.projects);
+          setProjects(list.projects);
           setLoadError(undefined);
         } catch (error) {
           setLoadError((error as Error).message);

@@ -35,8 +35,10 @@ export function OptionCard(props: {
             <div>
               <h4 className="tradeoffs-heading tradeoffs-pros">Pros</h4>
               <ul>
-                {option.pros.map((pro) => (
-                  <li key={pro}>{pro}</li>
+                {option.pros.map((pro, i) => (
+                  // Static list; two pros may have the same text.
+                  // biome-ignore lint/suspicious/noArrayIndexKey: static list, duplicates allowed
+                  <li key={i}>{pro}</li>
                 ))}
               </ul>
             </div>
@@ -45,8 +47,9 @@ export function OptionCard(props: {
             <div>
               <h4 className="tradeoffs-heading tradeoffs-cons">Cons</h4>
               <ul>
-                {option.cons.map((con) => (
-                  <li key={con}>{con}</li>
+                {option.cons.map((con, i) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: static list, duplicates allowed
+                  <li key={i}>{con}</li>
                 ))}
               </ul>
             </div>

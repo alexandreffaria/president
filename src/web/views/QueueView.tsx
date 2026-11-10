@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { BrokenCardDto, CardDto } from "../../core/api.ts";
 import { buildQueue, isWaitingOnAgent, openDependencies } from "../../core/queue.ts";
-import { fullDate, KIND_LABEL, timeAgo } from "../format.ts";
+import { fullDate, KIND_LABEL, PRIORITY_LABEL, timeAgo } from "../format.ts";
 import { useHub } from "../hub.tsx";
 import { useKeyboard } from "../keyboard.ts";
 import { cardPath, Link, navigate } from "../router.tsx";
@@ -20,11 +20,13 @@ export function QueueView() {
     if (selected >= queue.length) setSelected(Math.max(0, queue.length - 1));
   }, [queue.length, selected]);
 
+  const move = (step: 1 | -1) =>
+    setSelected((i) => Math.max(0, Math.min(i + step, queue.length - 1)));
   useKeyboard({
-    j: () => setSelected((i) => Math.min(i + 1, queue.length - 1)),
-    k: () => setSelected((i) => Math.max(i - 1, 0)),
-    arrowdown: () => setSelected((i) => Math.min(i + 1, queue.length - 1)),
-    arrowup: () => setSelected((i) => Math.max(i - 1, 0)),
+    j: () => move(1),
+    k: () => move(-1),
+    arrowdown: () => move(1),
+    arrowup: () => move(-1),
     enter: () => {
       const card = queue[selected];
       if (!card) return false;
@@ -33,13 +35,8 @@ export function QueueView() {
   });
 
   if (!hub.loaded) return <p className="muted">Loading…</p>;
-  if (hub.loadError && cards.length === 0) {
-    return (
-      <div className="empty">
-        <p>{hub.loadError}</p>
-      </div>
-    );
-  }
+  // The shell shows the error itself (see LoadErrorBanner).
+  if (hub.loadError && cards.length === 0) return null;
 
   const openCount = (project: string) => buildQueue(cards, project).length;
 
@@ -159,10 +156,19 @@ function QueueItem(props: {
   }, [selected]);
   return (
     <li ref={item} className={selected ? "queue-item queue-item-selected" : "queue-item"}>
-      <Link to={cardPath(card.project, card.id)} className="queue-link">
-        <span className={`priority priority-${fm.priority}`} title={`${fm.priority} priority`} />
+      <Link
+        to={cardPath(card.project, card.id)}
+        className="queue-link"
+        aria-current={selected ? "true" : undefined}
+      >
+        <span
+          className={`priority priority-${fm.priority}`}
+          title={PRIORITY_LABEL[fm.priority]}
+          aria-hidden="true"
+        />
         <span className="queue-main">
           <span className="queue-title">{fm.title}</span>
+          <span className="sr-only">, {PRIORITY_LABEL[fm.priority]}</span>
           <span className="queue-meta">
             {props.showProject && <span>{card.project}</span>}
             <span>#{card.id}</span>
@@ -184,8 +190,9 @@ function QueueItem(props: {
         </span>
         {fm.tags.length > 0 && (
           <span className="tags">
-            {fm.tags.map((t) => (
-              <span key={t} className="tag">
+            {fm.tags.map((t, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: tags may repeat
+              <span key={i} className="tag">
                 {t}
               </span>
             ))}
@@ -222,8 +229,9 @@ function BrokenList({ broken }: { broken: BrokenCardDto[] }) {
               <strong>{b.fileName}</strong> <span className="muted small">{b.project}</span>
             </div>
             <ul>
-              {b.errors.map((error) => (
-                <li key={error}>{error}</li>
+              {b.errors.map((error, i) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: messages may repeat
+                <li key={i}>{error}</li>
               ))}
             </ul>
           </li>

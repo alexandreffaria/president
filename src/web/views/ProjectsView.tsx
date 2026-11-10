@@ -81,7 +81,12 @@ export function ProjectsView() {
                 </span>
               )}
             </div>
-            <button type="button" className="button button-quiet" onClick={() => void remove(p)}>
+            <button
+              type="button"
+              className="button button-quiet"
+              aria-label={`Remove ${p.name}`}
+              onClick={() => void remove(p)}
+            >
               Remove
             </button>
           </li>

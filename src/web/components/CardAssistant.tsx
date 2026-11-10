@@ -12,7 +12,8 @@ export function CardAssistant(_props: { card: CardDetailDto }) {
       <h2 className="section-heading">Discuss</h2>
       <p className="muted">
         Asking questions about this card, "teach me the background" and research requests will live
-        here in a later version. For now, add a note and an agent will pick it up.
+        here in a later version. For now, add a note (<kbd>m</kbd>): agents see new notes the next
+        time they run <code>president pending</code> in this project, and mark them read.
       </p>
     </section>
   );

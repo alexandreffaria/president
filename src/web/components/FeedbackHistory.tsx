@@ -1,3 +1,4 @@
+import { unseenFeedback } from "../../core/pending.ts";
 import type { FeedbackEntry } from "../../core/schema.ts";
 import { fullDate, timeAgo } from "../format.ts";
 
@@ -8,8 +9,10 @@ const LABEL: Record<string, string> = {
   reopen: "Reopened",
 };
 
-export function FeedbackHistory({ feedback }: { feedback: FeedbackEntry[] }) {
+export function FeedbackHistory(props: { feedback: FeedbackEntry[]; seenAt: string | undefined }) {
+  const { feedback } = props;
   if (feedback.length === 0) return null;
+  const unseen = new Set(unseenFeedback({ feedback, seen_at: props.seenAt }));
   return (
     <section className="section" aria-labelledby="feedback-heading">
       <h2 id="feedback-heading" className="section-heading">
@@ -25,6 +28,14 @@ export function FeedbackHistory({ feedback }: { feedback: FeedbackEntry[] }) {
               <time dateTime={entry.at} title={fullDate(entry.at)}>
                 {timeAgo(entry.at)}
               </time>
+              {unseen.has(entry) && (
+                <span
+                  className="feedback-unseen"
+                  title="Agents see it when they run `president pending`"
+                >
+                  not read by an agent yet
+                </span>
+              )}
             </div>
             <p className="feedback-note">{entry.note}</p>
           </li>
