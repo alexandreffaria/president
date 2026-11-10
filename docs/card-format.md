@@ -61,7 +61,7 @@ title: How should the API client report errors?
 | `recommendation` | no | `{option, why}` | The agent's pick and the reason, in one or two sentences. `option` must be an option id. |
 | `options` | per kind | list | See [options](#options). |
 | `feedback` | no | list of `{at, note, type?}` | Rounds of human feedback, oldest first. president appends to it. |
-| `needs_new_options` | no | boolean | Set by president when the human rejects every option ("neither"). An agent should write new options from the latest feedback, then remove the flag. Not allowed on a resolved card. |
+| `needs_new_options` | no | boolean | Set by president when the human rejects every option ("neither"). An agent should write new options that answer all feedback newer than `seen_at` (all of it if there is no `seen_at`), then remove the flag. Not allowed on a resolved card. |
 | `resolution` | when resolved | `{choice, note?, resolved_at}` | The human's answer. `choice` is an option id, or `custom` with the answer in `note`. |
 | `applied_at` | no | timestamp | Set by an agent after it has acted on the resolution (updated the docs): `president applied <file> --token <token>`. Only on resolved cards. |
 | `seen_at` | no | timestamp | The `at` of the newest feedback entry an agent has read. `president seen` and `president applied` set it to the newest entry `president pending` showed. Feedback newer than this is listed by `president pending`. |
