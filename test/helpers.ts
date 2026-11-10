@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach } from "vitest";
 
-export const DEMO_PROJECT = join(import.meta.dirname, "..", "examples", "demo-project");
+/**
+ * The tests' own copy of the demo project. The example in examples/ is for people to try,
+ * so tests never depend on it being untouched.
+ */
+export const DEMO_PROJECT = join(import.meta.dirname, "fixtures", "demo-project");
 
 const cleanups: string[] = [];
 

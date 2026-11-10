@@ -96,8 +96,12 @@ Because it's a symlink, pulling this repo updates the skill.
 To try it with sample cards:
 
 ```sh
-president add examples/demo-project
+president demo        # copies examples/demo-project to a temporary folder and registers the copy
 ```
+
+Work on the copy, not on `examples/demo-project` itself: deciding a card rewrites its file. Give
+a folder (`president demo ~/president-demo`) to keep the copy around, and `president remove demo`
+when you are done.
 
 ### CLI
 
@@ -111,6 +115,7 @@ president pending [path] [--json]                 what agents should act on: una
                                                   with the `done:` command to run once handled
 president applied <card-file> --token <token>     mark a resolved card as applied
 president seen <card-file> --token <token>        mark the human's feedback on a card as read
+president demo [path] [--name <name>]             copy the sample project and register the copy
 president serve                                   start the hub (same as npm start)
 ```
 
@@ -134,7 +139,8 @@ src/server/   Hono API, registry, file access, watcher + server-sent events
 src/cli/      the president command
 src/web/      React UI
 skills/       the Claude Code skill for agents
-examples/     a demo project with sample cards (also used by the tests)
+examples/     a demo project with sample cards (`president demo` copies it)
+test/         vitest suites; test/fixtures/ has the tests' own copy of the demo cards
 ```
 
 How it fits together:

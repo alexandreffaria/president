@@ -1,7 +1,8 @@
 /**
  * The \`president\` commands (see main.ts for the dispatch and the help text).
  */
-import { readFile, stat } from "node:fs/promises";
+import { cp, mkdtemp, readdir, readFile, realpath, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import type { CardAction } from "../core/actions.ts";
@@ -23,7 +24,7 @@ import {
 import { UserError } from "../server/errors.ts";
 import { DECISIONS_DIR, type Project, Registry } from "../server/registry.ts";
 
-import { CARD_FORMAT_DOC, type Output } from "./main.ts";
+import { CARD_FORMAT_DOC, DEMO_SOURCE, type Output } from "./main.ts";
 
 export async function add(args: string[], out: Output): Promise<number> {
   const { values, positionals } = parseArgs({
@@ -37,6 +38,11 @@ export async function add(args: string[], out: Output): Promise<number> {
     name: values.name,
     createDecisions: values.create,
   });
+  if (await sameFolder(project.path, DEMO_SOURCE)) {
+    out.error(
+      "president: warning: this is president's own sample folder, tracked in git; every click in the UI changes its files. To try president, run `president demo` instead: it works on a copy.",
+    );
+  }
   if (alreadyRegistered && values.name !== undefined && values.name !== project.name) {
     out.error(
       `president: --name ignored: this folder is already registered as "${project.name}". To rename it, run \`president remove ${project.name}\` and add it again.`,
@@ -46,6 +52,35 @@ export async function add(args: string[], out: Output): Promise<number> {
     alreadyRegistered
       ? `Already registered: ${project.name} (${project.path})`
       : `Registered ${project.name} (${project.path})`,
+  );
+  return 0;
+}
+
+/** `president demo`: a copy of the sample project, registered, so nothing tracked changes. */
+export async function demo(args: string[], out: Output): Promise<number> {
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: { name: { type: "string" } },
+  });
+  if (positionals.length > 1) throw new UserError("usage: president demo [path] [--name <name>]");
+  const target = positionals[0]
+    ? resolve(positionals[0])
+    : join(await mkdtemp(join(tmpdir(), "president-demo-")), "demo");
+  const existing = await readdir(target).catch(() => undefined);
+  if (existing && existing.length > 0) {
+    throw new UserError(`"${target}" is not empty; give a new or empty folder for the demo`);
+  }
+  await cp(DEMO_SOURCE, target, { recursive: true });
+
+  const registry = new Registry();
+  const taken = new Set((await registry.list()).map((p) => p.name));
+  let name = values.name ?? "demo";
+  for (let i = 2; values.name === undefined && taken.has(name); i++) name = `demo-${i}`;
+  const { project } = await registry.add({ path: target, name });
+  out.log(`Copied the demo project to ${project.path} and registered it as "${project.name}".`);
+  out.log(
+    `Open the hub (\`president serve\`, http://127.0.0.1:${process.env.PRESIDENT_PORT || 4747}) to see its cards. When you are done: president remove ${project.name}`,
   );
   return 0;
 }
@@ -357,6 +392,11 @@ async function cardFromFile(
 export async function serve(out: Output): Promise<number> {
   const { runServer } = await import("../server/server.ts");
   return runServer(out);
+}
+
+async function sameFolder(a: string, b: string): Promise<boolean> {
+  const [x, y] = await Promise.all([realpath(a).catch(() => a), realpath(b).catch(() => b)]);
+  return x === y;
 }
 
 /** A project for commands that work on a folder, whether or not it is registered. */

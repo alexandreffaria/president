@@ -6,6 +6,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { UserError } from "../server/errors.ts";
 
+/** The sample project that `president demo` copies. */
+export const DEMO_SOURCE = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "examples",
+  "demo-project",
+);
+
 /** The card format spec, so agents in other projects can find it. */
 export const CARD_FORMAT_DOC = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -36,6 +45,9 @@ Usage:
   president seen <card-file> --token <token>
       Mark the human's feedback on a card as read (sets seen_at), after acting on it.
       Both take the token \`pending\` printed, and refuse if the human changed the card since.
+  president demo [path] [--name <name>]
+      Copy the sample project into <path> (default: a new temporary folder) and register the
+      copy, to try president without touching any of your files.
   president serve
       Start the hub web app (needs \`npm run build\` first for the UI).
 
@@ -74,6 +86,8 @@ export async function run(argv: string[], out: Output = console): Promise<number
         return await (await commands()).applied(rest, out);
       case "seen":
         return await (await commands()).seen(rest, out);
+      case "demo":
+        return await (await commands()).demo(rest, out);
       case "serve":
       case "start":
         return await (await commands()).serve(out);

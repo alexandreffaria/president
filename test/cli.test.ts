@@ -4,7 +4,7 @@ import { createServer } from "node:net";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CARD_FORMAT_DOC, run } from "../src/cli/main.ts";
+import { CARD_FORMAT_DOC, DEMO_SOURCE, run } from "../src/cli/main.ts";
 import type { CardAction } from "../src/core/actions.ts";
 import { actOnCard, findCard } from "../src/server/cards.ts";
 import { cardText, copyDemoProject, tempDir } from "./helpers.ts";
@@ -60,6 +60,29 @@ describe("president CLI", () => {
     expect(JSON.parse((await cli("list", "--json")).out)).toEqual([{ name: "demo", path: demo }]);
     expect((await cli("remove", "demo")).code).toBe(0);
     expect((await cli("list")).out).toMatch(/No projects registered/);
+  });
+
+  it("tries the demo on a copy, never on the tracked example", async () => {
+    const scratch = await tempDir();
+    vi.stubEnv("TMPDIR", scratch);
+    const first = await cli("demo");
+    expect(first).toMatchObject({ code: 0 });
+    const copy = /to (\S+) and registered it as "demo"/.exec(first.out)?.[1] ?? "";
+    expect(copy.startsWith(scratch)).toBe(true);
+    expect(await readFile(join(copy, "decisions", "0002-api-errors.md"), "utf8")).toBe(
+      await readFile(join(DEMO_SOURCE, "decisions", "0002-api-errors.md"), "utf8"),
+    );
+    // A second demo gets its own name; a folder with files in it is refused.
+    const second = join(scratch, "mine");
+    expect((await cli("demo", second)).out).toMatch(/registered it as "demo-2"/);
+    expect(await cli("demo", second)).toMatchObject({
+      code: 1,
+      err: expect.stringMatching(/is not empty/),
+    });
+    expect((await cli("list")).out.split("\n")).toEqual([`demo\t${copy}`, `demo-2\t${second}`]);
+
+    const tracked = await cli("add", DEMO_SOURCE, "--name", "tracked");
+    expect(tracked.err).toMatch(/warning: this is president's own sample folder.*president demo/);
   });
 
   it("needs --create for a folder without decisions/", async () => {
