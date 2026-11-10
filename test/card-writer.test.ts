@@ -6,7 +6,7 @@ import { parseCard } from "../src/core/card-file.ts";
 import { updateCardText } from "../src/core/card-writer.ts";
 import { deepEqual } from "../src/core/equal.ts";
 import { agentToken } from "../src/core/pending.ts";
-import { DEMO_PROJECT, diffLines } from "./helpers.ts";
+import { cardText, DEMO_PROJECT, diffLines } from "./helpers.ts";
 
 const NOW = new Date("2026-11-10T12:00:00Z");
 
@@ -241,6 +241,68 @@ seen_at: 2026-11-02T00:00:00Z
       "    note: Two.",
     ]);
     expect(out).toContain("    note: Two.\n  # more rounds go here\nseen_at:");
+
+    // R3-3: the same with CRLF line endings.
+    const crlf = commented.replaceAll("\n", "\r\n");
+    const { out: crlfOut } = write(crlf, { type: "note", note: "Two." });
+    expect(crlfOut).toBe(out.replaceAll("\n", "\r\n"));
+  });
+
+  it("keeps the comments after a removed field (R3-7)", () => {
+    const head = card.split("feedback:")[0] ?? "";
+    const resolved = `${head.replace("status: open", "status: resolved")}resolution:
+  choice: a
+  resolved_at: 2026-11-03T00:00:00Z
+  # agent: applied in docs/decisions.md
+# ---- agent bookkeeping ----
+mine: 1
+---
+
+## Context
+`;
+    for (const text of [resolved, resolved.replaceAll("\n", "\r\n")]) {
+      const { out } = write(text, { type: "reopen" });
+      const newline = text.includes("\r\n") ? "\r\n" : "\n";
+      expect(out).toContain(
+        [
+          "single: 'single quoted'",
+          "  # agent: applied in docs/decisions.md",
+          "# ---- agent bookkeeping ----",
+          "mine: 1",
+          "feedback:",
+        ].join(newline),
+      );
+      expect(diffLines(text, out).removed.map((r) => r.text.replace(/\r$/, ""))).toEqual([
+        "status: resolved   # agents: keep open",
+        "resolution:",
+        "  choice: a",
+        "  resolved_at: 2026-11-03T00:00:00Z",
+      ]);
+    }
+  });
+
+  it("takes indented comments with a removed field only when they'd fall into a block above", () => {
+    const text = cardText({
+      status: "resolved",
+      notes: "|\n  literal text",
+      resolution:
+        "\n  choice: a\n  resolved_at: 2026-11-03T00:00:00Z\n  # about the resolution\n# kept",
+    });
+    const { out } = write(text, { type: "reopen" });
+    // Kept, "  # about the resolution" would have become a line of `notes`.
+    expect(out).toContain("notes: |\n  literal text\n# kept\n");
+    expect(parsed(out).raw.notes).toBe("literal text\n");
+  });
+
+  it("keeps mixed line endings byte for byte, writing new lines with the usual one", () => {
+    const lines = card.split("\n");
+    const mixed = lines.map((line, i) => (i % 3 === 0 ? `${line}\r` : line)).join("\n");
+    const { out } = write(mixed, { type: "note", note: "Mixed." });
+    const kept = mixed.split("\n");
+    const outLines = out.split("\n");
+    // Every original line is still there, with its own ending.
+    expect(outLines.filter((line) => kept.includes(line)).length).toBe(kept.length);
+    expect(out).toContain("    note: Mixed.\n");
   });
 
   it("changes a field whose anchor another field aliases, keeping the alias's value", () => {
