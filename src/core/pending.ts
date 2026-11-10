@@ -95,7 +95,7 @@ function staleReason(card: Card): string {
     card.status === "resolved" && card.resolution
       ? `resolved as "${card.resolution.choice}" (decided at ${card.resolution.resolved_at})`
       : card.status;
-  return `The card changed since you ran \`president pending\` (it is now ${now}; the human may have changed their decision or undone a note), or the token is for another card.`;
+  return `The card changed since you ran \`president pending\`: it is now ${now}. The human may have changed their decision or undone a note, or the token is for another card.`;
 }
 
 /**
