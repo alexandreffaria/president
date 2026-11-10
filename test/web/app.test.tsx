@@ -46,12 +46,12 @@ class FakeWebSocket {
   }
   emit(message: LiveMessage) {
     if (this.closed) return;
-    this.onmessage?.(new MessageEvent("message", { data: JSON.stringify(message) }));
+    act(() => this.onmessage?.(new MessageEvent("message", { data: JSON.stringify(message) })));
   }
   /** The connection drops (the hub stopped, say). */
   drop() {
     this.closed = true;
-    this.onclose?.();
+    act(() => this.onclose?.());
   }
   close() {
     this.closed = true;
@@ -114,6 +114,19 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+/**
+ * Runs the test's own file or API work inside act, so the UI updates that happen while it
+ * runs are inside act too (React warns about any that aren't, and test/setup.ts fails the
+ * test on that warning).
+ */
+async function io<T>(work: () => Promise<T>): Promise<T> {
+  let result!: T;
+  await act(async () => {
+    result = await work();
+  });
+  return result;
+}
+
 async function until(check: () => boolean, what: string, timeoutMs = WAIT_MS): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!check()) {
@@ -158,24 +171,29 @@ async function typeInto(field: Element | null, value: string) {
 
 /** An agent rewriting the card file, and the live event the watcher would send. */
 async function agentEdits(file: string, from: string, to: string) {
-  await writeFile(file, (await readFile(file, "utf8")).replace(from, to));
-  await act(async () => {
-    socket()?.emit({
-      type: "cards",
-      project: "demo",
-    } satisfies HubEvent);
-  });
+  await editFile(file, from, to);
+  socket()?.emit({
+    type: "cards",
+    project: "demo",
+  } satisfies HubEvent);
 }
 
 /** Another president tab adds a note to a card, through the API. */
 async function otherTabAddsNote(id: string, note: string) {
-  const card = await (await fetch(`/api/cards/demo/${id}`)).json();
-  const res = await fetch(`/api/cards/demo/${id}/actions`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ type: "note", note, revision: card.card.revision }),
+  const res = await io(async () => {
+    const card = await (await fetch(`/api/cards/demo/${id}`)).json();
+    return fetch(`/api/cards/demo/${id}/actions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type: "note", note, revision: card.card.revision }),
+    });
   });
   if (!res.ok) throw new Error(`note failed: ${res.status}`);
+}
+
+/** Changes a file the way an agent's editor would. */
+function editFile(file: string, from: string, to: string): Promise<void> {
+  return io(async () => writeFile(file, (await readFile(file, "utf8")).replace(from, to)));
 }
 
 /**
@@ -185,11 +203,11 @@ async function otherTabAddsNote(id: string, note: string) {
 async function whileDisconnected(change: () => Promise<void>) {
   FakeWebSocket.autoReady = false;
   const before = FakeWebSocket.instances.length;
-  await act(async () => socket()?.drop());
+  socket()?.drop();
   await until(() => text().includes("Offline"), "the offline indicator");
   await change();
   await until(() => FakeWebSocket.instances.length > before, "the reconnect");
-  await act(async () => socket()?.ready());
+  socket()?.ready();
 }
 
 /** Lets pending requests and renders finish. */
@@ -240,15 +258,15 @@ describe("card view keyboard", () => {
 
   it("decides with Enter on the page, and u undoes it exactly", async () => {
     const file = join(demo, "decisions", "0001-offline-storage.md");
-    const original = await readFile(file, "utf8");
+    const original = await io(() => readFile(file, "utf8"));
     await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
     await press("1", document.body);
     await press("Enter", document.body);
     await until(() => text().includes("Decided #0001"), "the decision toast");
-    expect(await readFile(file, "utf8")).toMatch(/^status: resolved$/m);
+    expect(await io(() => readFile(file, "utf8"))).toMatch(/^status: resolved$/m);
     await press("u", document.body);
     await until(() => text().includes("Undone"), "the undo toast");
-    expect(await readFile(file, "utf8")).toBe(original);
+    expect(await io(() => readFile(file, "utf8"))).toBe(original);
     expect(posts).toEqual(["/api/cards/demo/0001/actions", "/api/cards/demo/0001/undo"]);
   });
 
@@ -257,19 +275,11 @@ describe("card view keyboard", () => {
     await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
     await press("1", document.body);
     expect(text()).toContain("Selected");
-    await writeFile(
-      file,
-      (await readFile(file, "utf8")).replace(
-        "title: IndexedDB through Dexie",
-        "title: Something else entirely",
-      ),
-    );
-    await act(async () => {
-      socket()?.emit({
-        type: "cards",
-        project: "demo",
-      } satisfies HubEvent);
-    });
+    await editFile(file, "title: IndexedDB through Dexie", "title: Something else entirely");
+    socket()?.emit({
+      type: "cards",
+      project: "demo",
+    } satisfies HubEvent);
     await until(() => text().includes("Your choice was cleared"), "the change notice");
     expect(text()).toContain('Option 1 ("Something else entirely") changed: title.');
     expect(text()).not.toContain("Selected");
@@ -298,7 +308,7 @@ describe("card view keyboard", () => {
 describe("panels holding unsent text (R2-3)", () => {
   it("keep every page shortcut off while the panel is open, wherever focus is", async () => {
     const file = join(demo, "decisions", "0001-offline-storage.md");
-    const original = await readFile(file, "utf8");
+    const original = await io(() => readFile(file, "utf8"));
     await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
     await press("n", document.body);
     await typeInto(host.querySelector("#panel-text"), "None of these: we need sync");
@@ -310,7 +320,7 @@ describe("panels holding unsent text (R2-3)", () => {
     await settle();
     expect(pathname()).toBe("/card/demo/0001");
     expect(posts).toEqual([]);
-    expect(await readFile(file, "utf8")).toBe(original);
+    expect(await io(() => readFile(file, "utf8"))).toBe(original);
     expect(host.querySelector("dialog")).toBeNull();
     expect(text()).not.toContain("Selected");
     expect((host.querySelector("#panel-text") as HTMLTextAreaElement).value).toBe(
@@ -339,7 +349,7 @@ describe("panels holding unsent text (R2-3)", () => {
 
   it("never defers a card over a typed reason, and keeps it when leaving", async () => {
     const file = join(demo, "decisions", "0001-offline-storage.md");
-    const original = await readFile(file, "utf8");
+    const original = await io(() => readFile(file, "utf8"));
     await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
     await press("1", document.body);
     await typeInto(host.querySelector(".decision-note"), "Works offline");
@@ -347,7 +357,7 @@ describe("panels holding unsent text (R2-3)", () => {
     await press("d");
     await settle();
     expect(posts).toEqual([]);
-    expect(await readFile(file, "utf8")).toBe(original);
+    expect(await io(() => readFile(file, "utf8"))).toBe(original);
     expect(text()).toContain("isn't sent");
     // Esc still goes back to the queue, and nothing typed is lost.
     await press("Escape");
@@ -370,7 +380,7 @@ describe("changes under the human (R2-7, R2-8, R2-12)", () => {
     await agentEdits(file, "title: IndexedDB through Dexie", "title: REWRITTEN OPTION");
     await until(() => text().includes("An agent changed this card"), "the change notice");
     expect(text()).toContain('Option 1 ("REWRITTEN OPTION") changed: title.');
-    const before = await readFile(file, "utf8");
+    const before = await io(() => readFile(file, "utf8"));
     await act(async () => {
       host
         .querySelector("#panel-text")
@@ -379,7 +389,7 @@ describe("changes under the human (R2-7, R2-8, R2-12)", () => {
         );
     });
     await until(() => text().includes("nothing was sent"), "the refusal");
-    expect(await readFile(file, "utf8")).toBe(before);
+    expect(await io(() => readFile(file, "utf8"))).toBe(before);
     expect((host.querySelector("#panel-text") as HTMLTextAreaElement).value).toBe("I reject: ");
     // Once they have read the change, the same note goes through.
     await act(async () => button("I've read it")?.click());
@@ -391,7 +401,7 @@ describe("changes under the human (R2-7, R2-8, R2-12)", () => {
         );
     });
     await until(() => text().includes("Asked for new options on #0001"), "the neither toast");
-    expect(await readFile(file, "utf8")).toMatch(/type: neither\n\s+note: "I reject:"\n/);
+    expect(await io(() => readFile(file, "utf8"))).toMatch(/type: neither\n\s+note: "I reject:"\n/);
   });
 
   it("never blames an agent for the human's own undo, from any view", async () => {
@@ -412,12 +422,10 @@ describe("changes under the human (R2-7, R2-8, R2-12)", () => {
   it("says a change came from another president tab, not an agent", async () => {
     await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
     await otherTabAddsNote("0001", "from tab 2");
-    await act(async () => {
-      socket()?.emit({
-        type: "cards",
-        project: "demo",
-      } satisfies HubEvent);
-    });
+    socket()?.emit({
+      type: "cards",
+      project: "demo",
+    } satisfies HubEvent);
     await until(() => text().includes("another president tab"), "the notice");
     expect(text()).not.toContain("An agent changed");
     expect(text()).toContain("A note was added.");
@@ -434,12 +442,9 @@ describe("changes under the human (R2-7, R2-8, R2-12)", () => {
   it("says an agent changed the card even when this tab missed the event", async () => {
     const file = join(demo, "decisions", "0001-offline-storage.md");
     await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
-    await whileDisconnected(async () => {
-      await writeFile(
-        file,
-        (await readFile(file, "utf8")).replace("title: IndexedDB through Dexie", "title: RENAMED"),
-      );
-    });
+    await whileDisconnected(() =>
+      editFile(file, "title: IndexedDB through Dexie", "title: RENAMED"),
+    );
     await until(() => text().includes("An agent changed"), "the notice");
     expect(text()).toContain('Option 1 ("RENAMED") changed: title.');
   });
@@ -498,13 +503,13 @@ describe("undo puts back what was written (R3-4)", () => {
 
   it("reopens the Note panel with its text, and takes the note back from the card (R4-10)", async () => {
     const file = join(demo, "decisions", "0001-offline-storage.md");
-    const original = await readFile(file, "utf8");
+    const original = await io(() => readFile(file, "utf8"));
     await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
     await press("m", document.body);
     await typeInto(host.querySelector("#panel-text"), "Sent too soon");
     await ctrlEnter();
     await until(() => text().includes("Note added."), "the note toast");
-    expect(await readFile(file, "utf8")).toContain("Sent too soon");
+    expect(await io(() => readFile(file, "utf8"))).toContain("Sent too soon");
     expect(host.querySelector("#panel-text")).toBeNull();
     await press("u", document.body);
     await until(
@@ -514,20 +519,20 @@ describe("undo puts back what was written (R3-4)", () => {
       "the Note panel with the text",
     );
     expect(text()).toContain("with what you wrote");
-    expect(await readFile(file, "utf8")).toBe(original);
+    expect(await io(() => readFile(file, "utf8"))).toBe(original);
   });
 
   it("undoes a reopen (R4-10)", async () => {
     const file = join(demo, "decisions", "0004-map-tiles.md");
-    const original = await readFile(file, "utf8");
+    const original = await io(() => readFile(file, "utf8"));
     await open("/card/demo/0004", () => text().includes("This decision is made"), "the card");
     await act(async () => button("Reopen")?.click());
     await until(() => text().includes("Reopened #0004"), "the reopen toast");
-    expect(await readFile(file, "utf8")).not.toBe(original);
+    expect(await io(() => readFile(file, "utf8"))).not.toBe(original);
     await press("u", document.body);
     await until(() => text().includes("Undone"), "the undo toast");
     await until(() => text().includes("This decision is made"), "the decision, back");
-    expect(await readFile(file, "utf8")).toBe(original);
+    expect(await io(() => readFile(file, "utf8"))).toBe(original);
   });
 
   it("brings back the choice and the why of a decision", async () => {
@@ -590,14 +595,14 @@ describe("what counts as a change to read again (R3-8)", () => {
 describe("defer with unsent text (R3-9)", () => {
   it("refuses from the Defer button as it does from d", async () => {
     const file = join(demo, "decisions", "0001-offline-storage.md");
-    const original = await readFile(file, "utf8");
+    const original = await io(() => readFile(file, "utf8"));
     await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
     await press("1", document.body);
     await typeInto(host.querySelector(".decision-note"), "Works offline");
     await act(async () => button("Defer")?.click());
     await settle();
     expect(posts).toEqual([]);
-    expect(await readFile(file, "utf8")).toBe(original);
+    expect(await io(() => readFile(file, "utf8"))).toBe(original);
     expect(text()).toContain("isn't sent");
     expect(pathname()).toBe("/card/demo/0001");
   });
@@ -638,10 +643,8 @@ describe("queue keyboard", () => {
 describe("errors", () => {
   it("says so when a refresh fails, while keeping the cards on screen", async () => {
     await open("/", () => host.querySelectorAll(".queue-link").length >= 2, "the queue");
-    await writeFile(registryFile, "{ not json");
-    await act(async () => {
-      socket()?.emit({ type: "projects" } satisfies HubEvent);
-    });
+    await io(() => writeFile(registryFile, "{ not json"));
+    socket()?.emit({ type: "projects" } satisfies HubEvent);
     await until(() => text().includes("Couldn't refresh"), "the error banner");
     expect(host.querySelector("[role=alert]")?.textContent).toMatch(
       /projects\.json is not valid JSON/,
