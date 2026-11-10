@@ -7,7 +7,7 @@ import { basename, dirname } from "node:path";
 import { type FSWatcher, watch } from "chokidar";
 import type { HubEvent } from "../core/api.ts";
 import { isIgnoredFile } from "./cards.ts";
-import { decisionsDirOf, type Registry } from "./registry.ts";
+import { DECISIONS_DIR, decisionsDirOf, type Registry } from "./registry.ts";
 
 export class EventBus {
   readonly #emitter = new EventEmitter();
@@ -40,6 +40,11 @@ export class HubWatcher {
   readonly #watcher: FSWatcher;
   /** decisions dir -> project name */
   #dirs = new Map<string, string>();
+  /**
+   * Project folders, watched one level deep so we notice decisions/ being deleted and
+   * created again (a watch on a deleted folder goes silent).
+   */
+  #roots = new Set<string>();
 
   constructor(registry: Registry, bus: EventBus, options: HubWatcherOptions = {}) {
     this.#registry = registry;
@@ -50,9 +55,9 @@ export class HubWatcher {
       depth: 0,
       usePolling: options.usePolling ?? false,
       interval: 100,
-      ignored: (path, stats) => stats?.isFile() === true && isIgnoredWatchedFile(path, registry),
+      ignored: (path) => this.#isIgnored(path),
     });
-    this.#watcher.on("all", (_event, path) => this.#onChange(path));
+    this.#watcher.on("all", (event, path) => this.#onChange(event, path));
     this.#watcher.on("error", (error) => console.error("[watcher]", error));
   }
 
@@ -74,11 +79,18 @@ export class HubWatcher {
       return;
     }
     const next = new Map(projects.map((p) => [decisionsDirOf(p), p.name]));
-    for (const dir of this.#dirs.keys()) {
-      if (!next.has(dir)) this.#watcher.unwatch(dir);
-    }
-    const added = [...next.keys()].filter((dir) => !this.#dirs.has(dir));
+    const nextRoots = new Set(projects.map((p) => p.path));
+    const removed = [
+      ...[...this.#dirs.keys()].filter((dir) => !next.has(dir)),
+      ...[...this.#roots].filter((root) => !nextRoots.has(root)),
+    ];
+    const added = [
+      ...[...next.keys()].filter((dir) => !this.#dirs.has(dir)),
+      ...[...nextRoots].filter((root) => !this.#roots.has(root)),
+    ];
     this.#dirs = next;
+    this.#roots = nextRoots;
+    if (removed.length > 0) this.#watcher.unwatch(removed);
     if (added.length > 0) this.#watcher.add(added);
   }
 
@@ -88,7 +100,21 @@ export class HubWatcher {
     await this.#watcher.close();
   }
 
-  #onChange(path: string): void {
+  #isIgnored(path: string): boolean {
+    if (path === this.#registry.file || this.#dirs.has(path) || this.#roots.has(path)) {
+      return false;
+    }
+    const parent = dirname(path);
+    // In the config folder only projects.json matters.
+    if (parent === dirname(this.#registry.file)) return true;
+    // In a project folder only decisions/ matters.
+    if (this.#roots.has(parent)) return basename(path) !== DECISIONS_DIR;
+    // In decisions/ only card files matter.
+    if (this.#dirs.has(parent)) return isIgnoredFile(basename(path));
+    return false;
+  }
+
+  #onChange(event: string, path: string): void {
     if (path === this.#registry.file) {
       this.#debounce("projects", async () => {
         await this.sync();
@@ -96,11 +122,16 @@ export class HubWatcher {
       });
       return;
     }
-    const dir = this.#dirs.has(path) ? path : dirname(path);
-    const project = this.#dirs.get(dir);
+    let project = this.#dirs.get(path);
+    if (project && event === "addDir") {
+      // decisions/ came back after being deleted: watch it afresh.
+      this.#watcher.unwatch(path);
+      this.#watcher.add(path);
+    }
+    project ??= this.#dirs.get(dirname(path));
     if (!project) return;
-    if (dir !== path && isIgnoredFile(basename(path))) return;
-    this.#debounce(`cards:${project}`, () => this.#bus.emit({ type: "cards", project }));
+    const name = project;
+    this.#debounce(`cards:${name}`, () => this.#bus.emit({ type: "cards", project: name }));
   }
 
   #debounce(key: string, fn: () => void | Promise<void>): void {
@@ -113,10 +144,4 @@ export class HubWatcher {
       }, this.#debounceMs),
     );
   }
-}
-
-/** In the config folder only projects.json matters; in decisions/ only card files. */
-function isIgnoredWatchedFile(path: string, registry: Registry): boolean {
-  if (dirname(path) === dirname(registry.file)) return path !== registry.file;
-  return isIgnoredFile(basename(path));
 }

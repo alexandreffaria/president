@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { HubEvent } from "../src/core/api.ts";
@@ -110,5 +110,28 @@ describe("running hub", () => {
       (await readFile(file, "utf8")).replace("priority: normal", "priority: high"),
     );
     await readUntil('data: {"type":"cards","project":"demo"}');
+  });
+});
+
+describe("HubWatcher and a recreated decisions folder", () => {
+  it("keeps reporting changes after decisions/ is deleted and created again", async () => {
+    const { demo, events } = await watched();
+    const dir = join(demo, "decisions");
+    await rm(dir, { recursive: true });
+    await waitFor(events, (e) => e.type === "cards");
+    await new Promise((r) => setTimeout(r, 100));
+    await mkdir(dir);
+    await new Promise((r) => setTimeout(r, 200));
+    events.length = 0;
+    await writeFile(join(dir, "0007-back.md"), cardText({ id: '"0007"' }));
+    await waitFor(events, (e) => e.type === "cards" && e.project === "demo");
+  });
+
+  it("ignores other files in the project folder", async () => {
+    const { demo, events } = await watched();
+    await writeFile(join(demo, "README.md"), "changed");
+    await mkdir(join(demo, "src"));
+    await new Promise((r) => setTimeout(r, 300));
+    expect(events).toEqual([]);
   });
 });
