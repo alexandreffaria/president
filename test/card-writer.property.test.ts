@@ -26,8 +26,11 @@ import { agentToken } from "../src/core/pending.ts";
 
 const NOW = new Date("2026-11-10T12:00:00Z");
 const FILE = "0001-x.md";
-/** More runs for a deeper search: `FC_RUNS=20000 npx vitest run test/card-writer.property.test.ts`. */
-const RUNS = Number(process.env.FC_RUNS ?? 300);
+/**
+ * 100 cards by default (about 3 s alone); CI runs more (FC_RUNS in .github/workflows/ci.yml), and
+ * so can a deeper local search: `FC_RUNS=20000 npx vitest run test/card-writer.property.test.ts`.
+ */
+const RUNS = Number(process.env.FC_RUNS ?? 100);
 
 type NoteStyle = "plain" | "quoted" | "literal" | "folded" | "keep" | "indicator";
 type Eol = "lf" | "crlf" | "mixed";
@@ -614,6 +617,8 @@ describe("updateCardText (property)", () => {
         { numRuns: RUNS },
       );
     },
-    Math.max(60_000, RUNS * 100),
+    // About 30 ms a card alone (3 s for 100); with 4 suites at once on 8 cores, 100 cards
+    // took up to 26 s.
+    Math.max(60_000, RUNS * 150),
   );
 });

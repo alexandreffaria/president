@@ -470,7 +470,7 @@ describe("president CLI", () => {
   // Agents that start together each run `president add . --create`: every one of them must
   // end up registered, under its own name (R3-2, R3-13). Separate processes, so this starts
   // Node several times (see the timeout note below).
-  it("registers every project when many `add`s run at once", { timeout: 60_000 }, async () => {
+  it("registers every project when many `add`s run at once", { timeout: 20_000 }, async () => {
     const folders = await Promise.all(
       Array.from({ length: 10 }, async () => {
         const dir = join(await tempDir(), "app");
@@ -480,7 +480,7 @@ describe("president CLI", () => {
     );
     const results = await Promise.all(
       folders.map((dir) =>
-        promisify(execFile)(process.execPath, [BIN, "add", dir, "--create"], { timeout: 55_000 }),
+        promisify(execFile)(process.execPath, [BIN, "add", dir, "--create"], { timeout: 18_000 }),
       ),
     );
     for (const { stdout } of results) expect(stdout).toMatch(/^Registered app(-\d+)? /);
@@ -498,9 +498,9 @@ describe("president CLI", () => {
   // depend on our code but on how busy the machine is: on a loaded CI runner, or with
   // several suites at once, it can take many times the ~0.15 s it takes alone, so it gets
   // its own timeout instead of the 5 s meant for in-process tests.
-  it("runs through the bin script", { timeout: 60_000 }, async () => {
+  it("runs through the bin script", { timeout: 10_000 }, async () => {
     const { stdout } = await promisify(execFile)(process.execPath, [BIN, "help"], {
-      timeout: 55_000,
+      timeout: 9000,
     });
     expect(stdout).toMatch(/Usage:/);
   });

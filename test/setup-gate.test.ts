@@ -22,7 +22,7 @@ interface JsonReport {
 }
 
 // A separate vitest process: Node's start-up and vitest's own take most of its ~1 s.
-it("fails tests and files that warn or log errors, however late", { timeout: 20_000 }, async () => {
+it("fails tests and files that warn or log errors, however late", { timeout: 15_000 }, async () => {
   const output = join(await tempDir(), "report.json");
   await promisify(execFile)(
     process.execPath,
@@ -34,7 +34,7 @@ it("fails tests and files that warn or log errors, however late", { timeout: 20_
       "--reporter=json",
       `--outputFile=${output}`,
     ],
-    { cwd: ROOT, timeout: 18_000 },
+    { cwd: ROOT, timeout: 14_000 },
   ).catch(() => {}); // it exits 1: that's the point
   const report = JSON.parse(await readFile(output, "utf8")) as JsonReport;
   const files = Object.fromEntries(

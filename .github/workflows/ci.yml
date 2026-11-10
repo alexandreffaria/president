@@ -30,5 +30,8 @@ jobs:
         run: npm run lint
       - name: Test
         run: npm test
+        env:
+          # The card writer's property test: 1000 generated cards here, 100 locally.
+          FC_RUNS: "1000"
       - name: Build
         run: npm run build

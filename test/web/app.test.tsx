@@ -7,7 +7,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HubEvent, LiveMessage } from "../../src/core/api.ts";
 import { createApp } from "../../src/server/app.ts";
 import { Registry } from "../../src/server/registry.ts";
@@ -20,12 +20,14 @@ import { copyDemoProject, tempDir } from "../helpers.ts";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-// Each test renders the app and waits for real requests to the in-process API. Alone a
-// test takes well under a second, but with several suites at once on a busy machine it can
-// take many times that; the waits only run long when something is wrong, so they are
-// generous rather than tight (a test cut off midway also leaves work running into the next).
-vi.setConfig({ testTimeout: 30_000 });
-const WAIT_MS = 10_000;
+// Each test renders the app and waits for real requests to the in-process API: 0.1-0.5 s
+// alone. The first renders pay for code that runs once (markdown and syntax highlighting,
+// the YAML parser, the schemas, the first key presses); the warm-up below does that before
+// the tests, with its own timeout. With 4 suites at once on 8 cores a test can still take
+// 3-6 s, so tests get 15 s, but a wait gives up after 5 s: a stuck test fails in 5 s and
+// says what it was waiting for.
+vi.setConfig({ testTimeout: 15_000 });
+const WAIT_MS = 5000;
 
 /** Stands in for the browser's WebSocket; tests push hub events through it. */
 class FakeWebSocket {
@@ -69,7 +71,24 @@ let posts: string[];
 /** Requests the UI started that haven't finished; awaited before the stubs go away. */
 const inFlight = new Set<Promise<Response>>();
 
-beforeEach(async () => {
+beforeAll(async () => {
+  await setUp();
+  const slow = 30_000;
+  await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card", slow);
+  await press("?", document.body);
+  await press("Escape");
+  await press("1", document.body);
+  await press("Enter", document.body);
+  await until(() => text().includes("Decided #0001"), "the decision toast", slow);
+  await press("u", document.body);
+  await until(() => text().includes("Undone"), "the undo toast", slow);
+  await tearDown();
+}, 60_000);
+
+beforeEach(setUp);
+afterEach(tearDown);
+
+async function setUp() {
   const registry = new Registry(join(await tempDir(), "config"));
   demo = await copyDemoProject();
   await registry.add({ path: demo, name: "demo" });
@@ -95,9 +114,9 @@ beforeEach(async () => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-});
+}
 
-afterEach(async () => {
+async function tearDown() {
   act(() => root.unmount());
   // A refresh can start one more request once the last one finishes: wait until it's quiet.
   for (let quiet = 0; quiet < 3; ) {
@@ -112,7 +131,7 @@ afterEach(async () => {
   host.remove();
   document.body.innerHTML = "";
   vi.unstubAllGlobals();
-});
+}
 
 /**
  * Runs the test's own file or API work inside act, so the UI updates that happen while it
@@ -136,10 +155,10 @@ async function until(check: () => boolean, what: string, timeoutMs = WAIT_MS): P
   }
 }
 
-async function open(path: string, ready: () => boolean, what: string) {
+async function open(path: string, ready: () => boolean, what: string, timeoutMs = WAIT_MS) {
   window.history.replaceState(null, "", path);
   act(() => root.render(<App />));
-  await until(ready, what);
+  await until(ready, what, timeoutMs);
 }
 
 const text = () => host.textContent ?? "";
