@@ -10,7 +10,14 @@ import { CardAssistant } from "../components/CardAssistant.tsx";
 import { FeedbackHistory } from "../components/FeedbackHistory.tsx";
 import { Markdown } from "../components/Markdown.tsx";
 import { OptionCard } from "../components/OptionCard.tsx";
-import { type Draft, unsentText, useDraft } from "../drafts.ts";
+import {
+  type Draft,
+  type Panel as DraftPanel,
+  restoreDraft,
+  takePanel,
+  unsentText,
+  useDraft,
+} from "../drafts.ts";
 import { fullDate, KIND_LABEL, optionLabel, PRIORITY_LABEL, timeAgo } from "../format.ts";
 import { useHub } from "../hub.tsx";
 import { type KeyMap, useKeyboard, useKeyLayer } from "../keyboard.ts";
@@ -23,13 +30,22 @@ type Loaded =
   | { state: "broken"; broken: BrokenCardDto }
   | { state: "ok"; card: CardDetailDto };
 
-type Panel = "neither" | "note" | null;
+type Panel = DraftPanel | null;
 
 /**
  * Who changed the card since the human last read it: an agent (or someone editing the file),
  * or the human themselves in another president tab.
  */
 type ChangedBy = "agent" | "other-tab";
+
+const NO_DRAFT: Draft = {
+  seen: undefined,
+  selected: undefined,
+  decisionNote: "",
+  answer: "",
+  neither: "",
+  note: "",
+};
 
 /** How many views of each card are mounted ("project/id"). */
 const openViews = new Map<string, number>();
@@ -47,6 +63,10 @@ export function CardView({ project, id }: { project: string; id: string }) {
   /** Set when a change on disk cleared the option the human had picked. */
   const [choiceCleared, setChoiceCleared] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
+  const noticeButton = useRef<HTMLButtonElement>(null);
+  /** Where focus was when a send was refused, to go back to once the change is read. */
+  const focusAfterReading = useRef<HTMLElement | null>(null);
+  const [focusNotice, setFocusNotice] = useState(false);
   const version = (hub.versions[project] ?? 0) + hub.reconnects;
   const undoGroup = `undo:${project}/${id}`;
 
@@ -62,6 +82,26 @@ export function CardView({ project, id }: { project: string; id: string }) {
     },
     [updateDraft],
   );
+
+  /** "I've read it": then back to what they were doing when the send was refused. */
+  const readIt = (card: CardDetailDto) => {
+    acknowledge(card);
+    const back = focusAfterReading.current;
+    focusAfterReading.current = null;
+    // After the notice (which has focus) is gone.
+    setTimeout(() => {
+      if (back?.isConnected) back.focus();
+      else heading.current?.focus();
+    }, 0);
+  };
+
+  // A refused send moves focus to the notice, so the human can read it and go on.
+  useEffect(() => {
+    if (focusNotice && changedBy) {
+      noticeButton.current?.focus();
+      setFocusNotice(false);
+    }
+  }, [focusNotice, changedBy]);
 
   /** Loads the card; true if it changed in a way the human has to read again. */
   const load = useCallback(async (): Promise<boolean> => {
@@ -119,6 +159,13 @@ export function CardView({ project, id }: { project: string; id: string }) {
     }
   }, [fm, draft.selected, updateDraft]);
 
+  // An undo put back the text of a "neither": open its panel again.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `draft` changes when an undo restores it
+  useEffect(() => {
+    const restored = takePanel(project, id);
+    if (restored) setPanel(restored);
+  }, [project, id, draft]);
+
   // Move focus to the new card's title, so keyboard and screen reader users start there.
   const ready = loaded.state !== "loading";
   useEffect(() => {
@@ -164,6 +211,11 @@ export function CardView({ project, id }: { project: string; id: string }) {
       const res = await api.act(project, id, action, seen.revision);
       setLoaded({ state: "ok", card: res.card });
       acknowledge(res.card);
+      // What the action sent, to put back as a draft if it is undone.
+      const sent = options.sent ?? {};
+      const wasSent = Object.fromEntries(
+        Object.keys(sent).map((field) => [field, latest.current[field as keyof Draft]]),
+      ) as Partial<Draft>;
       if (options.sent) updateDraft(options.sent);
       void hub.refresh();
       if (options.done) {
@@ -181,8 +233,16 @@ export function CardView({ project, id }: { project: string; id: string }) {
                       return hub.refresh();
                     })
                     .then(() => {
+                      restoreDraft(
+                        project,
+                        id,
+                        wasSent,
+                        action.type === "neither" ? "neither" : undefined,
+                      );
                       navigate(cardPath(project, id));
-                      toast(`Undone. #${id} is back as it was.`);
+                      toast(
+                        `Undone. #${id} is back as it was${unsentText({ ...NO_DRAFT, ...wasSent }) ? ", with what you wrote" : ""}.`,
+                      );
                     })
                     .catch((error: Error) =>
                       toast(`Couldn't undo: ${error.message}`, { tone: "error" }),
@@ -202,7 +262,12 @@ export function CardView({ project, id }: { project: string; id: string }) {
       return true;
     } catch (error) {
       if (error instanceof RequestError && error.code === "conflict") {
+        const from = document.activeElement;
         const mustRead = await load();
+        if (mustRead) {
+          focusAfterReading.current = from instanceof HTMLElement ? from : null;
+          setFocusNotice(true);
+        }
         toast(
           mustRead
             ? "This card changed since you read it, so nothing was sent. See what changed at the top of the card; what you typed is kept."
@@ -230,6 +295,16 @@ export function CardView({ project, id }: { project: string; id: string }) {
       { type: "resolve", choice, note: note.trim() || undefined },
       { leave: true, done: `Decided #${id}: ${label}.`, sent },
     );
+  };
+
+  /** Defers the card, unless the human typed something for it that isn't sent. */
+  const defer = () => {
+    // Deferring would leave what they typed behind, unsent, on a card out of the queue.
+    if (unsentText(latest.current)) {
+      toast("You have typed something on this card that isn't sent. Send or clear it first.");
+      return;
+    }
+    void act({ type: "defer" }, { leave: true, done: `Deferred #${id}.` });
   };
 
   const selectIndex = (index: number) => {
@@ -269,12 +344,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
     },
     d: () => {
       if (fm?.status !== "open") return false;
-      // A shortcut must not act on the card without what the human typed for it.
-      if (unsentText(draft)) {
-        toast("You have typed something on this card that isn't sent. Send or clear it first.");
-        return;
-      }
-      void act({ type: "defer" }, { leave: true, done: `Deferred #${id}.` });
+      defer();
     },
     escape: () => navigate("/"),
   };
@@ -396,7 +466,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
               </ul>
             )}
           </div>
-          <button type="button" className="button" onClick={() => acknowledge(card)}>
+          <button type="button" className="button" ref={noticeButton} onClick={() => readIt(card)}>
             I've read it
           </button>
         </div>
@@ -483,6 +553,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
         }}
         onDecide={decide}
         onAct={act}
+        onDefer={defer}
       />
     </div>
   );
@@ -543,6 +614,7 @@ function ActionBar(props: {
     action: CardAction,
     options?: { leave?: boolean; done?: string; sent?: Partial<Draft> },
   ) => Promise<boolean>;
+  onDefer: () => void;
 }) {
   const { card, busy, draft, panel } = props;
   const { selected, answer } = draft;
@@ -728,14 +800,7 @@ function ActionBar(props: {
             Note… <kbd>m</kbd>
           </button>
           {fm.status === "open" ? (
-            <button
-              type="button"
-              className="button"
-              disabled={busy}
-              onClick={() =>
-                void props.onAct({ type: "defer" }, { leave: true, done: `Deferred #${card.id}.` })
-              }
-            >
+            <button type="button" className="button" disabled={busy} onClick={props.onDefer}>
               Defer <kbd>d</kbd>
             </button>
           ) : (

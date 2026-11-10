@@ -384,7 +384,7 @@ describe("changes under the human (R2-7, R2-8, R2-12)", () => {
     await until(() => text().includes("This decision is made"), "the decided card");
     await press("u", document.body);
     await until(() => text().includes("Undone"), "the undo toast");
-    await until(() => text().includes("Pick an option"), "the reopened card");
+    await until(() => host.querySelector(".decision-note") !== null, "the reopened card");
     await settle();
     expect(text()).not.toContain("An agent changed");
   });
@@ -442,6 +442,108 @@ describe("changes under the human (R2-7, R2-8, R2-12)", () => {
     await press("u", document.body);
     await settle();
     expect(posts.length).toBe(before);
+  });
+});
+
+describe("undo puts back what was written (R3-4)", () => {
+  const ctrlEnter = () =>
+    act(async () => {
+      host
+        .querySelector("#panel-text")
+        ?.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }),
+        );
+    });
+
+  it("reopens the Neither panel with its text", async () => {
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await press("n", document.body);
+    await typeInto(host.querySelector("#panel-text"), "None of these work offline");
+    await ctrlEnter();
+    await until(() => text().includes("Asked for new options on #0001"), "the neither toast");
+    expect(pathname()).not.toBe("/card/demo/0001");
+    await press("u", document.body);
+    await until(
+      () =>
+        pathname() === "/card/demo/0001" &&
+        (host.querySelector("#panel-text") as HTMLTextAreaElement | null)?.value ===
+          "None of these work offline",
+      "the panel with the text",
+    );
+    expect(text()).toContain("with what you wrote");
+    expect(text()).not.toContain("An agent changed");
+  });
+
+  it("brings back the choice and the why of a decision", async () => {
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await press("1", document.body);
+    await typeInto(host.querySelector(".decision-note"), "Works offline");
+    await press("Enter", document.body);
+    await until(() => text().includes("Decided #0001"), "the decision toast");
+    await press("u", document.body);
+    await until(
+      () =>
+        (host.querySelector(".decision-note") as HTMLInputElement | null)?.value ===
+        "Works offline",
+      "the why",
+    );
+    expect(text()).toContain("Selected");
+  });
+});
+
+describe("the change notice and focus (R3-5)", () => {
+  it("takes focus to the notice when a send is refused, and back to the text after", async () => {
+    const file = join(demo, "decisions", "0001-offline-storage.md");
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await press("m", document.body);
+    await typeInto(host.querySelector("#panel-text"), "my note");
+    await agentEdits(file, "title: IndexedDB through Dexie", "title: RENAMED");
+    await until(() => text().includes("An agent changed"), "the change notice");
+    const textarea = host.querySelector<HTMLTextAreaElement>("#panel-text");
+    textarea?.focus();
+    await act(async () => {
+      textarea?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }),
+      );
+    });
+    await until(() => text().includes("nothing was sent"), "the refusal");
+    await until(
+      () => document.activeElement?.textContent === "I've read it",
+      "focus on the notice's button",
+    );
+    await act(async () => (document.activeElement as HTMLButtonElement).click());
+    await settle();
+    expect(text()).not.toContain("An agent changed");
+    expect(document.activeElement?.id).toBe("panel-text");
+    expect((document.activeElement as HTMLTextAreaElement).value).toBe("my note");
+  });
+});
+
+describe("what counts as a change to read again (R3-8)", () => {
+  it("clears the choice when an agent changes the priority", async () => {
+    const file = join(demo, "decisions", "0001-offline-storage.md");
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await press("1", document.body);
+    await agentEdits(file, "priority: high", "priority: low");
+    await until(() => text().includes("Your choice was cleared"), "the notice");
+    expect(text()).toContain("It is now low priority (was high priority).");
+    expect(text()).not.toContain("Selected");
+  });
+});
+
+describe("defer with unsent text (R3-9)", () => {
+  it("refuses from the Defer button as it does from d", async () => {
+    const file = join(demo, "decisions", "0001-offline-storage.md");
+    const original = await readFile(file, "utf8");
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await press("1", document.body);
+    await typeInto(host.querySelector(".decision-note"), "Works offline");
+    await act(async () => button("Defer")?.click());
+    await settle();
+    expect(posts).toEqual([]);
+    expect(await readFile(file, "utf8")).toBe(original);
+    expect(text()).toContain("isn't sent");
+    expect(pathname()).toBe("/card/demo/0001");
   });
 });
 
