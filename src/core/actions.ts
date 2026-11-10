@@ -55,6 +55,15 @@ const ALLOWED_FROM: Record<CardActionType, readonly CardStatus[]> = {
   applied: ["resolved"],
 };
 
+const VERB: Record<CardActionType, string> = {
+  resolve: "resolve a card",
+  neither: "reject the options of a card",
+  note: "add a note to a card",
+  defer: "defer a card",
+  reopen: "reopen a card",
+  applied: "mark a card as applied",
+};
+
 export function canApply(status: CardStatus, type: CardActionType): boolean {
   return ALLOWED_FROM[type].includes(status);
 }
@@ -69,7 +78,7 @@ export function applyAction(
   if (!canApply(frontmatter.status, action.type)) {
     return {
       ok: false,
-      error: `cannot ${action.type} a card that is ${frontmatter.status}`,
+      error: `cannot ${VERB[action.type]} while it is ${frontmatter.status}`,
     };
   }
 

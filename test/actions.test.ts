@@ -73,7 +73,7 @@ describe("resolve", () => {
   it("rejects unknown options and resolved cards", () => {
     expect(rejects(card(), { type: "resolve", choice: "z" })).toMatch(/"z" is not an option/);
     expect(rejects(card(RESOLVED), { type: "resolve", choice: "a" })).toMatch(
-      /cannot resolve a card that is resolved/,
+      /cannot resolve a card while it is resolved/,
     );
   });
 });
@@ -123,8 +123,10 @@ describe("defer", () => {
   });
 
   it("rejects deferring a deferred or resolved card", () => {
-    expect(rejects(card({ status: "deferred" }), { type: "defer" })).toMatch(/cannot defer/);
-    expect(rejects(card(RESOLVED), { type: "defer" })).toMatch(/cannot defer/);
+    expect(rejects(card({ status: "deferred" }), { type: "defer" })).toMatch(
+      /cannot defer a card while/,
+    );
+    expect(rejects(card(RESOLVED), { type: "defer" })).toMatch(/cannot defer a card while/);
   });
 });
 
@@ -149,7 +151,7 @@ describe("reopen", () => {
   });
 
   it("rejects reopening an open card", () => {
-    expect(rejects(card(), { type: "reopen" })).toMatch(/cannot reopen a card that is open/);
+    expect(rejects(card(), { type: "reopen" })).toMatch(/cannot reopen a card while it is open/);
   });
 });
 
@@ -160,7 +162,9 @@ describe("applied", () => {
   });
 
   it("is only for resolved cards", () => {
-    expect(rejects(card(), { type: "applied" })).toMatch(/cannot applied/);
+    expect(rejects(card(), { type: "applied" })).toMatch(
+      /cannot mark a card as applied while it is open/,
+    );
   });
 });
 
