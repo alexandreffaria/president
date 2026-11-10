@@ -14,7 +14,6 @@ import {
 } from "react";
 import type { BrokenCardDto, CardDto, ProjectDto } from "../core/api.ts";
 import { api } from "./api.ts";
-import { recordWrite } from "./app-writes.ts";
 import { connectLive, type LiveState } from "./live.ts";
 
 export type Connection = LiveState;
@@ -29,6 +28,11 @@ interface HubState {
   connection: Connection;
   /** Bumped whenever a project's cards change on disk; card views refetch on change. */
   versions: Record<string, number>;
+  /**
+   * Bumped when the live stream reconnects after the first time (the tab was hidden, or the
+   * connection dropped): changes may have been missed, so card views refetch too.
+   */
+  reconnects: number;
   projectFilter: string | undefined;
   setProjectFilter: (project: string | undefined) => void;
   refresh: () => Promise<void>;
@@ -57,6 +61,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState<ProjectDto[]>([]);
   const [connection, setConnection] = useState<Connection>("connecting");
   const [versions, setVersions] = useState<Record<string, number>>({});
+  const [reconnects, setReconnects] = useState(0);
   const [projectFilter, setFilterState] = useState<string | undefined>(readStoredFilter);
   const inFlight = useRef<Promise<void> | null>(null);
   const again = useRef(false);
@@ -96,18 +101,16 @@ export function HubProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void refresh();
-    // One live connection for all tabs (see live.ts).
+    let connected = false;
+    // A stream of our own while the tab is visible (see live.ts).
     return connectLive({
       onState: setConnection,
       onEvent: (event) => {
-        if (event.type === "cards") {
-          // Written by president (any tab): the human's own change, not an agent's.
-          if (event.id && event.revision) {
-            recordWrite(event.project, event.id, event.revision, "other-tab");
-          }
-          cardsChanged(event.project);
+        if (event.type === "cards") cardsChanged(event.project);
+        if (event.type === "ready") {
+          if (connected) setReconnects((n) => n + 1);
+          connected = true;
         }
-        // "ready" comes after every (re)connect, when we may have missed events.
         void refresh();
       },
     });
@@ -140,6 +143,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
       projects,
       connection,
       versions,
+      reconnects,
       projectFilter,
       setProjectFilter,
       refresh,
@@ -154,6 +158,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
       projects,
       connection,
       versions,
+      reconnects,
       projectFilter,
       setProjectFilter,
       refresh,

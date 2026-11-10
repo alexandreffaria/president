@@ -407,8 +407,14 @@ export function toCardDto(card: LoadedCard): CardDto {
   };
 }
 
-export function toCardDetailDto(card: LoadedCard): CardDetailDto {
-  return { ...toCardDto(card), body: card.body, sections: card.sections, path: card.path };
+export function toCardDetailDto(card: LoadedCard, writtenByPresident = false): CardDetailDto {
+  return {
+    ...toCardDto(card),
+    body: card.body,
+    sections: card.sections,
+    path: card.path,
+    writtenByPresident,
+  };
 }
 
 export function countCards(cards: ProjectCards): ProjectCounts {

@@ -4,7 +4,7 @@ import type { BrokenCardDto, CardDetailDto, CardDto } from "../../core/api.ts";
 import { CUSTOM_CHOICE } from "../../core/model.ts";
 import { buildQueue, openDependencies, unknownDependencies } from "../../core/queue.ts";
 import { api, RequestError } from "../api.ts";
-import { writtenBy } from "../app-writes.ts";
+import { wroteHere } from "../app-writes.ts";
 import { describeChanges } from "../card-changes.ts";
 import { CardAssistant } from "../components/CardAssistant.tsx";
 import { FeedbackHistory } from "../components/FeedbackHistory.tsx";
@@ -47,7 +47,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
   /** Set when a change on disk cleared the option the human had picked. */
   const [choiceCleared, setChoiceCleared] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
-  const version = hub.versions[project] ?? 0;
+  const version = (hub.versions[project] ?? 0) + hub.reconnects;
   const undoGroup = `undo:${project}/${id}`;
 
   const queue = buildQueue(hub.cards, hub.projectFilter);
@@ -66,27 +66,29 @@ export function CardView({ project, id }: { project: string; id: string }) {
   /** Loads the card; true if it changed in a way the human has to read again. */
   const load = useCallback(async (): Promise<boolean> => {
     try {
-      const res = await api.card(project, id);
+      const seen = latest.current.seen;
+      const res = await api.card(project, id, seen?.revision);
       if (!res.ok) {
         setLoaded({ state: "broken", broken: res.broken });
         return false;
       }
       const card = res.card;
       setLoaded({ state: "ok", card });
-      const seen = latest.current.seen;
       if (seen?.revision === card.revision) return false;
-      const writer = writtenBy(project, id, card.revision);
       // First load, our own action (here, or undone from a toast), or nothing the human has
       // to look at again (an agent marking notes read): nothing to point out.
-      if (!seen || writer === "this-tab" || describeChanges(seen, card).length === 0) {
+      if (
+        !seen ||
+        wroteHere(project, id, card.revision) ||
+        describeChanges(seen, card).length === 0
+      ) {
         acknowledge(card);
         return false;
       }
       // The human hasn't read this version: actions keep carrying the revision they read,
-      // so the server refuses them until they acknowledge the change.
-      setChangedBy((current) =>
-        current === "agent" || writer === undefined ? "agent" : "other-tab",
-      );
+      // so the server refuses them until they acknowledge the change. The server knows
+      // whether only president (the human, in another tab) changed it since.
+      setChangedBy(card.writtenByPresident ? "other-tab" : "agent");
       if (latest.current.selected) {
         // The options may now mean something else: never keep a choice made on the old text.
         updateDraft({ selected: undefined });

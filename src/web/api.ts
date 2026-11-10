@@ -49,14 +49,17 @@ async function recorded<T extends { card: CardDetailDto }>(
   request: Promise<T>,
 ): Promise<T> {
   const result = await request;
-  recordWrite(project, id, result.card.revision, "this-tab");
+  recordWrite(project, id, result.card.revision);
   return result;
 }
 
 export const api = {
   cards: () => call<CardListResponse>("/api/cards"),
-  card: (project: string, id: string) =>
-    call<CardResponse>(`/api/cards/${segment(project)}/${segment(id)}`),
+  /** `since`: the revision the human read, so the server can say who changed the card since. */
+  card: (project: string, id: string, since?: string) =>
+    call<CardResponse>(
+      `/api/cards/${segment(project)}/${segment(id)}${since ? `?since=${segment(since)}` : ""}`,
+    ),
   /** `revision` is the revision of the card the human read (see drafts.ts `seen`). */
   act: (project: string, id: string, action: CardAction, revision: string) =>
     recorded(

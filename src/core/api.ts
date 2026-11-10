@@ -19,6 +19,13 @@ export interface CardDetailDto extends CardDto {
   sections: BodySections;
   /** Absolute path of the card file, so the human can open it in an editor. */
   path: string;
+  /**
+   * Whether president itself (the human's actions and undos, from any tab) made every change
+   * between the revision the request gave as `since` and this one; without `since`, whether
+   * president wrote this revision. A view uses it to tell the human's own changes from an
+   * agent's, even after a reload or with live events missed.
+   */
+  writtenByPresident: boolean;
 }
 
 export interface BrokenCardDto {
@@ -73,11 +80,5 @@ export interface AddProjectResponse {
   alreadyRegistered: boolean;
 }
 
-/**
- * Server-sent event payloads on /api/events. A "cards" event from an action or undo taken
- * through the API names the card and the revision it wrote, so every tab knows the change
- * came from president (the human), not from an agent.
- */
-export type HubEvent =
-  | { type: "cards"; project: string; id?: string; revision?: string }
-  | { type: "projects" };
+/** Server-sent event payloads on /api/events: something in a project's cards, or the project list, changed. */
+export type HubEvent = { type: "cards"; project: string } | { type: "projects" };

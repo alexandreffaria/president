@@ -333,12 +333,8 @@ describe("card actions API", () => {
     const { card: after } = (await res.json()) as { card: CardDetailDto };
     expect(after.frontmatter.status).toBe("resolved");
     expect(after.revision).not.toBe(before.revision);
-    expect(events).toContainEqual({
-      type: "cards",
-      project: "demo",
-      id: "0002",
-      revision: after.revision,
-    });
+    expect(after.writtenByPresident).toBe(true);
+    expect(events).toContainEqual({ type: "cards", project: "demo" });
     const text = await readFile(join(demo, "decisions", "0002-api-errors.md"), "utf8");
     expect(text).toContain("choice: result");
     expect(text).toContain(before.body);
@@ -492,12 +488,7 @@ describe("undo", () => {
     expect(card.frontmatter.status).toBe("open");
     expect(card.frontmatter.feedback).toEqual([]);
     expect(await readFile(file, "utf8")).toBe(original);
-    expect(events).toContainEqual({
-      type: "cards",
-      project: "demo",
-      id: "0002",
-      revision: card.revision,
-    });
+    expect(events).toContainEqual({ type: "cards", project: "demo" });
     // Once is enough.
     expect((await post("/api/cards/demo/0002/undo", { revision })).status).toBe(409);
   });
@@ -545,6 +536,51 @@ describe("undo", () => {
     const { card } = (await res.json()) as { card: CardDetailDto };
     expect((await post("/api/cards/demo/0004/undo", { revision: card.revision })).status).toBe(200);
     expect(await readFile(file, "utf8")).toBe(original);
+  });
+});
+
+describe("who wrote a card (R3-6)", () => {
+  const detail = async (request: (path: string) => Promise<Response>, since?: string) => {
+    const res = await json<CardResponse>(
+      request(`/api/cards/demo/0002${since ? `?since=${since}` : ""}`),
+    );
+    if (!res.ok) throw new Error("broken");
+    return res.card;
+  };
+
+  it("says president's own writes, from any tab, led to the card a page hasn't seen", async () => {
+    const { act, request, post } = await setup();
+    const read = await detail(request);
+    expect(read.writtenByPresident).toBe(false);
+    // Another tab adds a note, then decides and undoes: all the human's own.
+    await act("0002", { type: "note", note: "one" });
+    const decided = (await (await act("0002", { type: "resolve", choice: "result" })).json()) as {
+      card: CardDetailDto;
+    };
+    await post("/api/cards/demo/0002/undo", { revision: decided.card.revision });
+    expect((await detail(request, read.revision)).writtenByPresident).toBe(true);
+    expect((await detail(request)).writtenByPresident).toBe(true);
+    // Survives a reload: a new page asking with the revision it kept.
+    expect((await detail(request, read.revision)).writtenByPresident).toBe(true);
+  });
+
+  it("says an agent's change, even when president wrote the card after it", async () => {
+    const { act, request, demo } = await setup();
+    const read = await detail(request);
+    const file = join(demo, "decisions", "0002-api-errors.md");
+    await writeFile(
+      file,
+      (await readFile(file, "utf8")).replace(
+        "title: Throw typed errors",
+        "title: Raise typed errors",
+      ),
+    );
+    const agent = await detail(request, read.revision);
+    expect(agent.writtenByPresident).toBe(false);
+    // The human, in another tab, read the agent's change and added a note.
+    await act("0002", { type: "note", note: "ok" });
+    expect((await detail(request, read.revision)).writtenByPresident).toBe(false);
+    expect((await detail(request, agent.revision)).writtenByPresident).toBe(true);
   });
 });
 

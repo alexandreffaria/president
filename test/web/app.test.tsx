@@ -50,6 +50,7 @@ let host: HTMLElement;
 let demo: string;
 let registryFile: string;
 let posts: string[];
+let hidden = false;
 /** Requests the UI started that haven't finished; awaited before the stubs go away. */
 const inFlight = new Set<Promise<Response>>();
 
@@ -72,6 +73,8 @@ beforeEach(async () => {
   });
   FakeEventSource.instances = [];
   vi.stubGlobal("EventSource", FakeEventSource);
+  hidden = false;
+  Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
   vi.stubGlobal("confirm", () => true);
   clearDrafts();
   clearWrites();
@@ -147,6 +150,25 @@ async function agentEdits(file: string, from: string, to: string) {
       type: "cards",
       project: "demo",
     } satisfies HubEvent);
+  });
+}
+
+/** Another president tab adds a note to a card, through the API. */
+async function otherTabAddsNote(id: string, note: string) {
+  const card = await (await fetch(`/api/cards/demo/${id}`)).json();
+  const res = await fetch(`/api/cards/demo/${id}/actions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ type: "note", note, revision: card.card.revision }),
+  });
+  if (!res.ok) throw new Error(`note failed: ${res.status}`);
+}
+
+/** Hides or shows the tab (another tab in front of it, or back). */
+async function setHidden(value: boolean) {
+  hidden = value;
+  await act(async () => {
+    document.dispatchEvent(new Event("visibilitychange"));
   });
 }
 
@@ -369,26 +391,41 @@ describe("changes under the human (R2-7, R2-8, R2-12)", () => {
 
   it("says a change came from another president tab, not an agent", async () => {
     await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
-    // Another tab adds a note: the server announces the revision it wrote.
-    const card = await (await fetch("/api/cards/demo/0001")).json();
-    const res = await (
-      await fetch("/api/cards/demo/0001/actions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ type: "note", note: "from tab 2", revision: card.card.revision }),
-      })
-    ).json();
+    await otherTabAddsNote("0001", "from tab 2");
     await act(async () => {
       FakeEventSource.instances[0]?.emit("cards", {
         type: "cards",
         project: "demo",
-        id: "0001",
-        revision: res.card.revision,
       } satisfies HubEvent);
     });
     await until(() => text().includes("another president tab"), "the notice");
     expect(text()).not.toContain("An agent changed");
     expect(text()).toContain("A note was added.");
+  });
+
+  it("knows the human's own change from another tab even when this tab missed it (R3-6)", async () => {
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await setHidden(true);
+    // Hidden: no stream, so no event about what the other tab does.
+    expect(FakeEventSource.instances.every((s) => s.readyState === 2)).toBe(true);
+    await otherTabAddsNote("0001", "while this tab was hidden");
+    await setHidden(false);
+    await until(() => text().includes("another president tab"), "the notice");
+    expect(text()).not.toContain("An agent changed");
+    expect(text()).toContain("A note was added.");
+  });
+
+  it("says an agent changed the card even when this tab missed the event", async () => {
+    const file = join(demo, "decisions", "0001-offline-storage.md");
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await setHidden(true);
+    await writeFile(
+      file,
+      (await readFile(file, "utf8")).replace("title: IndexedDB through Dexie", "title: RENAMED"),
+    );
+    await setHidden(false);
+    await until(() => text().includes("An agent changed"), "the notice");
+    expect(text()).toContain('Option 1 ("RENAMED") changed: title.');
   });
 
   it("drops a card's undo once the human acts on that card again", async () => {

@@ -6,7 +6,8 @@
  *   POST   /api/projects                     { path, name?, createDecisions? }
  *   DELETE /api/projects/:name
  *   GET    /api/cards?project=&status=&tag=  cards, broken files and projects (with counts)
- *   GET    /api/cards/:project/:id
+ *   GET    /api/cards/:project/:id?since=    since = a revision the client read (see
+ *                                            CardDetailDto.writtenByPresident)
  *   POST   /api/cards/:project/:id/actions   { type, ..., revision }  (see core/actions.ts)
  *   POST   /api/cards/:project/:id/undo      { revision }  revision = what the action returned
  *   GET    /api/events                       server-sent events: "cards" and "projects"
@@ -81,6 +82,7 @@ const ListQuerySchema = z.object({
 
 export function createApp(options: AppOptions): Hono {
   const { registry, bus } = options;
+  const writes = new PresidentWrites();
   const app = new Hono();
 
   app.use("*", localOnly());
@@ -160,8 +162,15 @@ export function createApp(options: AppOptions): Hono {
   api.get("/cards/:project/:id", async (c) => {
     const project = await requireProject(registry, c.req.param("project"));
     const found = await findCard(project, c.req.param("id"));
+    const since = c.req.query("since") || undefined;
     const body: CardResponse = found.ok
-      ? { ok: true, card: toCardDetailDto(found.card) }
+      ? {
+          ok: true,
+          card: toCardDetailDto(
+            found.card,
+            writes.explain(found.card.path, found.card.revision, since),
+          ),
+        }
       : { ok: false, broken: found.broken };
     return c.json(body);
   });
@@ -172,18 +181,19 @@ export function createApp(options: AppOptions): Hono {
     const action = parseBody(CardActionSchema, body);
     const { revision } = parseBody(RevisionSchema, body);
     const card = await actOnCard(project, c.req.param("id"), action, { revision });
-    // The watcher will notice too; emitting now makes other tabs update immediately, and
-    // tells them this revision is the human's own change.
-    bus.emit({ type: "cards", project: project.name, id: card.id, revision: card.revision });
-    return c.json({ ok: true, card: toCardDetailDto(card) } satisfies CardResponse);
+    writes.record(card.path, revision, card.revision);
+    // The watcher will notice too; emitting now makes other tabs update immediately.
+    bus.emit({ type: "cards", project: project.name });
+    return c.json({ ok: true, card: toCardDetailDto(card, true) } satisfies CardResponse);
   });
 
   api.post("/cards/:project/:id/undo", async (c) => {
     const project = await requireProject(registry, c.req.param("project"));
     const { revision } = parseBody(RevisionSchema, await readJson(c.req.raw));
     const card = await undoLastAction(project, c.req.param("id"), revision);
-    bus.emit({ type: "cards", project: project.name, id: card.id, revision: card.revision });
-    return c.json({ ok: true, card: toCardDetailDto(card) } satisfies CardResponse);
+    writes.record(card.path, revision, card.revision);
+    bus.emit({ type: "cards", project: project.name });
+    return c.json({ ok: true, card: toCardDetailDto(card, true) } satisfies CardResponse);
   });
 
   api.get("/events", (c) =>
@@ -222,6 +232,43 @@ export function createApp(options: AppOptions): Hono {
   }
 
   return app;
+}
+
+/**
+ * The card revisions this server wrote (actions and undos), so it can tell a page whether a
+ * change it didn't see was the human's own (from another tab) or someone else's. Kept for
+ * the 500 most recently written cards, 20 writes each; a restart forgets them, and a page
+ * then takes the change for an agent's, which only shows one notice too many.
+ */
+class PresidentWrites {
+  readonly #byPath = new Map<string, { from: string; to: string }[]>();
+
+  record(path: string, from: string, to: string): void {
+    const list = this.#byPath.get(path) ?? [];
+    list.push({ from, to });
+    if (list.length > 20) list.shift();
+    this.#byPath.delete(path);
+    this.#byPath.set(path, list);
+    if (this.#byPath.size > 500) this.#byPath.delete(this.#byPath.keys().next().value as string);
+  }
+
+  /**
+   * Whether this server's own writes alone lead from `since` to `revision` (without
+   * `since`: whether its last write produced `revision`).
+   */
+  explain(path: string, revision: string, since: string | undefined): boolean {
+    const list = this.#byPath.get(path) ?? [];
+    if (since === undefined) return list.at(-1)?.to === revision;
+    let current = revision;
+    // Walk back from the newest write: each must have produced the revision the next one
+    // started from. A gap means someone else changed the file in between.
+    for (let i = list.length - 1; current !== since; i--) {
+      const write = list[i];
+      if (!write || write.to !== current) return false;
+      current = write.from;
+    }
+    return true;
+  }
 }
 
 async function requireProject(registry: Registry, name: string) {
