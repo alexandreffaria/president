@@ -10,6 +10,7 @@ import type {
   CardListResponse,
   CardResponse,
 } from "../core/api.ts";
+import { recordWrite } from "./app-writes.ts";
 
 export class RequestError extends Error {
   readonly status: number;
@@ -41,22 +42,44 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 
 const segment = encodeURIComponent;
 
+/** Remembers every revision this tab writes, so no view mistakes it for an agent's change. */
+async function recorded<T extends { card: CardDetailDto }>(
+  project: string,
+  id: string,
+  request: Promise<T>,
+): Promise<T> {
+  const result = await request;
+  recordWrite(project, id, result.card.revision, "this-tab");
+  return result;
+}
+
 export const api = {
   cards: () => call<CardListResponse>("/api/cards"),
   card: (project: string, id: string) =>
     call<CardResponse>(`/api/cards/${segment(project)}/${segment(id)}`),
-  /** `revision` is the revision of the card the human is looking at. */
+  /** `revision` is the revision of the card the human read (see drafts.ts `seen`). */
   act: (project: string, id: string, action: CardAction, revision: string) =>
-    call<{ ok: true; card: CardDetailDto }>(
-      `/api/cards/${segment(project)}/${segment(id)}/actions`,
-      { method: "POST", body: JSON.stringify({ ...action, revision }) },
+    recorded(
+      project,
+      id,
+      call<{ ok: true; card: CardDetailDto }>(
+        `/api/cards/${segment(project)}/${segment(id)}/actions`,
+        { method: "POST", body: JSON.stringify({ ...action, revision }) },
+      ),
     ),
   /** Reverts the action that returned `revision`, if nothing changed the card since. */
   undo: (project: string, id: string, revision: string) =>
-    call<{ ok: true; card: CardDetailDto }>(`/api/cards/${segment(project)}/${segment(id)}/undo`, {
-      method: "POST",
-      body: JSON.stringify({ revision }),
-    }),
+    recorded(
+      project,
+      id,
+      call<{ ok: true; card: CardDetailDto }>(
+        `/api/cards/${segment(project)}/${segment(id)}/undo`,
+        {
+          method: "POST",
+          body: JSON.stringify({ revision }),
+        },
+      ),
+    ),
   addProject: (input: AddProjectRequest) =>
     call<AddProjectResponse>("/api/projects", { method: "POST", body: JSON.stringify(input) }),
   removeProject: (name: string) =>

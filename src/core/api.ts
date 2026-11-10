@@ -73,5 +73,11 @@ export interface AddProjectResponse {
   alreadyRegistered: boolean;
 }
 
-/** Server-sent event payloads on /api/events. */
-export type HubEvent = { type: "cards"; project: string } | { type: "projects" };
+/**
+ * Server-sent event payloads on /api/events. A "cards" event from an action or undo taken
+ * through the API names the card and the revision it wrote, so every tab knows the change
+ * came from president (the human), not from an agent.
+ */
+export type HubEvent =
+  | { type: "cards"; project: string; id?: string; revision?: string }
+  | { type: "projects" };

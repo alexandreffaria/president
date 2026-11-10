@@ -12,10 +12,12 @@ import {
   useRef,
   useState,
 } from "react";
-import type { BrokenCardDto, CardDto, HubEvent, ProjectDto } from "../core/api.ts";
+import type { BrokenCardDto, CardDto, ProjectDto } from "../core/api.ts";
 import { api } from "./api.ts";
+import { recordWrite } from "./app-writes.ts";
+import { connectLive, type LiveState } from "./live.ts";
 
-export type Connection = "connecting" | "live" | "offline";
+export type Connection = LiveState;
 
 interface HubState {
   loaded: boolean;
@@ -30,6 +32,8 @@ interface HubState {
   projectFilter: string | undefined;
   setProjectFilter: (project: string | undefined) => void;
   refresh: () => Promise<void>;
+  /** Makes open card views of the project reload (after an action, before the event). */
+  cardsChanged: (project: string) => void;
 }
 
 const HubContext = createContext<HubState | null>(null);
@@ -86,27 +90,28 @@ export function HubProvider({ children }: { children: ReactNode }) {
     return inFlight.current;
   }, []);
 
+  const cardsChanged = useCallback((project: string) => {
+    setVersions((v) => ({ ...v, [project]: (v[project] ?? 0) + 1 }));
+  }, []);
+
   useEffect(() => {
     void refresh();
-    const source = new EventSource("/api/events");
-    source.addEventListener("ready", () => {
-      setConnection("live");
-      // After a reconnect we may have missed events.
-      void refresh();
+    // One live connection for all tabs (see live.ts).
+    return connectLive({
+      onState: setConnection,
+      onEvent: (event) => {
+        if (event.type === "cards") {
+          // Written by president (any tab): the human's own change, not an agent's.
+          if (event.id && event.revision) {
+            recordWrite(event.project, event.id, event.revision, "other-tab");
+          }
+          cardsChanged(event.project);
+        }
+        // "ready" comes after every (re)connect, when we may have missed events.
+        void refresh();
+      },
     });
-    source.addEventListener("cards", (event) => {
-      const data = JSON.parse((event as MessageEvent<string>).data) as HubEvent;
-      if (data.type === "cards") {
-        setVersions((v) => ({ ...v, [data.project]: (v[data.project] ?? 0) + 1 }));
-      }
-      void refresh();
-    });
-    source.addEventListener("projects", () => void refresh());
-    source.onerror = () => {
-      setConnection(source.readyState === EventSource.CLOSED ? "offline" : "connecting");
-    };
-    return () => source.close();
-  }, [refresh]);
+  }, [refresh, cardsChanged]);
 
   const setProjectFilter = useCallback((project: string | undefined) => {
     setFilterState(project);
@@ -138,6 +143,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
       projectFilter,
       setProjectFilter,
       refresh,
+      cardsChanged,
     }),
     [
       loaded,
@@ -151,6 +157,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
       projectFilter,
       setProjectFilter,
       refresh,
+      cardsChanged,
     ],
   );
   return <HubContext.Provider value={value}>{children}</HubContext.Provider>;

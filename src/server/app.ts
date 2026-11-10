@@ -172,8 +172,9 @@ export function createApp(options: AppOptions): Hono {
     const action = parseBody(CardActionSchema, body);
     const { revision } = parseBody(RevisionSchema, body);
     const card = await actOnCard(project, c.req.param("id"), action, { revision });
-    // The watcher will notice too; emitting now makes other tabs update immediately.
-    bus.emit({ type: "cards", project: project.name });
+    // The watcher will notice too; emitting now makes other tabs update immediately, and
+    // tells them this revision is the human's own change.
+    bus.emit({ type: "cards", project: project.name, id: card.id, revision: card.revision });
     return c.json({ ok: true, card: toCardDetailDto(card) } satisfies CardResponse);
   });
 
@@ -181,7 +182,7 @@ export function createApp(options: AppOptions): Hono {
     const project = await requireProject(registry, c.req.param("project"));
     const { revision } = parseBody(RevisionSchema, await readJson(c.req.raw));
     const card = await undoLastAction(project, c.req.param("id"), revision);
-    bus.emit({ type: "cards", project: project.name });
+    bus.emit({ type: "cards", project: project.name, id: card.id, revision: card.revision });
     return c.json({ ok: true, card: toCardDetailDto(card) } satisfies CardResponse);
   });
 

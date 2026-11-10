@@ -333,7 +333,12 @@ describe("card actions API", () => {
     const { card: after } = (await res.json()) as { card: CardDetailDto };
     expect(after.frontmatter.status).toBe("resolved");
     expect(after.revision).not.toBe(before.revision);
-    expect(events).toContainEqual({ type: "cards", project: "demo" });
+    expect(events).toContainEqual({
+      type: "cards",
+      project: "demo",
+      id: "0002",
+      revision: after.revision,
+    });
     const text = await readFile(join(demo, "decisions", "0002-api-errors.md"), "utf8");
     expect(text).toContain("choice: result");
     expect(text).toContain(before.body);
@@ -487,7 +492,12 @@ describe("undo", () => {
     expect(card.frontmatter.status).toBe("open");
     expect(card.frontmatter.feedback).toEqual([]);
     expect(await readFile(file, "utf8")).toBe(original);
-    expect(events).toContainEqual({ type: "cards", project: "demo" });
+    expect(events).toContainEqual({
+      type: "cards",
+      project: "demo",
+      id: "0002",
+      revision: card.revision,
+    });
     // Once is enough.
     expect((await post("/api/cards/demo/0002/undo", { revision })).status).toBe(409);
   });
