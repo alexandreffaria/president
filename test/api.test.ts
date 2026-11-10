@@ -1,6 +1,6 @@
-import { chmod, readFile, rename, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, readFile, rename, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type {
   CardDetailDto,
   CardListResponse,
@@ -228,6 +228,39 @@ describe("cards API", () => {
         counts: { open: 2, deferred: 1, resolved: 1, broken: 0 },
       },
     ]);
+  });
+
+  it("reuses parsed cards in listings but never serves a changed file", async () => {
+    const { request, demo } = await setup();
+    const file = join(demo, "decisions", "0002-api-errors.md");
+    const old = new Date("2026-01-01T00:00:00Z");
+    await utimes(file, old, old);
+    const title = async () =>
+      (await json<CardListResponse>(request("/api/cards"))).cards.find((c) => c.id === "0002")
+        ?.frontmatter.title;
+    expect(await title()).toBe("How should the API client report errors?");
+    // Same length, same (old) modification time: only the inode change time differs.
+    const text = await readFile(file, "utf8");
+    await writeFile(file, text.replace("How should the API", "How should the APP"));
+    await utimes(file, old, old);
+    expect(await title()).toBe("How should the APP client report errors?");
+  });
+
+  it("serves a settled card from the cache until it changes", async () => {
+    const { request, demo } = await setup();
+    const file = join(demo, "decisions", "0002-api-errors.md");
+    const title = async () =>
+      (await json<CardListResponse>(request("/api/cards"))).cards.find((c) => c.id === "0002")
+        ?.frontmatter.title;
+    const later = Date.now() + 3_600_000;
+    const now = vi.spyOn(Date, "now").mockReturnValue(later);
+    try {
+      expect(await title()).toBe("How should the API client report errors?");
+      await writeFile(file, (await readFile(file, "utf8")).replace("the API client", "our client"));
+      expect(await title()).toBe("How should our client report errors?");
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("explains an invalid registry file instead of a bare 500", async () => {

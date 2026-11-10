@@ -213,9 +213,13 @@ async function loadFile(
     const result: LoadedCard | BrokenCardDto = parsed.ok
       ? { ...parsed.card, project: project.name, path, revision: revisionOf(text) }
       : { project: project.name, ...parsed.problem };
-    // Like git's "racily clean" rule: a file modified in the last couple of seconds could
-    // change again without its timestamp moving, so only settled files are cached.
-    const settled = Date.now() - Number(info.mtimeNs / 1_000_000n) > 2000;
+    // Like git's "racily clean" rule: file times are coarse (a few ms), so a file changed in
+    // the last couple of seconds could change again without its stamp moving. Only files
+    // that have settled are cached; any later write moves ctime past the cached stamp.
+    const changedMs = Number(
+      (info.mtimeNs > info.ctimeNs ? info.mtimeNs : info.ctimeNs) / 1_000_000n,
+    );
+    const settled = Date.now() - changedMs > 2000;
     if (settled) cache.set(path, { stamp, result });
     else cache.delete(path);
     return result;
