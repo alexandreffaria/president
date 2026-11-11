@@ -28,7 +28,6 @@ import { writeFileAtomic } from "../server/fs-utils.ts";
 import { DECISIONS_DIR, type Project, Registry } from "../server/registry.ts";
 
 import { CARD_FORMAT_DOC, DEMO_SOURCE, type Output } from "./main.ts";
-import { locateProject, noDecisionsError, projectFor } from "./project.ts";
 import { shellQuote } from "./shell.ts";
 
 export async function add(args: string[], out: Output): Promise<number> {
@@ -37,16 +36,16 @@ export async function add(args: string[], out: Output): Promise<number> {
     allowPositionals: true,
     options: { name: { type: "string" }, create: { type: "boolean" } },
   });
-  const path = single(positionals, "add <path>");
-  // From a subfolder of a git repository, the project it is in (see locateProject).
-  const located = await locateProject(path, false);
-  if (located.root !== located.start) {
-    out.error(
-      `president: note: registering ${located.root}, ${located.hasDecisions ? `the nearest folder above ${located.start} with a ${DECISIONS_DIR}/ folder` : `the root of the git repository ${located.start} is in`}. To register a folder inside a repository as its own project, create its ${DECISIONS_DIR}/ folder first.`,
-    );
+  const path = resolve(single(positionals, "add <path>"));
+  if (
+    !values.create &&
+    (await isDirectory(path)) &&
+    !(await isDirectory(join(path, DECISIONS_DIR)))
+  ) {
+    throw noDecisionsError(path, " Or add --create to make one here.");
   }
   const { project, alreadyRegistered, renamedFrom } = await new Registry().add({
-    path: located.root,
+    path,
     name: values.name,
     createDecisions: values.create,
   });
@@ -161,9 +160,7 @@ export async function validate(args: string[], out: Output): Promise<number> {
   if (!info) throw new UserError(`"${target}" does not exist`);
   if (info.isFile()) return validateFile(target, out);
 
-  const located = await locateProject(target);
-  if (!located.hasDecisions) throw noDecisionsError(located);
-  const project = await projectFor(located, out);
+  const project = await projectAt(target, out);
   const { cards, broken, warnings, error } = await loadProjectCards(project);
   if (error) throw new UserError(error);
   for (const card of cards) out.log(`ok      ${card.fileName}`);
@@ -184,14 +181,18 @@ async function validateFile(file: string, out: Output): Promise<number> {
   }
   let ok: boolean;
   if (basename(dirname(file)) === DECISIONS_DIR) {
-    // Inside a project: also catches a duplicate id or an unknown depends_on.
-    const project = await projectFor(await locateProject(dirname(file)), out);
-    const { cards, broken, warnings } = await loadProjectCards(project);
+    // Its project is the folder that holds its decisions/ folder: this also catches a
+    // duplicate id or an unknown depends_on.
+    const project = await registeredAs(dirname(dirname(file)), out);
+    const { cards, broken, warnings, error } = await loadProjectCards(project);
+    if (error) throw new UserError(error);
     const mine = broken.filter((b) => b.fileName === fileName);
     ok = mine.length === 0 && cards.some((c) => c.fileName === fileName);
     if (ok) out.log(`ok      ${fileName}`);
+    // Never exit 1 without saying why (the file went away while it was being read).
+    const missing = { fileName, errors: [`not found in ${join(project.path, DECISIONS_DIR)}`] };
     printProblems(
-      mine,
+      ok || mine.length > 0 ? mine : [missing],
       warnings.filter((w) => w.fileName === fileName),
       out,
     );
@@ -223,9 +224,7 @@ export async function pending(args: string[], out: Output): Promise<number> {
     allowPositionals: true,
     options: { json: { type: "boolean" } },
   });
-  const located = await locateProject(positionals[0] ?? ".");
-  if (!located.hasDecisions) throw noDecisionsError(located);
-  const project = await projectFor(located, out);
+  const project = await projectAt(positionals[0] ?? ".", out);
   const { cards, broken, warnings, error } = await loadProjectCards(project);
   if (error) throw new UserError(error);
   const toApply = cards.filter((c) => needsApplying(c.frontmatter));
@@ -639,11 +638,58 @@ export async function serve(out: Output): Promise<number> {
 
 /** "folder" when the project's folder is gone, "decisions/ folder" when only that is. */
 async function missingFolder(project: Project): Promise<string | undefined> {
-  const isDir = async (path: string) =>
-    (await stat(path).catch(() => undefined))?.isDirectory() ?? false;
-  if (!(await isDir(project.path))) return "folder";
-  if (!(await isDir(join(project.path, DECISIONS_DIR)))) return `${DECISIONS_DIR}/ folder`;
+  if (!(await isDirectory(project.path))) return "folder";
+  if (!(await isDirectory(join(project.path, DECISIONS_DIR)))) return `${DECISIONS_DIR}/ folder`;
   return undefined;
+}
+
+/**
+ * The project of a command given a folder (`validate`, `pending`): that folder, as given (or
+ * the folder that holds it, when it is a decisions/ folder). Nothing above it is looked at.
+ */
+async function projectAt(path: string, out: Output): Promise<Project> {
+  let dir = resolve(path);
+  if (basename(dir) === DECISIONS_DIR) dir = dirname(dir);
+  if (!(await isDirectory(dir))) throw new UserError(`"${dir}" is not a folder`);
+  if (!(await isDirectory(join(dir, DECISIONS_DIR)))) throw noDecisionsError(dir);
+  return registeredAs(dir, out);
+}
+
+function noDecisionsError(dir: string, more = ""): UserError {
+  return new UserError(
+    `${dir} has no ${DECISIONS_DIR}/ folder. Run this from the project root (the folder that contains ${DECISIONS_DIR}/).${more}`,
+  );
+}
+
+/**
+ * The project at `root`, under its registered name when it has one. Says on stderr when the
+ * hub doesn't know it: its cards then never reach the human.
+ */
+async function registeredAs(root: string, out: Output): Promise<Project> {
+  const real = await realpath(root).catch(() => root);
+  const registered = await new Registry().list().then(
+    async (projects) => {
+      for (const project of projects) {
+        if (project.path === real) return project;
+        if ((await realpath(project.path).catch(() => undefined)) === real) return project;
+      }
+      return undefined;
+    },
+    (error: unknown) => {
+      out.error(`president: note: can't read the registry: ${(error as Error).message}`);
+      return null;
+    },
+  );
+  if (registered === undefined) {
+    out.error(
+      `president: note: ${root} is not registered with the hub, so the human doesn't see its cards. Register it: president add ${shellQuote(root)}`,
+    );
+  }
+  return registered ?? { name: basename(root), path: root };
+}
+
+async function isDirectory(path: string): Promise<boolean> {
+  return (await stat(path).catch(() => undefined))?.isDirectory() ?? false;
 }
 
 async function sameFolder(a: string, b: string): Promise<boolean> {

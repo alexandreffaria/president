@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import { chmod, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
@@ -757,109 +757,85 @@ describe("president CLI", () => {
     expect(again.err).toMatch(/--name ignored: this folder is already registered as "demo"/);
   });
 
-  it("finds the project from a subfolder and says when it isn't registered (R5-12)", async () => {
+  // The project is the folder given (or "."), or the folder that holds a card's decisions/
+  // folder; nothing above it is looked at, in a git repository or not.
+  it("uses the folder it is given as the project, and nothing above it", async () => {
     const repo = await copyDemoProject("trips");
     await mkdir(join(repo, ".git"));
-    await mkdir(join(repo, "src", "ui"), { recursive: true });
-    const cwd = vi.spyOn(process, "cwd").mockReturnValue(join(repo, "src", "ui"));
+    await mkdir(join(repo, "src"));
+    await cli("add", repo);
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(join(repo, "src"));
     try {
-      const unregistered = await cli("pending");
-      expect(unregistered).toMatchObject({ code: 0, out: "Nothing pending." });
-      expect(unregistered.err).toContain(`president: note: using the project at ${repo}`);
-      expect(unregistered.err).toContain(
-        `president: note: ${repo} is not registered with the hub, so the human doesn't see its cards. Register it: president add ${repo}`,
-      );
-      expect((await cli("validate")).out).toContain(`in ${join(repo, "decisions")}`);
-      // add . from a subfolder registers the project, not the subfolder.
-      const added = await cli("add", ".", "--create");
-      expect(added.out).toBe(`Registered trips (${repo})`);
-      expect(added.err).toMatch(
-        /note: registering .*trips, the nearest folder above .*ui with a decisions\/ folder/,
-      );
-      expect((await readdir(join(repo, "src", "ui"))).includes("decisions")).toBe(false);
-      const registered = await cli("pending");
-      expect(registered.err).not.toMatch(/not registered/);
-      expect((await cli("validate", join(repo, "decisions", "0002-api-errors.md"))).err).toBe("");
+      for (const command of ["pending", "validate"]) {
+        expect(await cli(command)).toEqual({
+          code: 1,
+          out: "",
+          err: `president: ${join(repo, "src")} has no decisions/ folder. Run this from the project root (the folder that contains decisions/).`,
+        });
+      }
+      expect(await cli("add", ".")).toMatchObject({
+        code: 1,
+        err: `president: ${join(repo, "src")} has no decisions/ folder. Run this from the project root (the folder that contains decisions/). Or add --create to make one here.`,
+      });
+      // --create makes decisions/ in the folder given, never in a parent.
+      expect((await cli("add", ".", "--create")).out).toBe(`Registered src (${join(repo, "src")})`);
+      expect((await readdir(join(repo, "src"))).includes("decisions")).toBe(true);
     } finally {
       cwd.mockRestore();
     }
   });
 
-  it("registers a repository's root from a subfolder without decisions/ (R5-12)", async () => {
-    const repo = join(await tempDir(), "shop");
-    await mkdir(join(repo, ".git"), { recursive: true });
-    await mkdir(join(repo, "src"));
-    const added = await cli("add", join(repo, "src"), "--create");
-    expect(added.out).toBe(`Registered shop (${repo})`);
-    expect(added.err).toMatch(/note: registering .*shop, the root of the git repository/);
-    // A part of a monorepo is its own project once it has decisions/.
-    await mkdir(join(repo, "web", "decisions"), { recursive: true });
-    expect((await cli("add", join(repo, "web"), "--name", "shop-web")).out).toBe(
-      `Registered shop-web (${join(repo, "web")})`,
-    );
+  it("says when the project is not registered", async () => {
+    const demo = await copyDemoProject("trips");
+    const note = `president: note: ${demo} is not registered with the hub, so the human doesn't see its cards. Register it: president add ${demo}`;
+    expect(await cli("pending", demo)).toEqual({ code: 0, out: "Nothing pending.", err: note });
+    expect((await cli("validate", demo)).err).toBe(note);
+    expect((await cli("validate", join(demo, "decisions", "0002-api-errors.md"))).err).toBe(note);
+    await cli("add", demo);
+    expect((await cli("pending", demo)).err).toBe("");
+    // A registry it can't read is said, and the command still runs.
+    await writeFile(join(configHome, "president", "projects", "trips.json"), "{");
+    const unreadable = await cli("pending", demo);
+    expect(unreadable).toMatchObject({ code: 0, out: "Nothing pending." });
+    expect(unreadable.err).toMatch(/^president: note: can't read the registry: /);
   });
 
-  it("says where to find or create decisions/ when there is none (R5-12)", async () => {
-    const repo = join(await tempDir(), "app");
-    await mkdir(join(repo, ".git"), { recursive: true });
-    await mkdir(join(repo, "src"));
-    for (const command of ["pending", "validate"]) {
-      const result = await cli(command, join(repo, "src"));
-      expect(result.code).toBe(1);
-      expect(result.err).toBe(
-        `president: there is no decisions/ folder in ${join(repo, "src")} or its parents (up to the repository root, ${repo}). Run this in the project's folder, or create one and register the project: president add ${repo} --create`,
-      );
-    }
-    const loose = await tempDir();
-    expect((await cli("pending", loose)).err).toBe(
-      `president: there is no decisions/ folder in ${loose}. Run this in the project's folder, or create one and register the project: president add ${loose} --create`,
+  // A project inside a registered one (r7 vf7.sh): its own cards, not the outer project's.
+  it("checks a card in the project that holds its decisions/ folder (R7-1)", async () => {
+    const shop = await copyDemoProject("shop");
+    await mkdir(join(shop, ".git"));
+    await cli("add", shop);
+    const web = join(shop, "web");
+    await mkdir(join(web, "decisions"), { recursive: true });
+    const card = join(web, "decisions", "0001-web-copy.md");
+    await writeFile(card, cardText({ id: '"0001"' }));
+    const unregistered = `president: note: ${web} is not registered with the hub, so the human doesn't see its cards. Register it: president add ${web}`;
+    const good = await cli("validate", card);
+    expect(good).toMatchObject({ code: 0, err: unregistered });
+    expect(good.out).toMatch(/^ok {6}0001-web-copy\.md\n/);
+    const bad = join(web, "decisions", "0002-broken.md");
+    await writeFile(bad, cardText({ id: '"0002"', title: "Copy: what?" }));
+    const broken = await cli("validate", bad);
+    expect(broken.code).toBe(1);
+    expect(broken.err).toMatch(/^president: note: .*\nbroken {2}0002-broken\.md\n {10}- /);
+    const all = await cli("validate", web);
+    expect(all.code).toBe(1);
+    expect(all.out).toMatch(
+      /^ok {6}0001-web-copy\.md\n\n1 valid, 1 broken in .*\/web\/decisions\./,
     );
+    const pending = await cli("pending", web);
+    expect(pending.out).toMatch(/Broken cards .*\n {2}0002-broken\.md: /);
   });
 
-  // Outside a git repository nothing above the folder is looked at: an ancestor's decisions/
-  // (~/decisions, /tmp/decisions, a parent workspace) is not this project's (R6-2).
-  it("uses the folder itself outside a git repository", async () => {
-    const walk = join(await tempDir(), "walk");
-    const proj = join(walk, "sub", "proj");
-    await mkdir(join(walk, "decisions"), { recursive: true });
-    await mkdir(proj, { recursive: true });
-    expect((await cli("pending", proj)).err).toMatch(
-      new RegExp(`^president: there is no decisions/ folder in ${proj}\\. `),
-    );
-    expect(await cli("add", proj, "--create")).toEqual({
-      code: 0,
-      out: `Registered proj (${proj})`,
-      err: "",
-    });
-    expect((await readdir(proj)).includes("decisions")).toBe(true);
-  });
-
-  it("looks for a git repository no higher than $HOME (R6-2)", async () => {
-    const outer = await tempDir();
-    await mkdir(join(outer, ".git"));
-    await mkdir(join(outer, "decisions"));
-    const proj = join(outer, "home", "proj");
-    await mkdir(proj, { recursive: true });
-    vi.stubEnv("HOME", join(outer, "home"));
-    expect((await cli("pending", proj)).err).toMatch(
-      new RegExp(`^president: there is no decisions/ folder in ${proj}\\. `),
-    );
-  });
-
-  // A code folder called decisions/ inside a registered project is not a project (R6-4).
-  it("prefers the registered project to a nearer decisions/ folder", async () => {
-    const repo = await copyDemoProject("app");
-    await mkdir(join(repo, ".git"));
-    await mkdir(join(repo, "src", "decisions"), { recursive: true });
-    await writeFile(join(repo, "src", "decisions", "index.ts"), "export {};\n");
-    await cli("add", repo);
-    const result = await cli("pending", join(repo, "src"));
-    expect(result.out).toBe("Nothing pending.");
-    expect(result.err).toBe(`president: note: using the project at ${repo}`);
-    await rm(join(repo, "decisions"), { recursive: true });
-    expect((await cli("validate", join(repo, "src"))).err).toMatch(
-      new RegExp(`^president: there is no decisions/ folder in ${repo}\\. `),
-    );
+  // validate never exits 1 without saying why.
+  it("says why a card file can't be checked in its project", async () => {
+    const demo = await copyDemoProject();
+    const outside = await tempDir();
+    await rename(join(demo, "decisions"), join(outside, "decisions"));
+    await symlink(join(outside, "decisions"), join(demo, "decisions"));
+    const result = await cli("validate", join(demo, "decisions", "0002-api-errors.md"));
+    expect(result.code).toBe(1);
+    expect(result.err).toMatch(/links to .*, outside the project; president doesn't follow it/);
   });
 
   it("treats . and .. as paths when removing", async () => {
