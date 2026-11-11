@@ -165,6 +165,15 @@ describe("president CLI", () => {
     expect((await cli("add", dir, "--create", "--name", "fresh")).out).toMatch(/Registered fresh/);
   });
 
+  // --create can't help when decisions is a file, so add doesn't suggest it (R8-4).
+  it("says decisions is not a folder when it is a file, with or without --create", async () => {
+    const dir = await tempDir();
+    await writeFile(join(dir, "decisions"), "notes");
+    const refused = `president: "${join(dir, "decisions")}" exists but is not a directory`;
+    expect(await cli("add", dir)).toEqual({ code: 1, out: "", err: refused });
+    expect(await cli("add", dir, "--create")).toEqual({ code: 1, out: "", err: refused });
+  });
+
   it("validates cards and fails on broken ones", async () => {
     const demo = await copyDemoProject();
     expect((await cli("validate", demo)).code).toBe(0);

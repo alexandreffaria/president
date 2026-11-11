@@ -40,7 +40,8 @@ export async function add(args: string[], out: Output): Promise<number> {
   if (
     !values.create &&
     (await isDirectory(path)) &&
-    !(await isDirectory(join(path, DECISIONS_DIR)))
+    // Something else there (a file) is the registry's to explain (R8-4).
+    (await stat(join(path, DECISIONS_DIR)).catch(() => undefined)) === undefined
   ) {
     throw noDecisionsError(path, " Or add --create to make one here.");
   }
