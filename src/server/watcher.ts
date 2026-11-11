@@ -3,6 +3,7 @@
  * reports changes (debounced) so the UI can refresh without a reload.
  */
 import { EventEmitter } from "node:events";
+import type { Stats } from "node:fs";
 import { stat } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { type FSWatcher, watch } from "chokidar";
@@ -192,13 +193,14 @@ export class HubWatcher {
 }
 
 /**
- * What is at decisions/ `dir`: the device and inode of it and of its project folder, or null
- * if it is not a folder. They change when either is made again or a drive is mounted above.
+ * What is at decisions/ `dir`: which folder it and its project folder are, or null if it is
+ * not a folder. That changes when either is made again or a drive is mounted above. The
+ * birth time is part of it, as a folder made again often gets the old one's inode (ext4).
  */
 function identity(dir: string): Promise<string | null> {
+  const id = (s: Stats) => `${s.dev}:${s.ino}:${s.birthtimeMs}`;
   return Promise.all([stat(dirname(dir)), stat(dir)]).then(
-    ([root, decisions]) =>
-      decisions.isDirectory() ? `${root.dev}:${root.ino} ${decisions.dev}:${decisions.ino}` : null,
+    ([root, decisions]) => (decisions.isDirectory() ? `${id(root)} ${id(decisions)}` : null),
     () => null,
   );
 }
