@@ -255,9 +255,11 @@ describe("HubWatcher", () => {
   // Where the folder made again gets the old inode and there is no birth time (ext4 with
   // small inodes, most FUSE filesystems), only the old watch's raw event tells (P2b-1).
   // Two signals tell: the folder's raw `rename`, and chokidar's unlinkDir when it notices
-  // first (from the cards' events) and drops the watch before that event comes. Moved away,
-  // the old folder still exists and its watch still works, on it: only a watch dropped first
-  // and made again watches the new folder.
+  // first (from the cards' events) and drops the watch, so that the raw event never comes.
+  // Which of the two comes first is up to timing, so the second case makes the second
+  // order happen: no raw events, and the unlinkDir chokidar then sends. Moved away, the old
+  // folder still exists and its watch still works, on it: only a watch dropped first and
+  // made again watches the new folder.
   const deleted = (dir: string) => rm(dir, { recursive: true });
   it.each([
     ["deleted", deleted, false],
@@ -265,11 +267,13 @@ describe("HubWatcher", () => {
     ["moved away", (dir: string) => rename(dir, `${dir}-${Math.random()}`), false],
   ])(
     "keeps reporting changes after decisions/ is %s and made again with the same inode, twice",
-    async (_, remove, withoutRaw) => {
-      if (withoutRaw) {
+    async (_, remove, unlinkDirOnly) => {
+      let chokidar: FSWatcher | undefined;
+      if (unlinkDirOnly) {
         const emit = FSWatcher.prototype.emit as (this: FSWatcher, ...args: unknown[]) => boolean;
         const spy = vi.spyOn(FSWatcher.prototype, "emit");
         spy.mockImplementation(function (this: FSWatcher, ...args: unknown[]) {
+          chokidar = this;
           return args[0] === "raw" ? false : emit.apply(this, args);
         } as FSWatcher["emit"]);
         closers.push(async () => spy.mockRestore());
@@ -284,6 +288,7 @@ describe("HubWatcher", () => {
       for (let round = 0; round < 2; round++) {
         log.splice(0);
         await remove(dir);
+        chokidar?.emit("all", "unlinkDir", dir);
         await mkdir(dir);
         await untilNewCardSeen(log, "demo", dir);
       }
@@ -648,12 +653,28 @@ describe("running hub", () => {
     await socket(running);
   });
 
+  // The heartbeat's interval is faked, so a busy machine can't make the answering socket miss
+  // a deadline: the next beat comes only once the hub has had its answer (R5-5, D).
   it("drops a socket that stops answering pings, and keeps the ones that answer", async () => {
-    const { hub: running } = await hub({ heartbeatMs: 30 });
-    const silent = await socket(running, { origin: running.url, autoPong: false });
-    const answering = await socket(running);
-    await silent.closed;
-    expect(answering.ws.readyState).toBe(WebSocket.OPEN);
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const { hub: running } = await hub({ heartbeatMs: 30 });
+      const silent = await socket(running, { origin: running.url, autoPong: false });
+      const answering = await socket(running);
+      const pinged = new Promise<void>((done) => answering.ws.once("ping", () => done()));
+      vi.advanceTimersByTime(30);
+      await pinged;
+      // The answer went out before this ping, so once the hub answers this one it has read it.
+      await new Promise<void>((done) => {
+        answering.ws.once("pong", () => done());
+        answering.ws.ping();
+      });
+      vi.advanceTimersByTime(30);
+      await silent.closed;
+      expect(answering.ws.readyState).toBe(WebSocket.OPEN);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("sends a ping message with each heartbeat, so a page can tell the hub hangs (R5-5)", async () => {

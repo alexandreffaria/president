@@ -21,10 +21,19 @@ interface JsonReport {
   }[];
 }
 
-// A separate vitest process: Node's start-up and vitest's own take most of its ~1 s.
-it("fails tests and files that warn or log errors, however late", { timeout: 15_000 }, async () => {
+// A separate vitest process: Node's start-up and vitest's own take most of its ~1 s, but with
+// four suites running at once it took over 14 s (a Node process and a worker per fixture
+// file, all starting on a busy machine), so it gets a minute.
+const RUN_MS = 60_000;
+
+/** How the fixtures' vitest run ended, when it failed (as it should: exit code 1). */
+type Run = { killed?: boolean; stdout?: string; stderr?: string };
+
+it("fails tests and files that warn or log errors, however late", {
+  timeout: RUN_MS + 5000,
+}, async () => {
   const output = join(await tempDir(), "report.json");
-  await promisify(execFile)(
+  const run: Run = await promisify(execFile)(
     process.execPath,
     [
       join(ROOT, "node_modules", "vitest", "vitest.mjs"),
@@ -34,9 +43,15 @@ it("fails tests and files that warn or log errors, however late", { timeout: 15_
       "--reporter=json",
       `--outputFile=${output}`,
     ],
-    { cwd: ROOT, timeout: 14_000 },
-  ).catch(() => {}); // it exits 1: that's the point
-  const report = JSON.parse(await readFile(output, "utf8")) as JsonReport;
+    { cwd: ROOT, timeout: RUN_MS },
+  ).catch((error: Run) => error); // it exits 1: that's the point
+  const text = await readFile(output, "utf8").catch(() => {
+    const stopped = run.killed ? ` (stopped after ${RUN_MS / 1000} s)` : "";
+    throw new Error(
+      `the fixtures' vitest run wrote no report${stopped}:\n${run.stdout ?? ""}${run.stderr ?? ""}`,
+    );
+  });
+  const report = JSON.parse(text) as JsonReport;
   const files = Object.fromEntries(
     report.testResults.map((file) => [
       file.name.split("/").at(-1),

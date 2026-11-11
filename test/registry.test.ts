@@ -5,17 +5,26 @@ import { createFileExclusive, STALE_TEMP_MS } from "../src/server/fs-utils.ts";
 import { defaultConfigDir, Registry, suggestName } from "../src/server/registry.ts";
 import { copyDemoProject, tempDir } from "./helpers.ts";
 
-/** Runs once just before the next entry file is created: another `add` getting there first. */
-const race = vi.hoisted(() => ({ before: undefined as (() => Promise<void>) | undefined }));
+/**
+ * Runs once just before the next entry file is created in the registry folder `dir`: another
+ * `add` getting there first. Only there: an `add` of another test still running (one that
+ * timed out on a busy machine) must not take it.
+ */
+const race = vi.hoisted(() => ({
+  before: undefined as { dir: string; run: () => Promise<void> } | undefined,
+}));
 
 vi.mock("../src/server/fs-utils.ts", async (importOriginal) => {
   const real = await importOriginal<typeof import("../src/server/fs-utils.ts")>();
+  const { dirname } = await import("node:path");
   return {
     ...real,
     createFileExclusive: async (path: string, content: string) => {
       const before = race.before;
-      race.before = undefined;
-      await before?.();
+      if (before?.dir === dirname(path)) {
+        race.before = undefined;
+        await before.run();
+      }
       return real.createFileExclusive(path, content);
     },
   };
@@ -160,11 +169,19 @@ describe("Registry", () => {
     expect((await readdir(reg.dir)).sort()).toEqual([".app.json.123.abcd.tmp", "demo.json"]);
   });
 
+  // The entries are written directly, in no particular order: 11 adds, each copying a
+  // project and syncing its entry to disk, took over 5 s on a busy machine. How adds pick
+  // "-2", "-3"... is tested above (R3-13).
   it("orders projects by name, -2 before -10", async () => {
     const reg = await registry();
-    for (let i = 0; i < 11; i++) await reg.add({ path: await copyDemoProject("app") });
-    const names = (await reg.list()).map((p) => p.name);
-    expect(names).toEqual(["app", ...Array.from({ length: 10 }, (_, i) => `app-${i + 2}`)]);
+    await mkdir(reg.dir, { recursive: true });
+    const root = await tempDir();
+    const names = ["app", ...Array.from({ length: 10 }, (_, i) => `app-${i + 2}`)];
+    for (const name of [...names].sort().reverse()) {
+      await mkdir(join(root, name));
+      await writeFile(join(reg.dir, `${name}.json`), JSON.stringify({ path: join(root, name) }));
+    }
+    expect((await reg.list()).map((p) => p.name)).toEqual(names);
   });
 
   it("names the same folder once when it is added under two names at once", async () => {
@@ -207,7 +224,10 @@ describe("Registry", () => {
   it("removes its own entry when a twin that sorts first appeared meanwhile", async () => {
     const reg = await registry();
     const demo = await copyDemoProject();
-    race.before = () => writeFile(join(reg.dir, "alpha.json"), JSON.stringify({ path: demo }));
+    race.before = {
+      dir: reg.dir,
+      run: () => writeFile(join(reg.dir, "alpha.json"), JSON.stringify({ path: demo })),
+    };
     expect(await reg.add({ path: demo, name: "zeta" })).toEqual({
       project: { name: "alpha", path: demo },
       alreadyRegistered: true,
@@ -218,7 +238,10 @@ describe("Registry", () => {
   it("removes a twin that sorts after it when it appeared meanwhile", async () => {
     const reg = await registry();
     const demo = await copyDemoProject();
-    race.before = () => writeFile(join(reg.dir, "zeta.json"), JSON.stringify({ path: demo }));
+    race.before = {
+      dir: reg.dir,
+      run: () => writeFile(join(reg.dir, "zeta.json"), JSON.stringify({ path: demo })),
+    };
     expect(await reg.add({ path: demo, name: "alpha" })).toEqual({
       project: { name: "alpha", path: demo },
       alreadyRegistered: false,
