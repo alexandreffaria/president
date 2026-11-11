@@ -1,11 +1,22 @@
 import { execFile } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import { chmod, mkdir, readdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  readdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { createServer } from "node:net";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CARD_FORMAT_DOC, DEMO_SOURCE, run } from "../src/cli/main.ts";
+import { linkedWorktree } from "../src/cli/worktree.ts";
 import type { CardAction } from "../src/core/actions.ts";
 import { MAX_CARD_BYTES } from "../src/core/card-file.ts";
 import { actOnCard, findCard, undoLastAction } from "../src/server/cards.ts";
@@ -982,12 +993,12 @@ describe("president CLI", () => {
         expect(await cli(command)).toEqual({
           code: 1,
           out: "",
-          err: `president: ${join(repo, "src")} has no decisions/ folder. Run this from the project root (the folder that contains decisions/).`,
+          err: `president: ${join(repo, "src")} has no decisions/ folder. Run this in the project's main folder (the one that contains decisions/), not in a git worktree.`,
         });
       }
       expect(await cli("add", ".")).toMatchObject({
         code: 1,
-        err: `president: ${join(repo, "src")} has no decisions/ folder. Run this from the project root (the folder that contains decisions/). Or add --create to make one here.`,
+        err: `president: ${join(repo, "src")} has no decisions/ folder. Run this in the project's main folder (the one that contains decisions/), not in a git worktree. Or add --create to make one here.`,
       });
       // --create makes decisions/ in the folder given, never in a parent.
       expect((await cli("add", ".", "--create")).out).toBe(`Registered src (${join(repo, "src")})`);
@@ -1015,7 +1026,7 @@ describe("president CLI", () => {
       expect(listed).toMatchObject({ code: 0, err: "" });
       expect(listed.out).toMatch(/New notes from the human[\s\S]*Blue, maybe\?/);
       // Its own decisions/ folder is a folder like any other: not a way to name the project.
-      const inner = `president: ${join(root, "decisions")} has no decisions/ folder. Run this from the project root (the folder that contains decisions/).`;
+      const inner = `president: ${join(root, "decisions")} has no decisions/ folder. Run this in the project's main folder (the one that contains decisions/), not in a git worktree.`;
       for (const command of ["pending", "validate"]) {
         expect(await cli(command, "decisions")).toEqual({ code: 1, out: "", err: inner });
       }
@@ -1047,6 +1058,49 @@ describe("president CLI", () => {
     const unreadable = await cli("pending", demo);
     expect(unreadable).toMatchObject({ code: 0, out: "Nothing pending." });
     expect(unreadable.err).toMatch(/^president: note: can't read the registry: /);
+  });
+
+  // A linked worktree's decisions/ is its own copy, without the human's answers (#0022).
+  it("warns, without refusing, when pending, applied, seen or update run in a git worktree", async () => {
+    const main = await realpath(await copyDemoProject("trips"));
+    const wt = join(dirname(main), "wt");
+    // No GIT_* variables from a hook, no system or global git config.
+    const env = {
+      ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_"))),
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+    };
+    const git = (...args: string[]) =>
+      promisify(execFile)("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+        cwd: main,
+        env,
+      });
+    await git("init", "-q");
+    await git("add", ".");
+    await git("commit", "-qm", "cards");
+    await git("worktree", "add", "-q", wt);
+    await cli("add", main);
+
+    expect(await cli("pending", main)).toMatchObject({ code: 0, err: "" });
+    const warning = `president: warning: ${wt} is in a git worktree, which has its own copy of decisions/: the human's answers are not in it, and this command reads or marks only that copy. Run president commands in the project's main folder (${main}), and don't run president add in a worktree.`;
+    const pending = await cli("pending", wt);
+    expect(pending).toMatchObject({ code: 0, out: "Nothing pending." });
+    // First, before the note that suggests registering the worktree.
+    expect(pending.err.split("\n")[0]).toBe(warning);
+    const card = join(wt, "decisions", "0004-map-tiles.md");
+    for (const args of [
+      ["applied", card, "--token", "x"],
+      ["seen", card, "--token", "x"],
+      ["update", card, join(wt, "decisions", ".0004.new")],
+    ]) {
+      expect((await cli(...args)).err.split("\n")).toContain(warning);
+    }
+    // A project in a subfolder: the same subfolder of the main checkout.
+    expect(await linkedWorktree(join(wt, "decisions"))).toEqual({
+      main: join(main, "decisions"),
+    });
+    expect(await linkedWorktree(main)).toBeUndefined();
+    expect(await linkedWorktree(dirname(main))).toBeUndefined();
   });
 
   // A link to a registered project's folder is that project (R8-6).
