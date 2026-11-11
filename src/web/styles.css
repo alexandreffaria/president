@@ -1298,8 +1298,14 @@ body:has(.action-bar-open) .toasts {
     gap: 0.25rem;
   }
 
+  /* Hidden from sight only: screen readers still read (and announce) it. */
   .connection-label {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
 
   .main {

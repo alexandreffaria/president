@@ -2,7 +2,7 @@ import { useState } from "react";
 import { buildQueue } from "../core/queue.ts";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import { HelpOverlay } from "./components/HelpOverlay.tsx";
-import { HubProvider, useHub } from "./hub.tsx";
+import { type Connection, HubProvider, useHub } from "./hub.tsx";
 import { useKeyboard } from "./keyboard.ts";
 import { Link, parseRoute, usePathname } from "./router.tsx";
 import { ToastProvider } from "./toast.tsx";
@@ -75,6 +75,16 @@ function Route({ route }: { route: ReturnType<typeof parseRoute> }) {
   );
 }
 
+/** The connection indicator's word, and what it means for screen readers. */
+const CONNECTION_TEXT: Record<Connection, { label: string; explanation: string }> = {
+  connecting: { label: "Connecting", explanation: ": connecting to the server" },
+  live: { label: "Live", explanation: ": changes on disk show up automatically" },
+  offline: {
+    label: "Offline",
+    explanation: ": not connected to the server, retrying. Changes you make may not be saved.",
+  },
+};
+
 function Header(props: { current: string; onHelp: () => void }) {
   const { cards, connection, projectFilter } = useHub();
   const queued = buildQueue(cards, projectFilter).length;
@@ -105,22 +115,11 @@ function Header(props: { current: string; onHelp: () => void }) {
         ))}
       </nav>
       <div className="topbar-end">
-        <span
-          className={`connection connection-${connection}`}
-          title={
-            connection === "live"
-              ? "Live: changes on disk show up automatically"
-              : "Not connected to the server; retrying"
-          }
-        >
+        {/* A status region: screen readers announce it when it changes (R5-7). */}
+        <span className={`connection connection-${connection}`} role="status">
           <span className="connection-dot" aria-hidden="true" />
-          <span className="connection-label">
-            {connection === "live"
-              ? "Live"
-              : connection === "connecting"
-                ? "Connecting"
-                : "Offline"}
-          </span>
+          <span className="connection-label">{CONNECTION_TEXT[connection].label}</span>
+          <span className="sr-only">{CONNECTION_TEXT[connection].explanation}</span>
         </span>
         <button type="button" className="button button-quiet" onClick={props.onHelp}>
           <kbd>?</kbd>

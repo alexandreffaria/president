@@ -659,6 +659,22 @@ describe("queue keyboard", () => {
   });
 });
 
+describe("the connection indicator (R5-7)", () => {
+  it("is a status region whose explanation screen readers get, not a tooltip", async () => {
+    await open("/", () => text().includes("Live"), "the live indicator");
+    const status = host.querySelector(".connection");
+    expect(status?.getAttribute("role")).toBe("status");
+    expect(status?.hasAttribute("title")).toBe(false);
+    expect(status?.textContent).toBe("Live: changes on disk show up automatically");
+    expect(status?.querySelector(".sr-only")?.textContent).toMatch(/^: changes on disk/);
+    FakeWebSocket.autoReady = false;
+    socket()?.drop();
+    // The same element changes, so it is announced.
+    expect(host.querySelector(".connection")).toBe(status);
+    expect(status?.textContent).toMatch(/^Offline: not connected to the server, retrying/);
+  });
+});
+
 describe("the queue after a reconnect (R5-4)", () => {
   it("shows a card an agent added while the socket was down", async () => {
     await open("/", () => host.querySelectorAll(".queue-link").length >= 2, "the queue");
