@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CARD_FORMAT_DOC, DEMO_SOURCE, run } from "../src/cli/main.ts";
 import type { CardAction } from "../src/core/actions.ts";
-import { actOnCard, findCard } from "../src/server/cards.ts";
+import { actOnCard, findCard, undoLastAction } from "../src/server/cards.ts";
 import type { Project } from "../src/server/registry.ts";
 import { cardText, copyDemoProject, tempDir } from "./helpers.ts";
 
@@ -391,6 +391,36 @@ describe("president CLI", () => {
     await step({ type: "resolve", choice: "protomaps" });
     expect((await cli("pending", demo)).out).toContain(
       'Decided again: it was custom ("Self-host tiles.\\nOn our own server.") before, applied at',
+    );
+  });
+
+  it("tells the agent to revert a decision the human took back (R5-10)", async () => {
+    const demo = await copyDemoProject();
+    const file = join(demo, "decisions", "0002-api-errors.md");
+    const decided = await human(demo, "0002", { type: "resolve", choice: "result" });
+    const shown = (await cli("pending", demo)).out;
+    expect(shown).toMatch(/Resolved, not yet applied[^]*-> result/);
+    // The agent records the decision and does the work; meanwhile the human clicks Undo.
+    await undoLastAction({ name: "demo", path: demo }, "0002", decided.revision);
+    const refused = await runDone(shown, file);
+    expect(refused.code).toBe(1);
+    expect(refused.err).toMatch(
+      /it is now open[^]*If the decision pending showed you is no longer the card's \(it was taken back, reopened or changed\), revert what you recorded in the docs and changed for it\./,
+    );
+    // However late the agent looks, pending still says so.
+    const later = (await cli("pending", demo)).out;
+    expect(later).toMatch(
+      /New notes from the human[^]*undo \S+: Took back the decision "result"[^]*\n {4}The human took back this decision\. If you recorded it in the docs or changed code for it, revert that, then run the done line\./,
+    );
+    expect((await runDone(later, file)).code).toBe(0);
+    expect((await cli("pending", demo)).out).toBe("Nothing pending.");
+  });
+
+  it("says to wait for a new decision after a reopen alone (R5-17)", async () => {
+    const demo = await copyDemoProject();
+    await human(demo, "0004", { type: "reopen", note: "Costs changed." });
+    expect((await cli("pending", demo)).out).toContain(
+      '    Reopened, not decided again yet: don\'t change the docs or code for it now. Run the done line; when the human decides again, pending says "Decided again".',
     );
   });
 

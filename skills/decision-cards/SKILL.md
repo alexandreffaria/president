@@ -201,6 +201,10 @@ For each one that `president pending` lists:
 4. Run the card's `done:` line from `pending` (`president applied <file> --token <token>`; it
    sets `applied_at` and `seen_at`). Don't change `status` or `resolution` yourself.
 
+   If it refuses because the card changed and the decision you acted on is gone (the human
+   took it back with Undo, or reopened it before you finished), revert the docs entry and the
+   work you did for it, then run `president pending` again.
+
 ## Cards that need new options
 
 When the human rejects all options, president appends their note to `feedback` (with
@@ -218,8 +222,18 @@ When the human rejects all options, president appends their note to `feedback` (
 ## New notes from the human
 
 The human can add a note to an open or deferred card without deciding, give a reason when
-deferring, or reopen a decided card. These land in `feedback` (`type: note`, `defer` or
-`reopen`), and `president pending` lists every card with feedback newer than its `seen_at`.
+deferring, reopen a decided card, or take back a decision with Undo. These land in `feedback`
+(`type: note`, `defer`, `reopen` or `undo`), and `president pending` lists every card with
+feedback newer than its `seen_at`. Two of them need care:
+
+- **`undo`**: the human took back a decision right after making it (`previous_resolution` is
+  the decision). If you recorded it in the docs or changed code for it, revert that. If you
+  never saw it, there is nothing to undo.
+- **`reopen` alone** (the card is open again, not decided again yet): don't change the docs or
+  the code yet; the earlier decision stands until there is a new one. Run the `done:` line.
+  When the human decides again, `pending` lists the card as "Decided again": replace the
+  earlier record then.
+
 For each:
 
 1. Read the new entries. They may ask a question, add a constraint, ask for research, or say

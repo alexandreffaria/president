@@ -277,8 +277,19 @@ export async function pending(args: string[], out: Output): Promise<number> {
     return 0;
   }
   const notes = (c: LoadedCard) => {
-    for (const note of unseenFeedback(c.frontmatter)) {
+    const entries = unseenFeedback(c.frontmatter);
+    for (const note of entries) {
       out.log(`    ${note.type ?? "note"} ${note.at}: ${continued(note.note)}`);
+    }
+    const last = entries.at(-1)?.type;
+    if (last === "undo") {
+      out.log(
+        "    The human took back this decision. If you recorded it in the docs or changed code for it, revert that, then run the done line.",
+      );
+    } else if (last === "reopen" && c.frontmatter.status === "open") {
+      out.log(
+        '    Reopened, not decided again yet: don\'t change the docs or code for it now. Run the done line; when the human decides again, pending says "Decided again".',
+      );
     }
   };
   if (toApply.length > 0) {
@@ -363,7 +374,12 @@ export async function applied(args: string[], out: Output): Promise<number> {
   );
   // The token first: "already applied" is only true of the decision the agent was shown.
   const check = checkAgentToken(card, token);
-  if (!check.ok) throw new UserError(check.error);
+  if (!check.ok) {
+    // The agent may already have acted on a decision that is gone.
+    throw new UserError(
+      `${check.error} If the decision pending showed you is no longer the card's (it was taken back, reopened or changed), revert what you recorded in the docs and changed for it.`,
+    );
+  }
   if (card.frontmatter.applied_at) {
     out.log(
       `${card.fileName} was already applied at ${card.frontmatter.applied_at}; nothing changed.`,
