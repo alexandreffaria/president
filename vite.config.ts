@@ -3,28 +3,21 @@ import { createLogger, defineConfig, type Logger } from "vite";
 
 const apiPort = Number(process.env.PRESIDENT_PORT ?? 4747);
 
-/** Socket errors that only mean the other end went away (a tab closed its live socket). */
-const HANGUPS = new Set(["EPIPE", "ECONNRESET"]);
-
 /**
- * The dev server's logger, with its proxy errors made quiet. Vite prints every proxy error
- * with a stack trace: two for each page load (React's StrictMode opens and closes a socket
- * at once), and one for each reconnect while the hub restarts. Here a hang-up prints
- * nothing, and any other proxy error prints its first line once (the same line again only
- * after `repeatMs`), e.g. "ws proxy error: (ECONNREFUSED)" while the hub is down.
+ * The dev server's logger, without one known-harmless error: Vite prints every proxy error
+ * with a stack trace, and the live socket (/api/events, the only WebSocket the proxy
+ * carries) hangs up each time a tab closes or reloads, or the hub restarts. Only that is
+ * dropped: a "ws proxy" error with code EPIPE or ECONNRESET. Everything else, http proxy
+ * errors included, is printed as Vite gives it.
  */
-export function quietProxyErrors(logger: Logger, repeatMs = 10_000, now = Date.now): Logger {
+export function quietProxyErrors(logger: Logger): Logger {
   const error = logger.error.bind(logger);
-  const lastSaid = new Map<string, number>();
   logger.error = (message, options) => {
-    if (!/proxy (socket )?error/.test(message)) return error(message, options);
     const code = (options?.error as NodeJS.ErrnoException | null | undefined)?.code;
-    if (code && HANGUPS.has(code)) return;
-    const line = `${message.split("\n")[0]}${code ? ` (${code})` : ""}`;
-    const at = now();
-    if (at - (lastSaid.get(line) ?? Number.NEGATIVE_INFINITY) < repeatMs) return;
-    lastSaid.set(line, at);
-    error(line, { ...options, error: null });
+    if (/ws proxy (socket )?error:/.test(message) && (code === "EPIPE" || code === "ECONNRESET")) {
+      return;
+    }
+    error(message, options);
   };
   return logger;
 }

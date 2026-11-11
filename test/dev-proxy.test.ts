@@ -1,50 +1,57 @@
 /**
- * The dev server's proxy errors (R5-6): a tab closing its live socket prints nothing, and a
- * hub that is down prints one short line, not a stack trace per reconnect.
+ * The dev server's proxy errors (R5-6, R6-5): the live socket hanging up when a tab closes
+ * prints nothing; every other error, http proxy errors included, is printed as it was.
  */
 import type { Logger } from "vite";
 import { describe, expect, it } from "vitest";
 import { quietProxyErrors } from "../vite.config.ts";
 
-function errno(code: string): NodeJS.ErrnoException {
-  return Object.assign(new Error(`${code} happened`), { code });
+function errno(message: string, code?: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(message), code ? { code } : {});
+}
+
+/** What Vite logs for a proxy error: the red heading, then the stack. */
+function viteMessage(heading: string, error: Error): string {
+  return `\x1b[31m${heading}\x1b[39m\n${error.stack}`;
 }
 
 function logger() {
-  const printed: string[] = [];
+  const printed: { message: string; error: unknown }[] = [];
   const base = {
-    error: (message: string) => printed.push(message),
+    error: (message: string, options?: { error?: unknown }) =>
+      printed.push({ message, error: options?.error }),
   } as unknown as Logger;
-  let clock = 0;
-  const quiet = quietProxyErrors(base, 10_000, () => clock);
-  return { quiet, printed, tick: (ms: number) => (clock += ms) };
+  return { quiet: quietProxyErrors(base), printed };
 }
 
 describe("quietProxyErrors", () => {
-  it("drops hang-ups and shortens other proxy errors to one line, said once", () => {
-    const { quiet, printed, tick } = logger();
-    const stack = "\nError: write EPIPE\n    at afterWriteDispatched (node:internal/stream_base)";
-    quiet.error(`ws proxy error:${stack}`, { error: errno("EPIPE") });
-    quiet.error(`ws proxy socket error:${stack}`, { error: errno("ECONNRESET") });
-    expect(printed).toEqual([]);
-
-    for (let i = 0; i < 4; i++) {
-      quiet.error(`ws proxy error:${stack}`, { error: errno("ECONNREFUSED") });
-      tick(1000);
+  it("drops only the live socket hanging up", () => {
+    const { quiet, printed } = logger();
+    for (const [heading, code] of [
+      ["ws proxy error:", "EPIPE"],
+      ["ws proxy socket error:", "ECONNRESET"],
+    ] as const) {
+      const error = errno(`write ${code}`, code);
+      quiet.error(viteMessage(heading, error), { timestamp: true, error });
     }
-    expect(printed).toEqual(["ws proxy error: (ECONNREFUSED)"]);
-    tick(10_000);
-    quiet.error(`ws proxy error:${stack}`, { error: errno("ECONNREFUSED") });
-    expect(printed).toHaveLength(2);
+    expect(printed).toEqual([]);
   });
 
-  it("leaves every other error as it was", () => {
+  it("prints every other error whole, http proxy hang-ups included", () => {
     const { quiet, printed } = logger();
+    const cases = [
+      ["http proxy error: /api/cards/demo/0002/actions", errno("socket hang up", "ECONNRESET")],
+      ["http proxy error: /api/cards", errno("Parse Error: Invalid header value char", "HPE_X")],
+      ["ws proxy error:", errno("connect ECONNREFUSED 127.0.0.1:4747", "ECONNREFUSED")],
+      ["ws proxy error:", errno("Something without an errno code")],
+    ] as const;
+    for (const [heading, error] of cases) {
+      quiet.error(viteMessage(heading, error), { timestamp: true, error });
+    }
+    expect(printed).toEqual(
+      cases.map(([heading, error]) => ({ message: viteMessage(heading, error), error })),
+    );
     quiet.error("Internal server error: something\n  at x");
-    quiet.error("Internal server error: something\n  at x");
-    expect(printed).toEqual([
-      "Internal server error: something\n  at x",
-      "Internal server error: something\n  at x",
-    ]);
+    expect(printed.at(-1)?.message).toBe("Internal server error: something\n  at x");
   });
 });
