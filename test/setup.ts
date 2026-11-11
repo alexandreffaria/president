@@ -1,0 +1,62 @@
+/**
+ * Runs before every test file. Output that means something went wrong fails the run, so
+ * code that should keep stderr quiet can't start writing to it unnoticed:
+ *
+ * - a process warning (such as the `yaml` library's "Keys with collection values will be
+ *   stringified");
+ * - console.error and console.warn, where React reports its warnings (a missing `key`, an
+ *   update outside act) and the server logs its errors.
+ *
+ * Each test is checked when it ends. What comes later (a timer that outlives its test, an
+ * afterAll hook) is checked once the file's tests are done, after a short grace period.
+ * A test that expects such output says so with `expectConsole`, and then only matching
+ * messages are allowed, and at least one must come.
+ */
+import { format } from "node:util";
+import { afterAll, afterEach, expect } from "vitest";
+
+/** How long after a file's last test late output is still caught. */
+const LATE_MS = 100;
+
+type Level = "error" | "warn";
+
+const problems: string[] = [];
+let expected: { level: Level; pattern: RegExp; seen: boolean }[] = [];
+
+const emitWarning = process.emitWarning.bind(process);
+process.emitWarning = ((warning: string | Error, ...rest: never[]) => {
+  problems.push(`process warning: ${typeof warning === "string" ? warning : warning.message}`);
+  return emitWarning(warning, ...rest);
+}) as typeof process.emitWarning;
+
+for (const level of ["error", "warn"] as const) {
+  const original = console[level].bind(console);
+  console[level] = (...args: unknown[]) => {
+    const message = format(...args);
+    const allowed = expected.filter((e) => e.level === level && e.pattern.test(message));
+    for (const e of allowed) e.seen = true;
+    if (allowed.length > 0) return;
+    problems.push(`console.${level}: ${message.split("\n")[0]}`);
+    original(...args);
+  };
+}
+
+/**
+ * Allows console[level] messages that match `pattern` in the current test, and fails the
+ * test if none comes. Other messages still fail it.
+ */
+export function expectConsole(level: Level, pattern: RegExp): void {
+  expected.push({ level, pattern, seen: false });
+}
+
+afterEach(() => {
+  const missing = expected.filter((e) => !e.seen).map((e) => `console.${e.level} ${e.pattern}`);
+  expected = [];
+  expect(problems.splice(0), "warnings and console errors during the test").toEqual([]);
+  expect(missing, "expected console output that never came").toEqual([]);
+});
+
+afterAll(async () => {
+  await new Promise((resolve) => setTimeout(resolve, LATE_MS));
+  expect(problems.splice(0), "warnings and console errors after the tests").toEqual([]);
+});
