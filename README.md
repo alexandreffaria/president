@@ -91,7 +91,8 @@ Because it's a symlink, pulling this repo updates the skill.
    After you decide, president moves to the next card. Undo puts the card back exactly as it
    was, as long as nothing changed it since (an agent applying it, for example); after that,
    reopen it instead. What you wrote with it (your "why", your answer, the Neither text) comes
-   back as a draft, so you can fix it and send it again.
+   back as a draft, so you can fix it and send it again. An undone decision also leaves an
+   `undo` entry in the card's history, so an agent that already saw it knows to revert its work.
 
    Notes (`m`) reach agents through `president pending`, which lists notes they haven't read yet.
    An agent marks a card handled with a token from `pending` that records what it was shown, so
@@ -175,7 +176,8 @@ How it fits together:
 - Every action must send the revision (a content hash) of the card the human last read, not the
   newest one the page has loaded. If the file changed since, the action is refused and the page
   lists what changed. Undo sends the revision its action returned, and restores the file only if
-  it is still at that revision. The server remembers the revisions it wrote; a page asks for a
+  it is still the file president wrote then (the same bytes written again by an agent count as
+  a change). The server remembers the revisions it wrote; a page asks for a
   card with the revision it last read (`?since=`), and the answer says whether only president's
   own writes happened since, so a change made in another tab, even one this tab missed, is not
   blamed on an agent. That memory is kept nowhere but in the running hub: after the hub

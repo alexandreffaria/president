@@ -238,7 +238,8 @@ export function CardView({ project, id }: { project: string; id: string }) {
                 restoreDraft(project, id, wasSent, panelToRestore);
                 navigate(cardPath(project, id));
                 toast(
-                  `Undone. #${id} is back as it was${unsentText({ ...NO_DRAFT, ...wasSent }) ? ", with what you wrote" : ""}.`,
+                  // An undone decision leaves a note in the history, so agents hear of it.
+                  `Undone. #${id} is ${action.type === "resolve" ? "undecided again" : "back as it was"}${unsentText({ ...NO_DRAFT, ...wasSent }) ? ", with what you wrote" : ""}.`,
                 );
               })
               .catch((error: Error) => toast(`Couldn't undo: ${error.message}`, { tone: "error" }));

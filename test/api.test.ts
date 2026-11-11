@@ -8,12 +8,12 @@ import type {
   HubEvent,
   ProjectDto,
 } from "../src/core/api.ts";
-import { agentToken } from "../src/core/pending.ts";
+import { agentToken, unseenFeedback } from "../src/core/pending.ts";
 import { createApp } from "../src/server/app.ts";
 import { cachedCardPaths } from "../src/server/cards.ts";
 import { Registry } from "../src/server/registry.ts";
 import { EventBus } from "../src/server/watcher.ts";
-import { cardText, copyDemoProject, tempDir } from "./helpers.ts";
+import { cardText, copyDemoProject, diffLines, tempDir } from "./helpers.ts";
 
 async function setup() {
   const registry = new Registry(join(await tempDir(), "config"));
@@ -479,18 +479,60 @@ describe("undo", () => {
     return { ...env, file, original, revision: card.revision };
   }
 
-  it("puts the card back exactly as it was", async () => {
+  it("puts a decided card back as it was, plus an undo entry for agents", async () => {
     const { post, file, original, revision, events } = await resolved();
     events.length = 0;
     const res = await post("/api/cards/demo/0002/undo", { revision });
     expect(res.status).toBe(200);
     const { card } = (await res.json()) as { card: CardDetailDto };
     expect(card.frontmatter.status).toBe("open");
-    expect(card.frontmatter.feedback).toEqual([]);
-    expect(await readFile(file, "utf8")).toBe(original);
+    expect(card.frontmatter.resolution).toBeUndefined();
+    expect(card.frontmatter.feedback).toEqual([
+      {
+        at: expect.any(String),
+        type: "undo",
+        note: 'Took back the decision "result".',
+        previous_resolution: { choice: "result", resolved_at: expect.any(String) },
+      },
+    ]);
+    // An agent that was shown the decision learns it was taken back (R5-10).
+    expect(unseenFeedback(card.frontmatter).map((f) => f.type)).toEqual(["undo"]);
+    // Nothing else changed: the file is the original plus the feedback lines.
+    const after = await readFile(file, "utf8");
+    const { removed, added } = diffLines(original, after);
+    expect(removed).toEqual([]);
+    expect(added.join("\n")).toMatch(
+      /^feedback:\n {2}- at: \S+\n {4}type: undo\n {4}note: Took back the decision "result"\.\n {4}previous_resolution:\n {6}choice: result\n {6}resolved_at: \S+$/,
+    );
     expect(events).toContainEqual({ type: "cards", project: "demo" });
-    // Once is enough.
+    // Once is enough: an undo can't be undone.
     expect((await post("/api/cards/demo/0002/undo", { revision })).status).toBe(409);
+    const again = await post("/api/cards/demo/0002/undo", { revision: card.revision });
+    expect(await again.json()).toMatchObject({ code: "undo_unavailable" });
+  });
+
+  it("keeps a decision's note in the undo entry", async () => {
+    const { act, post } = await setup();
+    const res = await act("0002", { type: "resolve", choice: "result", note: "Keep it short." });
+    const { card } = (await res.json()) as { card: CardDetailDto };
+    const undone = await json<CardResponse>(
+      post("/api/cards/demo/0002/undo", { revision: card.revision }),
+    );
+    expect(undone.ok && undone.card.frontmatter.feedback.at(-1)).toMatchObject({
+      type: "undo",
+      note: 'Took back the decision "result" (Keep it short.).',
+      previous_resolution: { choice: "result", note: "Keep it short." },
+    });
+  });
+
+  it("puts the card back byte for byte after a note", async () => {
+    const { act, post, demo } = await setup();
+    const file = join(demo, "decisions", "0002-api-errors.md");
+    const original = await readFile(file, "utf8");
+    const res = await act("0002", { type: "note", note: "Too early." });
+    const { card } = (await res.json()) as { card: CardDetailDto };
+    expect((await post("/api/cards/demo/0002/undo", { revision: card.revision })).status).toBe(200);
+    expect(await readFile(file, "utf8")).toBe(original);
   });
 
   it("has nothing to undo on a card no action changed", async () => {

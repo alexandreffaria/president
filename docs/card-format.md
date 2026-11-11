@@ -106,7 +106,7 @@ options:
 ```yaml
 feedback:
   - at: 2026-11-05T18:40:00Z
-    type: neither        # neither | note | defer | reopen
+    type: neither        # neither | note | defer | reopen | undo
     note: Both options assume a server. Only compare on-device storage.
 ```
 
@@ -123,6 +123,23 @@ resolution in `previous_resolution`, and `previous_applied_at` when an agent had
       note: Cost matters most.
       resolved_at: 2026-11-03T16:20:00Z
     previous_applied_at: 2026-11-03T16:45:00Z
+```
+
+`undo` means the human took back a decision with Undo, shortly after making it (before an
+agent marked it applied). The card is back as it was before the decision, plus this entry,
+which keeps the decision that was taken back in `previous_resolution`. An agent that was
+shown the decision may already have recorded it or started the work: it reverts that.
+Undoing anything else (a note, a deferral, a reopen) leaves no entry: the card is put back
+byte for byte.
+
+```yaml
+  - at: 2026-11-10T15:21:00Z
+    type: undo
+    note: Took back the decision "action" (Keep it under 8 words.).
+    previous_resolution:
+      choice: action
+      note: Keep it under 8 words.
+      resolved_at: 2026-11-10T15:20:00Z
 ```
 
 Feedback written after `seen_at` (or all of it, when there is no `seen_at`) has not been read by

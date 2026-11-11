@@ -6,7 +6,7 @@
 export const CARD_STATUSES = ["open", "deferred", "resolved"] as const;
 export const CARD_KINDS = ["choice", "ab", "open"] as const;
 export const PRIORITIES = ["high", "normal", "low"] as const;
-export const FEEDBACK_TYPES = ["neither", "note", "defer", "reopen"] as const;
+export const FEEDBACK_TYPES = ["neither", "note", "defer", "reopen", "undo"] as const;
 
 /** The reserved resolution choice for an answer that isn't one of the options. */
 export const CUSTOM_CHOICE = "custom";

@@ -16,7 +16,7 @@ import { App } from "../../src/web/App.tsx";
 import { clearWrites } from "../../src/web/app-writes.ts";
 import { clearDrafts } from "../../src/web/drafts.ts";
 import { navigate } from "../../src/web/router.tsx";
-import { cardText, copyDemoProject, tempDir } from "../helpers.ts";
+import { cardText, copyDemoProject, diffLines, tempDir } from "../helpers.ts";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -275,7 +275,7 @@ describe("card view keyboard", () => {
     expect(document.activeElement?.textContent).toContain(CARD_TITLE);
   });
 
-  it("decides with Enter on the page, and u undoes it exactly", async () => {
+  it("decides with Enter on the page, and u undoes it, telling agents", async () => {
     const file = join(demo, "decisions", "0001-offline-storage.md");
     const original = await io(() => readFile(file, "utf8"));
     await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
@@ -284,8 +284,12 @@ describe("card view keyboard", () => {
     await until(() => text().includes("Decided #0001"), "the decision toast");
     expect(await io(() => readFile(file, "utf8"))).toMatch(/^status: resolved$/m);
     await press("u", document.body);
-    await until(() => text().includes("Undone"), "the undo toast");
-    expect(await io(() => readFile(file, "utf8"))).toBe(original);
+    await until(() => text().includes("Undone. #0001 is undecided again"), "the undo toast");
+    // The card as it was, plus the entry that tells agents the decision was taken back.
+    const after = await io(() => readFile(file, "utf8"));
+    expect(diffLines(original, after).removed).toEqual([]);
+    expect(after).toMatch(/type: undo\n\s+note: Took back the decision "dexie"\./);
+    await until(() => text().includes("Decision taken back"), "the history entry");
     expect(posts).toEqual(["/api/cards/demo/0001/actions", "/api/cards/demo/0001/undo"]);
   });
 

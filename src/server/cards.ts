@@ -11,7 +11,12 @@
 import { createHash } from "node:crypto";
 import { lstat, readdir, readFile, realpath } from "node:fs/promises";
 import { join, sep } from "node:path";
-import { applyAction, type CardAction, type CardActionType } from "../core/actions.ts";
+import {
+  afterUndoingDecision,
+  applyAction,
+  type CardAction,
+  type CardActionType,
+} from "../core/actions.ts";
 import type {
   BrokenCardDto,
   CardDetailDto,
@@ -381,7 +386,10 @@ export async function actOnCard(
 
 /**
  * Puts a card back exactly as it was before the last action taken through this server
- * (byte for byte: no feedback entry, nothing lost). `revision` is the revision that action
+ * (byte for byte: no feedback entry, nothing lost). The one exception is a decision: an
+ * agent may already have been shown it and acted on it, so its undo also adds an `undo`
+ * feedback entry with the decision in `previous_resolution`, and `president pending` tells
+ * the agent to revert that work. `revision` is the revision that action
  * returned; if anything wrote the card since (an agent applied it, another tab acted, an
  * agent wrote the same bytes back), the undo is refused with a 409. Writes are told apart
  * by the file's identity and change time, not only by its content (see UndoEntry.stamp).
@@ -404,10 +412,31 @@ export async function undoLastAction(
         { status: 409, code: "undo_unavailable" },
       );
     }
-    const written = await writeChecked(project, card, ours.before);
+    const text = ours.action === "resolve" ? withUndoEntry(card, ours.before) : ours.before;
+    const written = await writeChecked(project, card, text);
     undoJournal.delete(card.path);
     return written;
   });
+}
+
+/**
+ * `before` (the card before its decision) plus the `undo` feedback entry that tells agents
+ * the decision in `decided` was taken back. Written with the card writer, like an action.
+ */
+function withUndoEntry(decided: LoadedCard, before: string): string {
+  const restored = parseCard(before, decided.fileName);
+  const result = restored.ok
+    ? afterUndoingDecision(restored.card, decided, new Date())
+    : { ok: false as const, error: restored.problem.errors.join("; ") };
+  try {
+    if (!result.ok) throw new Error(result.error);
+    return updateCardText(before, result.raw);
+  } catch (error) {
+    throw new UserError(
+      `president can't undo the decision on ${decided.fileName} safely: ${(error as Error).message}. Reopen it instead.`,
+      { status: 422, code: "unsupported_layout" },
+    );
+  }
 }
 
 /**

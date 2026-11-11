@@ -7,6 +7,7 @@ const LABEL: Record<string, string> = {
   note: "Note",
   defer: "Deferred",
   reopen: "Reopened",
+  undo: "Decision taken back",
 };
 
 export function FeedbackHistory(props: { feedback: FeedbackEntry[]; seenAt: string | undefined }) {

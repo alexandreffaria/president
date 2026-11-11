@@ -171,7 +171,7 @@ export function applyAction(
     case "reopen": {
       const previous = frontmatter.resolution;
       if (previous) {
-        const was = `Reopened; it was resolved as "${previous.choice}"${previous.note ? ` (${previous.note})` : ""}.`;
+        const was = `Reopened; it was resolved as "${previous.choice}"${describeNote(previous)}.`;
         appendFeedback("reopen", action.note ? `${was} ${action.note}` : was, {
           previous_resolution: card.raw.resolution,
           ...(card.raw.applied_at ? { previous_applied_at: card.raw.applied_at } : {}),
@@ -196,6 +196,10 @@ export function applyAction(
     }
   }
 
+  return validated(next);
+}
+
+function validated(next: RawFrontmatter): ActionResult {
   const check = FrontmatterSchema.safeParse(next);
   if (!check.success) {
     return {
@@ -205,4 +209,34 @@ export function applyAction(
     };
   }
   return { ok: true, raw: next };
+}
+
+function describeNote(resolution: { note?: string | undefined }): string {
+  return resolution.note ? ` (${resolution.note})` : "";
+}
+
+/**
+ * The frontmatter of a card whose decision the human undid: `restored` is the card as it
+ * was before the decision, and `undone` the card with the decision. Undo puts the earlier
+ * card back and adds an `undo` feedback entry that keeps the decision in
+ * `previous_resolution`, so an agent that was shown the decision (and may have acted on it)
+ * finds out from `president pending` that it was taken back, however late it looks.
+ */
+export function afterUndoingDecision(
+  restored: Pick<ParsedCard, "frontmatter" | "raw">,
+  undone: Pick<ParsedCard, "frontmatter" | "raw">,
+  now: Date,
+): ActionResult {
+  const decision = undone.frontmatter.resolution;
+  if (!decision) {
+    return { ok: false, reason: "transition", error: "the card has no decision to undo" };
+  }
+  const existing = Array.isArray(restored.raw.feedback) ? restored.raw.feedback : [];
+  const entry = {
+    at: feedbackTimestamp(now, restored.frontmatter),
+    type: "undo" satisfies FeedbackType,
+    note: `Took back the decision "${decision.choice}"${describeNote(decision)}.`,
+    previous_resolution: undone.raw.resolution,
+  };
+  return validated({ ...restored.raw, feedback: [...existing, entry] });
 }
