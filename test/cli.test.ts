@@ -1158,6 +1158,22 @@ describe("president CLI", () => {
     }
   });
 
+  // Not "has no decisions/ folder" for one it may not look in (R11-4).
+  it.skipIf(process.getuid?.() === 0)("explains a project folder it may not look in", async () => {
+    const dir = await tempDir();
+    await mkdir(join(dir, "decisions"));
+    await chmod(dir, 0o600);
+    try {
+      const denied = `president: cannot open ${join(dir, "decisions")}: permission denied`;
+      for (const command of ["add", "pending", "validate"]) {
+        expect(await cli(command, dir), command).toEqual({ code: 1, out: "", err: denied });
+      }
+      expect(await cli("list", "--json")).toMatchObject({ code: 0, out: "[]" });
+    } finally {
+      await chmod(dir, 0o700);
+    }
+  });
+
   it("says when the port is busy instead of printing a stack trace", async () => {
     const blocker = createServer();
     await new Promise<void>((resolve) => blocker.listen(0, "127.0.0.1", resolve));
