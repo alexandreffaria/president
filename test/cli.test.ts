@@ -530,11 +530,12 @@ describe("president CLI", () => {
     expect(taken).toMatchObject({ code: 1, err: expect.stringMatching(/--name <name>/) });
   });
 
-  it("warns when --name is ignored for a registered folder", async () => {
+  it("says on both streams when --name is ignored for a registered folder (R5-20)", async () => {
     const demo = await copyDemoProject();
     await cli("add", demo);
     const again = await cli("add", demo, "--name", "other");
     expect(again.code).toBe(0);
+    expect(again.out).toBe(`Already registered: demo (${demo}), not as "other"`);
     expect(again.err).toMatch(/--name ignored: this folder is already registered as "demo"/);
   });
 

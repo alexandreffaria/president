@@ -56,13 +56,16 @@ export async function add(args: string[], out: Output): Promise<number> {
     );
   }
   if (alreadyRegistered && values.name !== undefined && values.name !== project.name) {
+    // Also on stdout (below): an agent that reads only stdout must not think it is "foo".
     out.error(
       `president: --name ignored: this folder is already registered as "${project.name}". To rename it, run \`president remove ${shellQuote(project.name)}\` and add it again.`,
     );
   }
+  const nameIgnored =
+    alreadyRegistered && values.name !== undefined && values.name !== project.name;
   out.log(
     alreadyRegistered
-      ? `Already registered: ${project.name} (${project.path})`
+      ? `Already registered: ${project.name} (${project.path})${nameIgnored ? `, not as "${values.name}"` : ""}`
       : `Registered ${project.name} (${project.path})`,
   );
   if (renamedFrom !== undefined) {
