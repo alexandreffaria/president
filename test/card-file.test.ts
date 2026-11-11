@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MAX_CARD_BYTES, parseCard, splitFrontmatter } from "../src/core/card-file.ts";
 import { updateCardText } from "../src/core/card-writer.ts";
-import { cardText, DEMO_PROJECT } from "./helpers.ts";
+import { cardText, DEMO_PROJECT, sizedCard } from "./helpers.ts";
 
 function expectErrors(text: string, fileName = "0001-colour.md"): string[] {
   const result = parseCard(text, fileName);
@@ -281,14 +281,24 @@ describe("parseCard never throws", () => {
 
   it("refuses a file that is too large to be a card", () => {
     const huge = cardText({}, `\n${"x".repeat(MAX_CARD_BYTES)}\n`);
-    expect(expectErrors(huge)[0]).toMatch(/cards must be under 1024 kB/);
+    expect(expectErrors(huge)[0]).toMatch(/cards must be at most 1024 kB/);
+  });
+
+  // Rounded up, so a file just over the limit doesn't read as being at it (R7-10).
+  it("takes a card of exactly the limit and refuses one byte more", () => {
+    const at = sizedCard(MAX_CARD_BYTES);
+    expect(new TextEncoder().encode(at).length).toBe(MAX_CARD_BYTES);
+    expect(parseCard(at, "0001-colour.md").ok).toBe(true);
+    expect(expectErrors(sizedCard(MAX_CARD_BYTES + 1))[0]).toBe(
+      "the file is 1025 kB; cards must be at most 1024 kB",
+    );
   });
 
   it("measures the size in bytes, as the hub does, not in characters (R6-8)", () => {
-    // 400,000 characters of 3 bytes each: 1172 kB on disk.
+    // 400,000 characters of 3 bytes each: 1,200,000 bytes and more on disk.
     const wide = cardText({}, `\n${"界".repeat(400_000)}\n`);
     expect(wide.length).toBeLessThan(MAX_CARD_BYTES);
-    expect(expectErrors(wide)[0]).toBe("the file is 1172 kB; cards must be under 1024 kB");
+    expect(expectErrors(wide)[0]).toBe("the file is 1173 kB; cards must be at most 1024 kB");
   });
 
   it("says a list or mapping can't be a key, without printing a warning (R3-12)", () => {

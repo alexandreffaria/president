@@ -27,7 +27,7 @@ disagree, fix one of them.
 - Two files with the same id are both shown as broken until one is renamed.
 - Card files must be regular files: a symlinked card is shown as broken, and a `decisions/` folder
   that is a link to somewhere outside the project is refused.
-- A card file must be under 1 MiB.
+- A card file must be at most 1 MiB.
 
 ## File layout
 

@@ -57,6 +57,12 @@ export function cardText(
   return `---\n${yaml}\n---\n${body}`;
 }
 
+/** A valid card of exactly `bytes` bytes (its body padded with "x"). */
+export function sizedCard(bytes: number): string {
+  const start = cardText({}, "\n## Context\n\n");
+  return `${start}${"x".repeat(bytes - start.length - 1)}\n`;
+}
+
 /** A line diff (longest common subsequence): which lines were removed and which added. */
 export function diffLines(
   before: string,

@@ -134,7 +134,7 @@ function parseNamedCard(
   const bytes = new TextEncoder().encode(text).length;
   if (bytes > MAX_CARD_BYTES) {
     return fail([
-      `the file is ${Math.floor(bytes / 1024)} kB; cards must be under ${MAX_CARD_BYTES / 1024} kB`,
+      `the file is ${Math.ceil(bytes / 1024)} kB; cards must be at most ${MAX_CARD_BYTES / 1024} kB`,
     ]);
   }
 

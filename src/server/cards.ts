@@ -234,7 +234,7 @@ async function loadFile(
     if (!info.isFile()) return undefined;
     if (info.size > MAX_CARD_BYTES) {
       return broken([
-        `the file is ${info.size / 1024n} kB; cards must be under ${MAX_CARD_BYTES / 1024} kB`,
+        `the file is ${(info.size + 1023n) / 1024n} kB; cards must be at most ${MAX_CARD_BYTES / 1024} kB`,
       ]);
     }
     const stamp = `${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;

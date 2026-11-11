@@ -7,9 +7,10 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CARD_FORMAT_DOC, DEMO_SOURCE, run } from "../src/cli/main.ts";
 import type { CardAction } from "../src/core/actions.ts";
+import { MAX_CARD_BYTES } from "../src/core/card-file.ts";
 import { actOnCard, findCard, undoLastAction } from "../src/server/cards.ts";
 import type { Project } from "../src/server/registry.ts";
-import { cardText, copyDemoProject, tempDir } from "./helpers.ts";
+import { cardText, copyDemoProject, sizedCard, tempDir } from "./helpers.ts";
 
 const BIN = join(import.meta.dirname, "..", "bin", "president.js");
 
@@ -176,6 +177,25 @@ describe("president CLI", () => {
     expect(result.err).toMatch(/broken {2}0009-bad\.md\n\s+- status: Invalid option/);
     expect(result.out).toMatch(/4 valid, 1 broken/);
     expect(result.out).toContain(`Format: ${CARD_FORMAT_DOC}`);
+  });
+
+  // As the hub measures the file on disk, rounded up (R7-10).
+  it("takes a card file of exactly the size limit and refuses one byte more", async () => {
+    const demo = await copyDemoProject();
+    await writeFile(
+      join(demo, "decisions", "0009-at-limit.md"),
+      sizedCard(MAX_CARD_BYTES).replace('id: "0001"', 'id: "0009"'),
+    );
+    await writeFile(
+      join(demo, "decisions", "0010-over.md"),
+      sizedCard(MAX_CARD_BYTES + 1).replace('id: "0001"', 'id: "0010"'),
+    );
+    await cli("add", demo);
+    const result = await cli("validate", demo);
+    expect(result.out).toContain("ok      0009-at-limit.md");
+    expect(result.err).toBe(
+      "broken  0010-over.md\n          - the file is 1025 kB; cards must be at most 1024 kB",
+    );
   });
 
   it("points at the card format spec by absolute path", async () => {
