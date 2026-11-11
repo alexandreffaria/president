@@ -196,8 +196,7 @@ A resolved card has `status: resolved` and a `resolution`:
 
 ```yaml
 resolution:
-  # choice: an option id, or "custom" with the answer in the note
-  choice: action
+  choice: action          # an option id, or "custom" with the answer in the note
   note: Keep it under 8 words.
   resolved_at: 2026-11-10T15:20:00Z
 ```

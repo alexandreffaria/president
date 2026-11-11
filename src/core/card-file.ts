@@ -305,14 +305,33 @@ function yamlErrors(
   return out;
 }
 
-/** The fields whose text an unquoted ` #` has cut off before. */
-const TEXT_FIELDS = new Set(["title", "options", "recommendation", "feedback", "resolution"]);
+/**
+ * The free-text fields, as paths with `*` for a list index. Ids, choices, types and timestamps
+ * are left out: they can't contain ` #`, so a comment after them cuts nothing.
+ */
+const FREE_TEXT = new Set(
+  [
+    ["title"],
+    ["options", "*", "title"],
+    ["options", "*", "summary"],
+    ["options", "*", "pros", "*"],
+    ["options", "*", "cons", "*"],
+    ["recommendation", "why"],
+    ["feedback", "*", "note"],
+    ["resolution", "note"],
+  ].map((path) => JSON.stringify(path)),
+);
+
+function isFreeText(path: readonly PropertyKey[]): boolean {
+  return FREE_TEXT.has(JSON.stringify(path.map((key) => (typeof key === "number" ? "*" : key))));
+}
 
 /**
- * Plain (unquoted) text in those fields followed by a comment on the same line: in
+ * Plain (unquoted) free text followed by a comment on the same line: in
  * `title: Use C # for it`, YAML reads ` # for it` as a comment and the title as "Use C",
  * and nothing else would notice. Comments on their own line, and after quoted text, a block
- * header (`>-`) or a key whose value starts on the next line, cut nothing and stay allowed.
+ * header (`>-`), a key whose value starts on the next line, or a value that isn't free text
+ * (an id, a choice, a type, a timestamp), cut nothing and stay allowed.
  */
 export function truncatedTexts(
   doc: Document,
@@ -322,6 +341,7 @@ export function truncatedTexts(
   const out: string[] = [];
   const visit = (node: unknown, path: PropertyKey[]): void => {
     if (isScalar(node)) {
+      if (!isFreeText(path)) return;
       const range = node.range;
       if (node.type !== "PLAIN" || !range || range[0] === range[1]) return;
       if (!/^[ \t]+#/.test(yaml.slice(range[1]))) return;
@@ -345,11 +365,7 @@ export function truncatedTexts(
       });
     }
   };
-  if (!isMap(doc.contents)) return out;
-  for (const pair of doc.contents.items) {
-    const key = isScalar(pair.key) ? pair.key.value : undefined;
-    if (typeof key === "string" && TEXT_FIELDS.has(key)) visit(pair.value, [key]);
-  }
+  visit(doc.contents, []);
   return out;
 }
 

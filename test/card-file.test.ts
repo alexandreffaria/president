@@ -263,7 +263,7 @@ describe("docs/card-format.md", () => {
   });
 
   // An agent copies these snippets; none may show a comment that would cut its text (A).
-  it("shows no comment after unquoted text in its YAML snippets, nor does SKILL.md", async () => {
+  it("shows no comment that cuts text in its YAML snippets, nor does SKILL.md", async () => {
     const snippets: string[] = [];
     for (const file of [
       join(import.meta.dirname, "..", "docs", "card-format.md"),
@@ -275,6 +275,10 @@ describe("docs/card-format.md", () => {
       }
     }
     expect(snippets.length).toBeGreaterThanOrEqual(5);
+    // Comments after an id, a type and a choice stay in them, and are allowed (F-1).
+    expect(snippets.join("\n")).toMatch(
+      /- id: result +# .*\n[\s\S]*type: neither +# [\s\S]*choice: action +# /,
+    );
     for (const yaml of snippets) {
       const doc = parseDocument(yaml);
       expect(doc.errors).toEqual([]);
@@ -286,8 +290,10 @@ describe("docs/card-format.md", () => {
       "utf8",
     );
     expect(skill.replace(/\s+/g, " ")).toContain("quote any text containing ` #` or `: `");
-    const bad = "resolution:\n  choice: action  # an option id\n";
-    expect(truncatedTexts(parseDocument(bad), bad, (offset) => offset)).toHaveLength(1);
+    const bad = "resolution:\n  choice: action  # an option id\n  note: Keep it short  # 8 words\n";
+    expect(truncatedTexts(parseDocument(bad), bad, (offset) => offset)).toEqual([
+      expect.stringMatching(/^resolution\.note: the text stops at "Keep it short"/),
+    ]);
   });
 });
 
@@ -507,7 +513,6 @@ describe("messages for common YAML slips (R5-14)", () => {
     expect(errors).toEqual([
       'options[0].summary: the text stops at "Uses" because " #" starts a YAML comment (line 12); put the whole text in quotes: summary: "Uses #ff0000 # the brand red"',
       'options[0].pros[0]: the text stops at "Loud" because " #" starts a YAML comment (line 14); put the whole text in quotes',
-      'options[1].id: the text stops at "b" because " #" starts a YAML comment (line 15); put the whole text in quotes: id: "b # the blue one"',
       'recommendation.why: the text stops at "It is the brand colour" because " #" starts a YAML comment (line 19); put the whole text in quotes: why: "It is the brand colour # see the guide"',
       'feedback[0].note: the text stops at "Use plain text" because " #" starts a YAML comment (line 23); put the whole text in quotes',
     ]);
@@ -515,11 +520,12 @@ describe("messages for common YAML slips (R5-14)", () => {
     const resolved = expectErrors(
       cardText({
         status: "resolved",
-        resolution: "\n  choice: a # red\n  resolved_at: 2026-11-10T00:00:00Z",
+        resolution:
+          "\n  choice: a # red\n  note: Kept it # for now\n  resolved_at: 2026-11-10T00:00:00Z",
       }),
     );
     expect(resolved).toEqual([
-      'resolution.choice: the text stops at "a" because " #" starts a YAML comment (line 15); put the whole text in quotes: choice: "a # red"',
+      'resolution.note: the text stops at "Kept it" because " #" starts a YAML comment (line 16); put the whole text in quotes: note: "Kept it # for now"',
     ]);
     expect(
       expectErrors(cardText({ title: "Pick # one", kind: "nope" })).map((e) => e.split(":")[0]),
@@ -554,6 +560,46 @@ describe("messages for common YAML slips (R5-14)", () => {
       pros: ["Loud"],
     });
     expect(card.frontmatter.recommendation?.why).toBe("Literal # text");
+  });
+
+  // Ids, choices, types and timestamps can't contain " #", so a comment after them cuts
+  // nothing; the docs' own snippets show one (F-1).
+  it("keeps a comment after an id, a choice, a type or a timestamp", () => {
+    const open = expectCard(
+      cardText({
+        options: `
+  - id: result          # short lowercase slug: a, b, c or a word; unique; not "custom"
+    title: Return a result object
+  - id: b # the blue one
+    title: Blue`,
+        recommendation: "\n  option: result  # the pick\n  why: It is simpler.",
+        feedback: `
+  - at: 2026-11-05T18:40:00Z  # round 1
+    type: neither        # neither | note | defer | reopen | undo
+    note: Both options assume a server.`,
+        created: "2026-11-01T09:00:00Z   # when",
+        extra: "~ # a field president doesn't know",
+      }),
+    );
+    expect(open.frontmatter.options.map((o) => o.id)).toEqual(["result", "b"]);
+    expect(open.frontmatter.recommendation?.option).toBe("result");
+    expect(open.frontmatter.feedback[0]).toMatchObject({
+      at: "2026-11-05T18:40:00Z",
+      type: "neither",
+    });
+    const resolved = expectCard(
+      cardText({
+        status: "resolved",
+        resolution: `
+  choice: a          # an option id, or "custom" with the answer in the note
+  note: Keep it under 8 words.
+  resolved_at: 2026-11-10T15:20:00Z  # just now`,
+      }),
+    );
+    expect(resolved.frontmatter.resolution).toMatchObject({
+      choice: "a",
+      resolved_at: "2026-11-10T15:20:00Z",
+    });
   });
 
   it("reports one error for a tab in the indentation", () => {

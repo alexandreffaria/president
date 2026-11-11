@@ -93,8 +93,7 @@ it was.
 
 ```yaml
 options:
-  # id: a short lowercase slug (a, b, c or a word), unique, not "custom"
-  - id: result
+  - id: result          # short lowercase slug: a, b, c or a word; unique; not "custom"
     title: Return a result object
     summary: One sentence that says what this option is.
     pros:
@@ -110,8 +109,7 @@ options:
 ```yaml
 feedback:
   - at: 2026-11-05T18:40:00Z
-    # type: neither | note | defer | reopen | undo
-    type: neither
+    type: neither        # neither | note | defer | reopen | undo
     note: Both options assume a server. Only compare on-device storage.
 ```
 
@@ -301,11 +299,13 @@ resolution:
   `[`, `{`, `*`, `&`, `!`, `|`, `>`, `'`, `"`, `%` or `@`.
 - Quote ids: `id: "0007"`, `depends_on: ["0003"]`.
 - ` #` starts a comment, so in `title: Write it in C # or Rust?` the title is just "Write it
-  in C". In `title`, `options`, `recommendation`, `feedback` and `resolution`, `validate`
-  reports unquoted text followed by a comment on the same line, with the line, as an error:
-  quote the text (`title: "Write it in C # or Rust?"`). Comments on their own line are fine
-  anywhere, and so is a comment after quoted text, after a `>-` or `|`, or after a key whose
-  value starts on the next line (`pros:   # see below`). president keeps every comment when
+  in C". In the free-text fields (`title`, the options' `title`, `summary`, `pros` and `cons`,
+  `recommendation.why`, `feedback[].note` and `resolution.note`), `validate` reports unquoted
+  text followed by a comment on the same line, with the line, as an error: quote the text
+  (`title: "Write it in C # or Rust?"`). Comments on their own line are fine anywhere, and so
+  is a comment after quoted text, after a `>-` or `|`, after a key whose value starts on the
+  next line (`pros:   # see below`), or after a value that isn't free text, such as an id, a
+  choice, a type or a timestamp (`- id: result   # the slug`). president keeps every comment when
   it writes the card.
 - For long text use a folded block: `why: >-` followed by indented lines.
 - Dates need a timezone when they include a time: `2026-11-10T14:03:00Z`. Don't invent them:
