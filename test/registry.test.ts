@@ -1,9 +1,25 @@
 import { mkdir, readdir, readFile, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createFileExclusive, STALE_TEMP_MS } from "../src/server/fs-utils.ts";
 import { defaultConfigDir, Registry, suggestName } from "../src/server/registry.ts";
 import { copyDemoProject, tempDir } from "./helpers.ts";
+
+/** Runs once just before the next entry file is created: another `add` getting there first. */
+const race = vi.hoisted(() => ({ before: undefined as (() => Promise<void>) | undefined }));
+
+vi.mock("../src/server/fs-utils.ts", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../src/server/fs-utils.ts")>();
+  return {
+    ...real,
+    createFileExclusive: async (path: string, content: string) => {
+      const before = race.before;
+      race.before = undefined;
+      await before?.();
+      return real.createFileExclusive(path, content);
+    },
+  };
+});
 
 async function registry() {
   return new Registry(join(await tempDir(), "config"));
@@ -173,6 +189,30 @@ describe("Registry", () => {
     const listed = await reg.list();
     expect(listed).toEqual([{ name: expect.stringMatching(/^[abc]$/), path: demo }]);
     expect(await readdir(reg.dir)).toEqual([`${listed[0]?.name}.json`]);
+  });
+
+  // Two `add`s of one folder under two names, each creating its file before it sees the
+  // other's: whichever runs second removes the duplicate, the winner or the loser (R6-15).
+  it("removes its own entry when a twin that sorts first appeared meanwhile", async () => {
+    const reg = await registry();
+    const demo = await copyDemoProject();
+    race.before = () => writeFile(join(reg.dir, "alpha.json"), JSON.stringify({ path: demo }));
+    expect(await reg.add({ path: demo, name: "zeta" })).toEqual({
+      project: { name: "alpha", path: demo },
+      alreadyRegistered: true,
+    });
+    expect(await readdir(reg.dir)).toEqual(["alpha.json"]);
+  });
+
+  it("removes a twin that sorts after it when it appeared meanwhile", async () => {
+    const reg = await registry();
+    const demo = await copyDemoProject();
+    race.before = () => writeFile(join(reg.dir, "zeta.json"), JSON.stringify({ path: demo }));
+    expect(await reg.add({ path: demo, name: "alpha" })).toEqual({
+      project: { name: "alpha", path: demo },
+      alreadyRegistered: false,
+    });
+    expect(await readdir(reg.dir)).toEqual(["alpha.json"]);
   });
 
   it("creates an entry exclusively, whole or not at all", async () => {
