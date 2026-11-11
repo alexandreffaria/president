@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
@@ -217,10 +217,35 @@ describe("president CLI", () => {
     const demo = await copyDemoProject();
     const token = ["--token", "0-aaaaaaaaaaa"];
     const wrongSlug = await cli("applied", join(demo, "decisions", "0004-other-slug.md"), ...token);
-    expect(wrongSlug).toMatchObject({ code: 1, err: expect.stringMatching(/does not exist/) });
+    // The card is its id, so a name with another slug finds it, and the token still decides.
+    expect(wrongSlug).toMatchObject({
+      code: 1,
+      err: expect.stringMatching(/is now 0004-map-tiles\.md[^]*changed since/),
+    });
+    const noCard = await cli("applied", join(demo, "decisions", "0042-nothing.md"), ...token);
+    expect(noCard).toMatchObject({
+      code: 1,
+      err: expect.stringMatching(/0042-nothing\.md" does not exist/),
+    });
     await writeFile(join(demo, "decisions", "0004-copy.md"), "x");
     const other = await cli("applied", join(demo, "decisions", "0004-copy.md"), ...token);
     expect(other.code).toBe(1);
+  });
+
+  it("runs a done line after the agent renamed the card (R5-11)", async () => {
+    const demo = await copyDemoProject();
+    const file = join(demo, "decisions", "0002-api-errors.md");
+    await human(demo, "0002", { type: "note", note: "Rename it if you like." });
+    const shown = (await cli("pending", demo)).out;
+    const renamed = join(demo, "decisions", "0002-error-shape.md");
+    await rename(file, renamed);
+    const done = await runDone(shown, file);
+    expect(done.code).toBe(0);
+    expect(done.err).toBe(
+      "president: note: card 0002 is now 0002-error-shape.md (renamed since); using that file",
+    );
+    expect(done.out).toMatch(/^Marked the human's feedback on 0002-error-shape\.md as read/);
+    expect((await cli("pending", demo)).out).toBe("Nothing pending.");
   });
 
   it("lists new notes from the human until an agent marks them seen", async () => {

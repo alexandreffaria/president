@@ -342,7 +342,11 @@ function continued(text: string, indent = "      "): string {
 }
 
 export async function applied(args: string[], out: Output): Promise<number> {
-  const { project, card, token } = await cardFromFile(args, "applied <card-file> --token <token>");
+  const { project, card, token } = await cardFromFile(
+    args,
+    "applied <card-file> --token <token>",
+    out,
+  );
   // The token first: "already applied" is only true of the decision the agent was shown.
   const check = checkAgentToken(card, token);
   if (!check.ok) throw new UserError(check.error);
@@ -359,7 +363,11 @@ export async function applied(args: string[], out: Output): Promise<number> {
 }
 
 export async function seen(args: string[], out: Output): Promise<number> {
-  const { project, card, token } = await cardFromFile(args, "seen <card-file> --token <token>");
+  const { project, card, token } = await cardFromFile(
+    args,
+    "seen <card-file> --token <token>",
+    out,
+  );
   const check = checkAgentToken(card, token);
   if (!check.ok) throw new UserError(check.error);
   const after = await act(project, card, { type: "seen", token });
@@ -399,6 +407,7 @@ function act(project: Project, card: LoadedCard, action: CardAction): Promise<Lo
 async function cardFromFile(
   args: string[],
   usage: string,
+  out: Output,
 ): Promise<{ project: Project; card: LoadedCard; token: string }> {
   const { positionals, values } = parseArgs({
     args,
@@ -412,26 +421,41 @@ async function cardFromFile(
       `--token is required: run \`president pending\` and use the \`done\` command it prints for this card (usage: president ${usage})`,
     );
   }
+  return { ...(await cardAt(file, out)), token };
+}
+
+/**
+ * The card whose file is `file`. A card is its id: when an agent renamed the file (a new
+ * slug), the card with that id in the same decisions/ folder is used, and the note says so.
+ */
+async function cardAt(file: string, out: Output): Promise<{ project: Project; card: LoadedCard }> {
   const name = parseCardFileName(basename(file));
   if (!name || basename(dirname(file)) !== DECISIONS_DIR) {
     throw new UserError(`"${file}" is not a card file inside a ${DECISIONS_DIR}/ folder`);
   }
-  const info = await stat(file).catch(() => undefined);
-  if (!info?.isFile()) throw new UserError(`"${file}" does not exist`);
   const dir = dirname(dirname(file));
   const project = { name: basename(dir), path: dir };
-  const found = await findCard(project, name.id);
+  const exists = (await stat(file).catch(() => undefined))?.isFile() ?? false;
+  const found = await findCard(project, name.id).catch((error: unknown) => {
+    if (!exists) throw new UserError(`"${file}" does not exist`);
+    throw error;
+  });
   if (!found.ok) {
     throw new UserError(`${found.broken.fileName} is broken; fix it first`, {
       details: found.broken.errors,
     });
   }
   if (found.card.fileName !== basename(file)) {
-    throw new UserError(
-      `card ${name.id} is ${found.card.fileName}, not ${basename(file)}; check the file name`,
+    if (exists) {
+      throw new UserError(
+        `card ${name.id} is ${found.card.fileName}, not ${basename(file)}; check the file name`,
+      );
+    }
+    out.error(
+      `president: note: card ${name.id} is now ${found.card.fileName} (renamed since); using that file`,
     );
   }
-  return { project, card: found.card, token };
+  return { project, card: found.card };
 }
 
 export async function serve(out: Output): Promise<number> {

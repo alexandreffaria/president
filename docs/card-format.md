@@ -16,7 +16,9 @@ disagree, fix one of them.
 - `<id>` is lowercase letters and digits only, no dashes. Use zero-padded numbers: `0001`, `0002`, ...
   To pick the next id, list `decisions/` and add one to the highest number.
 - `<slug>` is a few lowercase words joined by dashes: `0007-error-handling.md`. It is only for humans
-  browsing the folder; the slug can change without breaking anything.
+  browsing the folder; the slug can change without breaking anything. A `done:` line that
+  `president pending` printed before a rename still works: it finds the card by its id and says
+  which file it used.
 - Status lives in the frontmatter. Files are never moved between folders.
 - Files whose names start with `.` or `_`, `README.md`, and non-`.md` files are ignored, so you can
   keep a `decisions/README.md` or `_template.md` next to the cards.
