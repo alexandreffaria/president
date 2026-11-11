@@ -14,12 +14,17 @@ recommendation:
     Review has changed most new cards before you saw them: 12 of 17 in batch 1 over four
     rounds and all 6 in batch 2 over two, including four findings marked blocking (wrong
     or one-sided facts that tilted the choice) that you would otherwise have decided from.
-    reviewed-main keeps that review and still gives card files one road, as you chose
-    for your answers in 0022: cards reach you as soon as they pass review, without a merge
-    or a pull, and rewrites are checked against the card you actually have, notes included.
-    Its weak spot is that nothing proves the review happened. Pick pr if you want a review
-    record you can read and the merge as proof; pick main-folder only if seeing a card the
-    moment it is written is worth getting errors like those.
+    reviewed-main and split both keep that review for new cards, and both check rewrites
+    against the card you actually have. reviewed-main shows a card as soon as its review is
+    done, with no merge to wait for and no Sync before your hub has it, and gives card files
+    one road, as you chose for your answers in 0022. What it gives up is the gate: the
+    writing agent runs its own review and decides when it is done, and nothing shows whether
+    it ran, while under split and pr a card reaches you only through a merged pull request
+    that carries the review. That trade is worth it if you want cards the moment they are
+    reviewed and trust agents to follow the skill. Pick split if you'd rather wait for a
+    merge and your next Sync than rely on that, pr if you also want rewrites in a pull
+    request, and main-folder only if seeing a card the moment it is written is worth getting
+    errors like those.
 options:
   - id: pr
     title: Everything through a pull request
@@ -29,7 +34,7 @@ options:
       - The review stays on the pull request for you to read, and the merge shows it was done
       - One rule for everything an agent writes, cards included
     cons:
-      - You don't see a new card until its pull request is merged and the main folder is pulled; a card written in the middle of a feature waits for the whole feature
+      - You don't see a new card until its pull request is merged and the main folder is pulled; a card written in the middle of a feature waits for the whole feature, unless the agent opens a separate pull request for it, as this batch did
       - A rewrite made on a branch is checked against the branch's copy of the card, which lacks your uncommitted notes, so the guard that protects your notes doesn't see them
       - When such a rewrite is merged while you have an unsynced note on that card, pulling the main folder stops until your note is committed or set aside, the problem 0022 avoided for answers
   - id: main-folder
@@ -52,8 +57,8 @@ options:
       - No pull conflicts, since no pull request ever carries card files
       - Rewrites are checked against the card you have, so the guard sees your notes
     cons:
-      - The review leaves no pull-request record you can read, and nothing proves it happened; an agent in a hurry can skip it and the card looks the same
-      - One more step for agents to remember (review, then copy) before a card counts as written
+      - The writing agent runs the review and decides when it is done, and nothing shows whether it ran; an agent in a hurry can skip it and the card looks the same. Under pr and split a card can't reach you without a merged pull request that carries the review
+      - Two rules for agents, as in split (new cards are reviewed in the worktree and then copied; rewrites go straight into the main folder), and more steps for each new card
       - CI checks the cards only after they are synced to main, as in main-folder
       - Rewrites (new options after "neither", withdrawing a card) reach you unreviewed, as in main-folder and split
   - id: split
@@ -66,6 +71,7 @@ options:
     cons:
       - Two rules for agents to remember, depending on whether the card exists yet
       - New cards still wait for a merge and a pull before you see them, and a card written during a feature waits for that feature unless the agent opens a separate pull request for it
+      - Rewrites (new options after "neither", withdrawing a card) reach you unreviewed, as in main-folder and reviewed-main
 ---
 
 ## Context
@@ -137,7 +143,7 @@ its options.
 
 ```
 10:00  The new card is committed on the feature branch.
-       You see it only after the feature's pull request is reviewed, merged and pulled.
+       You see it only after its pull request (the feature's, or a separate one with only the card) is reviewed, merged and pulled.
 10:10  The agent rewrites #0031 on its branch; update compares it with the branch's #0031,
        which has no 10:05 note, and accepts it. The pull request is reviewed and merged.
 Later  git pull in the main folder stops: "Your local changes to ... 0031 ... would be

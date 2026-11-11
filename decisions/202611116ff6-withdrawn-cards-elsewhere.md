@@ -15,9 +15,10 @@ recommendation:
     words of output and lets every agent see it, so labelled and retired both do it. They
     differ on the dependents. A withdrawal often makes them moot too (map pins, once the map
     screen is dropped), and retired raises them among your ready cards before you have agreed
-    with it; labelled keeps them at the bottom, marked, until you decide or put back the
-    withdrawn card. Pick retired if you trust agents' withdrawals and would rather dependents
-    never wait behind a collapsed list; hub-only only saves a little building.
+    with it; labelled keeps them at the bottom, marked, until you decide the withdrawn card
+    (your own answer is enough) or the dependents themselves. Pick retired if you trust
+    agents' withdrawals and would rather dependents never wait behind a collapsed list;
+    hub-only only saves a little building.
 options:
   - id: retired
     title: Withdrawn means out of play everywhere
@@ -30,16 +31,17 @@ options:
       - Two commands and the queue learn a new field, a little more to build and test
   - id: labelled
     title: Labelled everywhere, dependents stay sunk
-    summary: president pending and validate say a card is withdrawn and why; cards that depend on it stay sunk until you decide it or put it back.
+    summary: president pending and validate say a card is withdrawn and why; cards that depend on it stay sunk, marked, until you decide it (your own answer, such as "Dropped with the map screen", is enough) or decide them where they are.
     pros:
       - Any agent sees from president pending and validate that a card was withdrawn and why
-      - Nothing rises in your queue before you agree the withdrawal was right
+      - Nothing rises in your queue on an agent's word alone
     cons:
       - Dependent cards can wait at the bottom behind a card hidden in a collapsed list
       - A little to build in two commands
+      - There is no button to accept a withdrawal; to free the dependents you decide the withdrawn card anyway, or each dependent yourself
   - id: hub-only
     title: Withdrawn only changes where the hub lists it
-    summary: Only the hub's queue moves the card to Withdrawn; president pending and validate print it as an open card, and the cards that depend on it stay sunk until you decide it or put it back.
+    summary: Only the hub's queue moves the card to Withdrawn; president pending and validate print it as an open card, and the cards that depend on it stay sunk until you decide it.
     pros:
       - Nothing changes for the rest of the queue until you have seen the withdrawal
       - The least to build; the commands stay as they are

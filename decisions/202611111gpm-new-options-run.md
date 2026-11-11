@@ -138,7 +138,7 @@ option?", that question and its answer make the conversation "not summarized" as
   "not summarized" list; a conversation already on it (from earlier messages) stays there.
   The readable message and the options can come back in one `--json-schema` output (a
   message field next to the options).
-- Both: on failure, write nothing (the card stays `needs_new_options: true` for the working
+- All three: on failure, write nothing (the card stays `needs_new_options: true` for the working
   agent) and show the reason; Try again starts the run again with the same note.
 
 ## Sources
