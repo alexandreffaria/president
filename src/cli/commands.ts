@@ -23,8 +23,8 @@ import {
   loadProjectCards,
   revisionOf,
 } from "../server/cards.ts";
-import { UserError } from "../server/errors.ts";
-import { writeFileAtomic } from "../server/fs-utils.ts";
+import { fileError, UserError } from "../server/errors.ts";
+import { isNotFound, writeFileAtomic } from "../server/fs-utils.ts";
 import { DECISIONS_DIR, findByPath, type Project, Registry } from "../server/registry.ts";
 
 import { CARD_FORMAT_DOC, DEMO_SOURCE, type Output } from "./main.ts";
@@ -653,7 +653,11 @@ async function missingFolder(project: Project): Promise<string | undefined> {
  */
 async function projectAt(path: string, out: Output): Promise<Project> {
   const dir = resolve(path);
-  if (!(await isDirectory(dir))) throw new UserError(`"${dir}" is not a folder`);
+  const found = await stat(dir).catch((error: unknown) => {
+    if (isNotFound(error)) throw new UserError(`"${dir}" does not exist`);
+    throw fileError("open", dir, error);
+  });
+  if (!found.isDirectory()) throw new UserError(`"${dir}" is not a folder`);
   if (!(await isDirectory(join(dir, DECISIONS_DIR)))) throw noDecisionsError(dir);
   return registeredAs(dir, out);
 }

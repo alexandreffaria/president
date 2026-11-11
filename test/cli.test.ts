@@ -1012,11 +1012,12 @@ describe("president CLI", () => {
     const gone = { code: 1, out: "", err: `president: "${missing}" does not exist` };
     expect(await cli("add", missing)).toEqual(gone);
     expect(await cli("validate", missing)).toEqual(gone);
-    expect(await cli("pending", missing)).toEqual({
-      code: 1,
-      out: "",
-      err: `president: "${missing}" is not a folder`,
-    });
+    expect(await cli("pending", missing)).toEqual(gone);
+    // Something there that isn't a folder is a different thing (R9-2).
+    const file = join(await tempDir(), "notes.txt");
+    await writeFile(file, "notes");
+    const notFolder = { code: 1, out: "", err: `president: "${file}" is not a folder` };
+    expect(await cli("pending", file)).toEqual(notFolder);
   });
 
   // A project inside a registered one (r7 vf7.sh): its own cards, not the outer project's.
