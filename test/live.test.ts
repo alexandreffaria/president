@@ -53,11 +53,13 @@ function writeCard(dir: string, n: number): Promise<void> {
   return writeFile(join(dir, `${id}-x.md`), cardText({ id: `"${id}"` }));
 }
 
-async function watched() {
+/** A watcher on a registry with the demo project; `setup` can change the registry first. */
+async function watched(setup?: (registry: Registry) => Promise<void>) {
   const registry = new Registry(join(await tempDir(), "config"));
   await mkdir(registry.dir, { recursive: true });
   const demo = await copyDemoProject();
   await registry.add({ path: demo, name: "demo" });
+  await setup?.(registry);
   const bus = new EventBus();
   const events: HubEvent[] = [];
   bus.subscribe((e) => events.push(e));
@@ -66,8 +68,8 @@ async function watched() {
     debounceMs: 30,
     onFileEvent: (event, path) => fileEvents.push({ event, path }),
   });
-  await watcher.start();
   closers.push(() => watcher.close());
+  await watcher.start();
   return { registry, demo, events, fileEvents, watcher };
 }
 
@@ -168,6 +170,35 @@ describe("HubWatcher", () => {
       (e) => e.type === "cards" && e.project === "demo",
       () => writeCard(dir, n++),
     );
+  });
+
+  /** Registers projects in one folder, then removes their folders (or only decisions/). */
+  function missing(names: string[], only?: "decisions") {
+    const paths = new Map<string, string>();
+    const setup = async (registry: Registry) => {
+      const parent = await tempDir();
+      for (const name of names) {
+        const path = join(parent, name);
+        await mkdir(join(path, "decisions"), { recursive: true });
+        await registry.add({ path, name });
+        await rm(only ? join(path, "decisions") : path, { recursive: true });
+        paths.set(name, path);
+      }
+    };
+    return { paths, setup };
+  }
+
+  it("is watching the projects once start() resolves, with folders missing (R11-1)", async () => {
+    // chokidar counts each missing path twice toward its one ready event.
+    const gone = missing(["gone1", "gone2"]);
+    const bare = missing(["bare1", "bare2"], "decisions");
+    const { demo, events } = await watched(async (registry) => {
+      await gone.setup(registry);
+      await bare.setup(registry);
+    });
+    // No poke: a card written right after start() must be seen.
+    await writeCard(join(demo, "decisions"), 5);
+    await until(events, (e) => e.type === "cards" && e.project === "demo");
   });
 });
 

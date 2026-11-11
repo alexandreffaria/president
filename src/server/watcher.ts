@@ -3,6 +3,7 @@
  * reports changes (debounced) so the UI can refresh without a reload.
  */
 import { EventEmitter } from "node:events";
+import { stat } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { type FSWatcher, watch } from "chokidar";
 import type { HubEvent } from "../core/api.ts";
@@ -75,6 +76,7 @@ export class HubWatcher {
    * created again (a watch on a deleted folder goes silent).
    */
   #roots = new Set<string>();
+  #closed = false;
 
   constructor(registry: Registry, bus: EventBus, options: HubWatcherOptions = {}) {
     this.#registry = registry;
@@ -96,19 +98,25 @@ export class HubWatcher {
   async start(): Promise<void> {
     const ready = new Promise<void>((resolve) => this.#watcher.once("ready", () => resolve()));
     // The projects' folders first: chokidar's one ready event counts only the adds made before it.
-    await this.sync();
+    // Missing folders after it: chokidar counts a missing path twice toward ready, so with two or
+    // more of them ready would come before the other folders are watched.
+    const missing = await this.sync(true);
     this.#watcher.add(this.#registry.dir);
     await ready;
+    if (missing.length > 0) this.#watcher.add(missing);
   }
 
-  /** Re-reads the registry and adjusts the set of watched folders. */
-  async sync(): Promise<void> {
+  /**
+   * Re-reads the registry and adjusts the set of watched folders. With `holdMissing`, new
+   * folders that don't exist are returned for the caller to add, instead of now.
+   */
+  async sync(holdMissing = false): Promise<string[]> {
     let projects: Awaited<ReturnType<Registry["list"]>>;
     try {
       projects = await this.#registry.list();
     } catch (error) {
       console.error("[watcher]", (error as Error).message);
-      return;
+      return [];
     }
     const next = new Map(projects.map((p) => [decisionsDirOf(p), p.name]));
     const nextRoots = new Set(projects.map((p) => p.path));
@@ -123,10 +131,18 @@ export class HubWatcher {
     this.#dirs = next;
     this.#roots = nextRoots;
     if (removed.length > 0) this.#watcher.unwatch(removed);
-    if (added.length > 0) this.#watcher.add(added);
+    const there = await Promise.all(added.map(isFolder));
+    if (this.#closed) return [];
+    const present = added.filter((_, i) => there[i]);
+    const missing = added.filter((_, i) => !there[i]);
+    if (present.length > 0) this.#watcher.add(present);
+    if (holdMissing) return missing;
+    if (missing.length > 0) this.#watcher.add(missing);
+    return [];
   }
 
   async close(): Promise<void> {
+    this.#closed = true;
     this.#debouncer.cancelAll();
     await this.#watcher.close();
   }
@@ -166,4 +182,12 @@ export class HubWatcher {
     const name = project;
     this.#debouncer.run(`cards:${name}`, () => this.#bus.emit({ type: "cards", project: name }));
   }
+}
+
+/** True if `path` is a folder (following links, as chokidar does). */
+function isFolder(path: string): Promise<boolean> {
+  return stat(path).then(
+    (stats) => stats.isDirectory(),
+    () => false,
+  );
 }
