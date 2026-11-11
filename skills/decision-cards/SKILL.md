@@ -30,17 +30,33 @@ details with an obvious answer, fixing bugs. Decide those yourself and keep the 
 Writing a card doesn't block you. Continue with work that doesn't depend on the answer, or build
 the part that is the same for every option.
 
+## The main folder, and card files in git
+
+- Run every `president` command (`pending`, `applied`, `seen`, `update`, `validate`) in the
+  project's **main folder**, the one registered with president (`president list` shows it),
+  never in a git worktree; and never run `president add` from a worktree. A worktree has its
+  own copy of `decisions/`, so there you would miss the human's answers and mark your own copy.
+  If you work in a worktree, `cd` to the main folder for these commands and use card paths there
+  (`pending`, `applied`, `seen` and `update` print a warning when run in a worktree).
+- **Never commit card files in your pull request; Sync carries them.** Your branch and pull
+  request hold only the docs and code you changed, never a file under `decisions/`. (Sync is
+  the hub's button that commits and pushes the human's card changes; see **Until Sync
+  exists** below.)
+- Not decided yet: whether that line also covers card changes you make outside an apply (new
+  cards, `president update` rewrites). That question is the human's (president's
+  `docs/roadmap.md`, "Needs a card" 1); until they answer it, follow the line as written.
+
 ## At the start of a session
 
-1. Make sure the project is registered with the hub (safe to repeat):
+1. In the project's main folder, make sure the project is registered with the hub (safe to
+   repeat):
 
    ```sh
    president add . --create
    ```
 
-   Run every `president` command from the project root, the folder that contains
-   `decisions/`. If a command says the project is not registered, run the `president add`
-   it prints.
+   If a command says the project is not registered, run the `president add` it prints, unless
+   you are in a worktree: then go to the main folder instead.
 
    The project is named after its folder. If another project already has that name,
    president adds `-2` (`app-2`) and says so. To choose the name yourself, add
@@ -201,23 +217,34 @@ resolution:
   resolved_at: 2026-11-10T15:20:00Z
 ```
 
-For each one that `president pending` lists:
+For each one that `president pending` lists (run it in the main folder):
 
 1. Read the whole card, including the resolution's `note` and the new notes `pending` shows.
    The note can change or narrow the chosen option; follow it.
-2. Record the decision in the project's docs (for example `docs/decisions.md`, or wherever the
-   project keeps settled decisions): what was decided, the short reason, and the card id.
+2. On your branch, record the decision in the project's docs (for example
+   `docs/decisions.md`, or wherever the project keeps settled decisions): what was decided,
+   the short reason, and the card id.
    **If pending says "Decided again"** (the human reopened the card and decided differently;
    `feedback` has a `reopen` entry with `previous_resolution`), don't add a second entry:
    update or replace the earlier record for this card id, and undo work for the old decision
    that no longer applies.
-3. Do the work it implies, or note it as a follow-up task if it's large.
-4. Run the card's `done:` line from `pending` (`president applied <file> --token <token>`; it
-   sets `applied_at` and `seen_at`). Don't change `status` or `resolution` yourself.
+3. Do the work it implies on the same branch, or note it as a follow-up task if it's large.
+   Your pull request holds only these docs and code changes, no card file; since it doesn't
+   show the decision, link to the card or quote it.
+4. In the main folder, run the card's `done:` line from `pending`
+   (`president applied <file> --token <token>`; it sets `applied_at` and `seen_at`). Don't
+   change `status` or `resolution` yourself, and leave the card uncommitted: the human's Sync
+   carries their answer and your "applied" to the main branch.
 
    If it refuses because the card changed and the decision you acted on is gone (the human
    took it back with Undo, or reopened it before you finished), revert the docs entry and the
    work you did for it, then run `president pending` again.
+
+### Until Sync exists
+
+The Sync button is decided but not built yet. Until it is, the human's answers reach the main
+branch only when someone commits `decisions/` on it by hand, in the main folder. Do that only
+when the human asks you to, and never in a pull request.
 
 ## Cards that need new options
 
