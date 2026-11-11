@@ -284,6 +284,13 @@ describe("parseCard never throws", () => {
     expect(expectErrors(huge)[0]).toMatch(/cards must be under 1024 kB/);
   });
 
+  it("measures the size in bytes, as the hub does, not in characters (R6-8)", () => {
+    // 400,000 characters of 3 bytes each: 1172 kB on disk.
+    const wide = cardText({}, `\n${"界".repeat(400_000)}\n`);
+    expect(wide.length).toBeLessThan(MAX_CARD_BYTES);
+    expect(expectErrors(wide)[0]).toBe("the file is 1172 kB; cards must be under 1024 kB");
+  });
+
   it("says a list or mapping can't be a key, without printing a warning (R3-12)", () => {
     const errors = expectErrors(cardText().replace("\n---\n", "\n? [a, b]\n: c\n---\n"));
     expect(errors).toEqual([

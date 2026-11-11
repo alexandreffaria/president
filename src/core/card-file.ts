@@ -130,9 +130,11 @@ function parseNamedCard(
       `file name "${fileName}" should look like "<id>-<slug>.md", e.g. "0007-error-handling.md" (lowercase letters, digits and dashes)`,
     ]);
   }
-  if (text.length > MAX_CARD_BYTES) {
+  // In bytes, as loadFile measures the file: a character can take up to 4 of them.
+  const bytes = new TextEncoder().encode(text).length;
+  if (bytes > MAX_CARD_BYTES) {
     return fail([
-      `the file is ${Math.round(text.length / 1024)} kB; cards must be under ${MAX_CARD_BYTES / 1024} kB`,
+      `the file is ${Math.floor(bytes / 1024)} kB; cards must be under ${MAX_CARD_BYTES / 1024} kB`,
     ]);
   }
 
