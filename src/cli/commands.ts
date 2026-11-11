@@ -14,7 +14,7 @@ import {
   needsApplying,
   unseenFeedback,
 } from "../core/pending.ts";
-import type { Frontmatter } from "../core/schema.ts";
+import { CUSTOM_CHOICE, type Frontmatter } from "../core/schema.ts";
 import {
   actOnCard,
   findCard,
@@ -289,11 +289,11 @@ export async function pending(args: string[], out: Output): Promise<number> {
       );
       const earlier = earlierDecision(c.frontmatter);
       if (earlier) {
-        const was = (earlier.resolution as { choice?: unknown } | undefined)?.choice;
+        const was = describeDecision(earlier.resolution);
         out.log(
           earlier.appliedAt
-            ? `    Decided again: it was "${String(was)}" before, applied at ${earlier.appliedAt}. Replace the earlier record and undo work that no longer applies.`
-            : `    Decided again: it was "${String(was)}" before (never applied).`,
+            ? `    Decided again: it was ${was} before, applied at ${earlier.appliedAt}. Replace the earlier record and undo work that no longer applies.`
+            : `    Decided again: it was ${was} before (never applied).`,
         );
       }
       notes(c);
@@ -331,6 +331,14 @@ export async function pending(args: string[], out: Output): Promise<number> {
   }
   for (const w of warnings) out.log(`(warning) ${w.fileName}: ${w.message}`);
   return 0;
+}
+
+/** A decision for the agent: `"km"`, or `custom ("the human's answer")`, with its note. */
+function describeDecision(resolution: unknown): string {
+  const { choice, note } = (resolution ?? {}) as { choice?: unknown; note?: unknown };
+  const said =
+    typeof note === "string" && note.trim() ? ` (${continued(JSON.stringify(note))})` : "";
+  return choice === CUSTOM_CHOICE ? `custom${said}` : `"${String(choice)}"${said}`;
 }
 
 /**
@@ -373,10 +381,13 @@ export async function seen(args: string[], out: Output): Promise<number> {
   );
   const check = checkAgentToken(card, token);
   if (!check.ok) throw new UserError(check.error);
+  // The entries this marks: the ones shown that were not read before.
+  const count = unseenFeedback({ ...card.frontmatter, feedback: check.shown }).length;
   const after = await act(project, card, { type: "seen", token });
-  const count = check.shown.length;
   out.log(
-    `Marked the human's feedback on ${after.fileName} as read (${count} ${count === 1 ? "entry" : "entries"}).`,
+    count === 0
+      ? `Nothing new to mark as read on ${after.fileName}; the feedback pending showed was already read.`
+      : `Marked the human's feedback on ${after.fileName} as read (${count} new ${count === 1 ? "entry" : "entries"}).`,
   );
   const lastNeither = check.shown.findLast((f) => f.type === "neither");
   if (after.frontmatter.needs_new_options && lastNeither) {

@@ -374,7 +374,7 @@ describe("president CLI", () => {
     const again = await cli("pending", demo);
     expect(again.out).toContain(file);
     expect(again.out).toMatch(
-      /Decided again: it was "protomaps" before, applied at 2026-11-03T16:45:00Z\. Replace the earlier record/,
+      /Decided again: it was "protomaps" \("Cost and offline-friendliness matter most\. We can switch styles later\."\) before, applied at 2026-11-03T16:45:00Z\. Replace the earlier record/,
     );
     expect(again.out).not.toMatch(/New notes/);
     const json = JSON.parse((await cli("pending", demo, "--json")).out);
@@ -382,6 +382,31 @@ describe("president CLI", () => {
       previous_resolution: { choice: "protomaps" },
       previous_applied_at: "2026-11-03T16:45:00Z",
     });
+    // A custom answer is shown too, so the agent knows which record to replace (R5-15).
+    expect((await runDone(again.out, file)).code).toBe(0);
+    await step({ type: "reopen" });
+    await step({ type: "resolve", choice: "custom", note: "Self-host tiles.\nOn our own server." });
+    await runDone((await cli("pending", demo)).out, file);
+    await step({ type: "reopen" });
+    await step({ type: "resolve", choice: "protomaps" });
+    expect((await cli("pending", demo)).out).toContain(
+      'Decided again: it was custom ("Self-host tiles.\\nOn our own server.") before, applied at',
+    );
+  });
+
+  it("counts only the entries seen marks as newly read (R5-16)", async () => {
+    const demo = await copyDemoProject();
+    const file = join(demo, "decisions", "0002-api-errors.md");
+    await human(demo, "0002", { type: "note", note: "first" });
+    await runDone((await cli("pending", demo)).out, file);
+    await human(demo, "0002", { type: "note", note: "second" });
+    const shown = (await cli("pending", demo)).out;
+    expect((await runDone(shown, file)).out).toBe(
+      "Marked the human's feedback on 0002-api-errors.md as read (1 new entry).",
+    );
+    expect((await runDone(shown, file)).out).toBe(
+      "Nothing new to mark as read on 0002-api-errors.md; the feedback pending showed was already read.",
+    );
   });
 
   it("prints a done line a shell runs as is, whatever the folder is called (R3-1)", async () => {
