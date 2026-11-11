@@ -139,7 +139,9 @@ function collect(
         project: project.name,
         fileName: card.fileName,
         id: card.id,
-        errors: [`id "${card.id}" is also used by ${others.join(", ")}; give each card its own id`],
+        errors: [
+          `id "${card.id}" is also used by ${others.join(", ")}; give each card its own id. If you wrote one of them, give yours (the newer one) the next free id: change its id and rename its file to match`,
+        ],
       });
     } else {
       unique.push(card);

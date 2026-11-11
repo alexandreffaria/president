@@ -73,8 +73,12 @@ the part that is the same for every option.
 
 ## Writing a card
 
-1. Pick the id: list `decisions/`, take the highest number and add one, zero-padded to 4 digits.
-   The file is `decisions/<id>-<short-slug>.md`, e.g. `decisions/0012-empty-state-copy.md`.
+1. Pick the id: list `decisions/`, take the highest number and add one, zero-padded to 4 digits
+   (`0001` when there are no cards yet). The file is `decisions/<id>-<short-slug>.md`, e.g.
+   `decisions/0012-empty-state-copy.md`. Another agent may pick the same number at the same
+   moment; `president validate` (step 5) then reports both cards as broken with
+   `id "0012" is also used by ...`. If it does, renumber your card (the newer one) to the next
+   free id: change its `id` and rename the file to match. Leave the other card alone.
 2. Get the current time for `created`; don't guess it or copy the example's:
 
    ```sh

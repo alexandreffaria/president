@@ -14,7 +14,9 @@ disagree, fix one of them.
 ```
 
 - `<id>` is lowercase letters and digits only, no dashes. Use zero-padded numbers: `0001`, `0002`, ...
-  To pick the next id, list `decisions/` and add one to the highest number.
+  To pick the next id, list `decisions/` and add one to the highest number (`0001` for the first
+  card). If two agents pick the same id at once, both cards show as broken; the one who wrote the
+  newer card gives it the next free id (its `id` and its file name).
 - `<slug>` is a few lowercase words joined by dashes: `0007-error-handling.md`. It is only for humans
   browsing the folder; the slug can change without breaking anything. A `done:` line that
   `president pending` printed before a rename still works: it finds the card by its id and says
