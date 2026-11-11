@@ -50,6 +50,7 @@ options:
 resolution:
   choice: working
   resolved_at: 2026-11-11T15:30:38Z
+applied_at: 2026-11-11T15:41:22Z
 ---
 
 ## Context

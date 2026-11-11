@@ -79,6 +79,7 @@ options:
 resolution:
   choice: sync
   resolved_at: 2026-11-11T15:27:47Z
+applied_at: 2026-11-11T15:41:19Z
 ---
 
 ## Context

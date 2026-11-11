@@ -60,6 +60,7 @@ options:
 resolution:
   choice: readonly
   resolved_at: 2026-11-11T15:29:18Z
+applied_at: 2026-11-11T15:41:21Z
 ---
 
 ## Context
