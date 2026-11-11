@@ -229,7 +229,7 @@ When the human rejects all options, president appends their note to `feedback` (
 3. Change the card with `president update` (see **Changing a card** below): replace `options`
    with new ones that answer the feedback (new ids are fine), rewrite the `## Option <id>`
    sections in the body to match, update `recommendation`, and remove `needs_new_options`.
-   Keep `feedback`, `id`, `created` and `status: open` as they are.
+   Keep `feedback`, `id`, `created` and `status` as they are.
 4. Once `president update` has replaced the card, run the card's `done:` line from `pending`.
 
 ## New notes from the human
