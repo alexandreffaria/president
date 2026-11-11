@@ -207,7 +207,8 @@ describe("president CLI", () => {
     expect(await cli("pending", dir)).toEqual({ code: 1, out: "", err: notFolder });
   });
 
-  // A path through a file or a loop of links is one line, not a stack trace (R10-1, R10-2).
+  // A path through a file or a loop of links is one line, not a stack trace (R10-1, R10-2),
+  // and validate says the same, not "does not exist" (R11-3).
   it("says a path goes through a file or a link loop, in one line", async () => {
     const scratch = await tempDir();
     await writeFile(join(scratch, "file.txt"), "notes");
@@ -218,7 +219,7 @@ describe("president CLI", () => {
       `president: cannot open ${path}: a part of the path is a file, not a folder`;
     const looped = (path: string) =>
       `president: cannot open ${path}: the path goes through a loop of links`;
-    for (const command of ["pending", "add"]) {
+    for (const command of ["pending", "add", "validate"]) {
       expect(await cli(command, throughFile)).toEqual({
         code: 1,
         out: "",

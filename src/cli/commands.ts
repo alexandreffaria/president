@@ -157,8 +157,10 @@ export async function remove(args: string[], out: Output): Promise<number> {
 export async function validate(args: string[], out: Output): Promise<number> {
   const { positionals } = parseArgs({ args, allowPositionals: true });
   const target = resolve(positionals[0] ?? ".");
-  const info = await stat(target).catch(() => undefined);
-  if (!info) throw new UserError(`"${target}" does not exist`);
+  const info = await stat(target).catch((error: unknown) => {
+    if (isNotFound(error)) throw new UserError(`"${target}" does not exist`);
+    throw fileError("open", target, error);
+  });
   if (info.isFile()) return validateFile(target, out);
 
   const project = await projectAt(target, out);
