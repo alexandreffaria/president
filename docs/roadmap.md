@@ -304,7 +304,9 @@ Card: [0017-deferred-resurfacing.md](../decisions/0017-deferred-resurfacing.md),
   - `defer_until` joins `HUMAN_FIELDS` in `president update` (`src/cli/commands.ts`; the CLI
     part can go in D), so an agent's rewrite can't drop or change it. Today `update` guards only
     `status`, `resolution`, `feedback`, `applied_at` and `seen_at`, so a rewrite could silently
-    drop the field and leave the card deferred for good.
+    drop the field and leave the card deferred for good. The field lists in `SKILL.md`
+    ("Keep `status`, `resolution`, …") and `docs/card-format.md` ("…are still the same in
+    both") gain it too.
 - `defer_until` goes in `docs/card-format.md` (D can document it, or this PR).
 - Not decided: what a deferred card **without** `defer_until` does (deferred before this
   ships, or by a hand edit). See [Needs a card](#needs-a-card).
@@ -740,8 +742,9 @@ build PR named in brackets fixes each.
   (#0023) [D]; fields: gains `withdrawn` (#0014) [D] and `defer_until` (#0017) [C or D].
 - `docs/card-format.md` Lifecycle, notes only on open and deferred cards: #0011 allows them on
   resolved cards [C].
-- README `d` row and the card-format Lifecycle: a deferred card returns only by reopen; under
-  #0017 it also returns when `defer_until` passes [C].
+- README `d` row ("defer"): under #0017 `d` defers for a week [C].
+- The card-format Lifecycle (`deferred ──reopen──▶ open` is the only way back): under #0017 a
+  deferred card also returns when `defer_until` passes [C].
 - README, the `n` row ("an agent writes new ones"): under #0007 the hub starts the card's
   session at once [E].
 - README and the skill, "Use `president`, not `npx president`": #0016 renames the command [F].
