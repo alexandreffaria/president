@@ -273,8 +273,8 @@ what the human added since, without any sign. Instead:
 3. Replace the card with it, then remove your file:
 
    ```sh
-   president update decisions/0012-empty-state-copy.md decisions/.0012-empty-state-copy.md.new
-   rm decisions/.0012-empty-state-copy.md.new
+   president update decisions/0012-empty-state-copy.md decisions/.0012-empty-state-copy.md.new &&
+     rm decisions/.0012-empty-state-copy.md.new
    ```
 
    It checks your version like `president validate`, and replaces the card only if what the
