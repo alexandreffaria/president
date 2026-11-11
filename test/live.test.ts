@@ -393,7 +393,7 @@ describe("running hub", () => {
   it("answers a request that asks for another upgrade (curl --http2) as a plain one (R5-1)", async () => {
     const { hub: running } = await hub();
     const { received } = await rawRequest(running, h2c);
-    await until([0], () => received().includes('{"ok":true}'), undefined, 5000);
+    await until([0], () => received().includes('{"ok":true}'));
     expect(received()).toMatch(/^HTTP\/1\.1 200 /);
   });
 
@@ -410,8 +410,8 @@ describe("running hub", () => {
       "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
       "Origin: https://evil.example",
     ]);
-    await until([0], () => refused.received().includes(" 403 "), undefined, 5000);
-    await until([0], () => other.received().includes("200 OK"), undefined, 5000);
+    await until([0], () => refused.received().includes(" 403 "));
+    await until([0], () => other.received().includes("200 OK"));
     const started = Date.now();
     await running.close();
     expect(Date.now() - started).toBeLessThan(2000);
