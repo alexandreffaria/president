@@ -37,7 +37,7 @@ options:
     cons:
       - Edits land in the working tree of whatever branch is checked out, possibly under an agent working there
       - A prompt-injected page can now change your docs, not only read them
-      - Bash rules are pattern matches on the command line, which the docs say are not a security boundary
+      - Bash(president *) allows every president subcommand, not only applied; a prompt-injected page could also rewrite open cards with update, register other folders with add or unregister projects with remove
   - id: ask
     title: Anything, but you approve each risky step in the chat
     summary: Reads and research run freely; any other tool call is shown in the conversation as an Allow / Deny prompt, relayed through a --permission-prompt-tool the hub provides.
@@ -149,11 +149,13 @@ only when `--tools` doesn't name it.
 
 ## Option ask: Anything, but you approve each risky step in the chat
 
-The read-only flags with three changes: `--tools` names every tool the session may ask for
+The read-only flags with four changes: `--tools` names every tool the session may ask for
 (`--restricted` drops Bash and the other code-running tools unless they are named), the mode is
-`manual` instead of `dontAsk`, and `--permission-prompt-tool mcp__president__approve` points at
+`manual` instead of `dontAsk`, `--permission-prompt-tool mcp__president__approve` points at
 an MCP tool served by the hub (passed with `--mcp-config`, since `--strict-mcp-config` ignores
-every other MCP configuration). A call that needs approval appears in the conversation:
+every other MCP configuration), and `--permission-prompts host` (the default) instead of
+`none`, so prompts reach the hub's tool. A call that needs approval appears in the
+conversation:
 
 ```
 The agent wants to run:  npm test -- api-errors
@@ -178,7 +180,9 @@ claude -p --output-format stream-json --verbose --resume "$SESSION_ID" --permiss
   some of those calls", and "Actions that need no approval in Manual mode still run, such as file
   reads in your working directories and the read-only command set." On auto: "have a classifier
   review most actions instead of you". On `--permission-prompts none`: "Pass `--permission-prompts
-  none` when nobody is available to answer permission prompts". https://code.claude.com/docs/en/headless
+  none` when nobody is available to answer permission prompts", and "With the flag, your run
+  doesn't consult the host or wait on it. Anything that would prompt is denied unless a
+  `PermissionRequest` hook allows it". https://code.claude.com/docs/en/headless
 - Claude Code docs, permission modes: `bypassPermissions` "disables permission prompts and safety
   checks so tool calls execute immediately, including writes to protected paths." On auto:
   "Reads and working-directory edits outside protected paths skip the classifier".
@@ -186,9 +190,8 @@ claude -p --output-format stream-json --verbose --resume "$SESSION_ID" --permiss
 - Claude Code docs, permissions: "Rules are evaluated in order: deny, then ask, then allow." "An
   allow rule can't carve an exception out of a deny rule." "Permission rules are enforced by
   Claude Code, not by the model." "Claude Code shows the trust dialog in interactive sessions
-  only. A `claude -p` run or an SDK session never shows it." On Bash rules: "a deny or ask rule
-  covers the invocation Claude usually produces and isn't a security boundary around the
-  program." In the table of rules: "`Read` | Matches all file reads".
+  only. A `claude -p` run or an SDK session never shows it." In the table of rules: "`Read` |
+  Matches all file reads".
   https://code.claude.com/docs/en/permissions
 - Claude Code docs, headless mode, on `--bare`: "Without `--bare`, a `-p` session runs the hooks
   in a project's `.claude/settings.json` and connects the servers in its `.mcp.json`, even in a
@@ -198,13 +201,15 @@ claude -p --output-format stream-json --verbose --resume "$SESSION_ID" --permiss
   can use."; `--restricted` "removes the built-in tools that run commands or code, and WebFetch,
   unless you name them individually in `--tools`, not through the `default` preset. It also
   confines the built-in file tools to the working directories, loads only managed settings and
-  `--settings`, refuses `bypassPermissions`". https://code.claude.com/docs/en/cli-reference
+  `--settings`, refuses `bypassPermissions`"; `--permission-prompts` "With the default `host`,
+  Claude Code sends them to the Agent SDK host or the `--permission-prompt-tool` tool."
+  https://code.claude.com/docs/en/cli-reference
 - `claude --help` (2.1.302): `--restricted` "removes the built-in tools that run commands or code
   (Bash, PowerShell and the other code-running tools) and WebFetch unless --tools names them, and
   ignores user, project and local settings files (managed settings and --settings still apply;
-  add --strict-mcp-config to skip MCP servers too)"; `--permission-prompts`: `"none" (nobody:
-  anything that would prompt is denied automatically; the permission mode still decides
-  everything else)`.
+  add --strict-mcp-config to skip MCP servers too)"; `--permission-prompts`: `"host" (the SDK
+  host or --permission-prompt-tool) or "none" (nobody: anything that would prompt is denied
+  automatically; the permission mode still decides everything else)`, `default: "host"`.
 - Claude Code docs, security: "Avoid piping untrusted content directly to Claude."
   https://code.claude.com/docs/en/security
 - Simon Willison, "The lethal trifecta for AI agents" (private data, untrusted content, and a way

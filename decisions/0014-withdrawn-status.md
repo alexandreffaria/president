@@ -14,7 +14,9 @@ recommendation:
     A retraction should take the card out of your queue at once, say why, and stay
     reversible and visible. A withdrawn field does all three through the president update
     agents already use, with its guard, and leaves the card answerable if you disagree; a
-    status needs a new command and new transition rules for the same result. Pick status if
+    status needs a new command and new transition rules, though it does make your putting a
+    card back something update's guard already protects (with the field, putting it back must
+    also add a feedback entry to get that protection). Pick status if
     you want "withdrawn" to be a real state that every tool knows. Deleting is simpler but
     leaves you wondering where a card went.
 options:
@@ -38,6 +40,7 @@ options:
     cons:
       - The card is still "open" to everything that doesn't know the field (president pending, validate, a search for status open), so the hub and the docs must still learn it
       - Putting it back in the queue yourself needs a new hub action that removes the agent's field (answering it directly works without one)
+      - Putting it back isn't covered by update's guard, which only compares status, resolution, feedback, seen_at and applied_at; an agent's update made from an earlier read would withdraw it again unless putting it back also adds a feedback entry
       - Withdrawn cards pile up in decisions/, as with a status
   - id: delete
     title: Let agents delete the file
@@ -104,7 +107,9 @@ withdrawn:
 
 Queue: `▸ Withdrawn by agents (1)`. The card page shows "Withdrawn by the agent: The queue was
 rewritten..." above the options, which still work. An agent that changes its mind removes the
-field with another `president update`.
+field with another `president update`. A **Back to queue** button would remove the field and
+also add a note to `feedback` (for example "Back in the queue"), because `update` only refuses
+an agent's version when a field it compares differs, and it doesn't compare `withdrawn`.
 
 ## Option delete: Let agents delete the file
 

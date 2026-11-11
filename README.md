@@ -41,8 +41,8 @@ president help
 **Use `president`, not `npx president`, outside this repo.** When a command isn't installed
 locally, `npx` looks for an npm package with that name, and an unrelated package called
 `president` exists on npm. Today that package has no command, so `npx president` only fails with
-`could not determine executable to run`. But if a future release of it adds a `president`
-command, `npx president` would download and run it, without asking when there is no terminal
+`could not determine executable to run`. But if a future release of it adds a command,
+`npx president` would download and run it, without asking when there is no terminal
 (as for an agent). Inside this repo `npx president` runs the local copy.
 
 ### Install the agent skill

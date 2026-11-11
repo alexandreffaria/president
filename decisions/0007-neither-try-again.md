@@ -64,9 +64,10 @@ the queue as soon as the file changes.
 PR 2 adds a per-card Claude Code session, so the hub could start the rewrite itself. Depends
 on #0004: the session needs to read and research; the write can be the hub's.
 
-The options are compared on the same scenario: you reject both options of card 0007 at
-21:00 with "Both assume a server. Compare on-device storage only." No agent is running in that
-project tonight.
+The options are compared on the same scenario: in some project, you reject both options of a
+card about where an app keeps its data (an imagined card, not one in this batch) at 21:00 with
+"Both assume a server. Compare on-device storage only." No agent is running in that project
+tonight.
 
 ## Option spawn: The hub starts an agent right away
 
