@@ -226,8 +226,10 @@ function fields(shape: Shape): Field[] {
       const [note] = noteText(r.style, r.i, `${inner}  `);
       const typed = r.typed ? `${inner}type: note\n` : "";
       const between = shape.betweenRounds && r.i > 0 ? `${dash}# between rounds\n` : "";
-      const atComment = shape.innerComments ? `   # round ${r.i}` : "";
-      return `${between}${dash}-${afterDash}at: ${r.at}${atComment}\n${typed}${inner}note: ${note.endsWith("\n") ? note : `${note}\n`}`;
+      // A comment after unquoted text in these fields cuts it (the card is invalid), so the
+      // text before an end-of-line comment is quoted.
+      const at = shape.innerComments ? `"${r.at}"   # round ${r.i}` : r.at;
+      return `${between}${dash}-${afterDash}at: ${at}\n${typed}${inner}note: ${note.endsWith("\n") ? note : `${note}\n`}`;
     });
     const lastStyle = rounds.at(-1)?.style;
     out.push({
@@ -270,7 +272,7 @@ function fields(shape: Shape): Field[] {
             ? "  note: |\n    First line.\n    Second line.\n"
             : "";
       const lines = [
-        `  choice: a${shape.innerComments ? "   # option a" : ""}\n`,
+        `  choice: ${shape.innerComments ? '"a"   # option a' : "a"}\n`,
         `${shape.innerComments ? "  # when\n" : ""}  resolved_at: 2026-11-05T00:00:00Z\n`,
       ];
       if (shape.resolutionNoteLast) lines.push(noteLine);

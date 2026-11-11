@@ -1,7 +1,13 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { MAX_CARD_BYTES, parseCard, splitFrontmatter } from "../src/core/card-file.ts";
+import { parseDocument } from "yaml";
+import {
+  MAX_CARD_BYTES,
+  parseCard,
+  splitFrontmatter,
+  truncatedTexts,
+} from "../src/core/card-file.ts";
 import { updateCardText } from "../src/core/card-writer.ts";
 import { cardText, DEMO_PROJECT, sizedCard } from "./helpers.ts";
 
@@ -255,6 +261,34 @@ describe("docs/card-format.md", () => {
     expect(card.frontmatter.kind).toBe("ab");
     expect(card.sections.options.map((o) => o.id)).toEqual(["throw", "result"]);
   });
+
+  // An agent copies these snippets; none may show a comment that would cut its text (A).
+  it("shows no comment after unquoted text in its YAML snippets, nor does SKILL.md", async () => {
+    const snippets: string[] = [];
+    for (const file of [
+      join(import.meta.dirname, "..", "docs", "card-format.md"),
+      join(import.meta.dirname, "..", "skills", "decision-cards", "SKILL.md"),
+    ]) {
+      const text = await readFile(file, "utf8");
+      for (const match of text.matchAll(/^( *)```yaml\n([\s\S]*?)\n\1```$/gm)) {
+        snippets.push((match[2] ?? "").replace(new RegExp(`^${match[1]}`, "gm"), ""));
+      }
+    }
+    expect(snippets.length).toBeGreaterThanOrEqual(5);
+    for (const yaml of snippets) {
+      const doc = parseDocument(yaml);
+      expect(doc.errors).toEqual([]);
+      expect(truncatedTexts(doc, yaml, (offset) => offset)).toEqual([]);
+    }
+    // The rule in one line of the skill, and the check is real on a snippet that breaks it.
+    const skill = await readFile(
+      join(import.meta.dirname, "..", "skills", "decision-cards", "SKILL.md"),
+      "utf8",
+    );
+    expect(skill.replace(/\s+/g, " ")).toContain("quote any text containing ` #` or `: `");
+    const bad = "resolution:\n  choice: action  # an option id\n";
+    expect(truncatedTexts(parseDocument(bad), bad, (offset) => offset)).toHaveLength(1);
+  });
 });
 
 describe("error messages", () => {
@@ -450,6 +484,76 @@ describe("messages for common YAML slips (R5-14)", () => {
         ),
       ]);
     }
+  });
+
+  // An unquoted " #" makes the rest of the line a comment, and the text is silently cut (A).
+  it("says to quote text that a ` #` cut off, with the line", () => {
+    expect(expectErrors(cardText({ title: "Should we write it in C # or Rust?" }))).toEqual([
+      'title: the text stops at "Should we write it in C" because " #" starts a YAML comment (line 3); put the whole text in quotes: title: "Should we write it in C # or Rust?"',
+    ]);
+    const errors = expectErrors(
+      cardText({
+        options: options
+          .replace(
+            "title: Red",
+            "title: Red\n    summary: Uses #ff0000 # the brand red\n    pros:\n      - Loud # really",
+          )
+          .replace("id: b", "id: b # the blue one"),
+        recommendation: "\n  option: a\n  why: It is the brand colour # see the guide",
+        feedback:
+          "\n  - at: 2026-11-10T00:00:00Z\n    note: Use plain\n      text # cut on the second line",
+      }),
+    );
+    expect(errors).toEqual([
+      'options[0].summary: the text stops at "Uses" because " #" starts a YAML comment (line 12); put the whole text in quotes: summary: "Uses #ff0000 # the brand red"',
+      'options[0].pros[0]: the text stops at "Loud" because " #" starts a YAML comment (line 14); put the whole text in quotes',
+      'options[1].id: the text stops at "b" because " #" starts a YAML comment (line 15); put the whole text in quotes: id: "b # the blue one"',
+      'recommendation.why: the text stops at "It is the brand colour" because " #" starts a YAML comment (line 19); put the whole text in quotes: why: "It is the brand colour # see the guide"',
+      'feedback[0].note: the text stops at "Use plain text" because " #" starts a YAML comment (line 23); put the whole text in quotes',
+    ]);
+    // Inside a resolution too, and alongside the schema's own errors.
+    const resolved = expectErrors(
+      cardText({
+        status: "resolved",
+        resolution: "\n  choice: a # red\n  resolved_at: 2026-11-10T00:00:00Z",
+      }),
+    );
+    expect(resolved).toEqual([
+      'resolution.choice: the text stops at "a" because " #" starts a YAML comment (line 15); put the whole text in quotes: choice: "a # red"',
+    ]);
+    expect(
+      expectErrors(cardText({ title: "Pick # one", kind: "nope" })).map((e) => e.split(":")[0]),
+    ).toEqual(["title", "kind"]);
+  });
+
+  it("keeps comments that cut nothing", () => {
+    const card = expectCard(
+      cardText({
+        title: '"Should we write it in C # or Rust?"   # quoted, so the comment cuts nothing',
+        options: `   # the options
+  # on their own line
+  - id: 'a'   # quoted
+    title: Red#ff0000
+    summary: >-   # a block header
+      Folded # not a comment
+    pros:   # the list starts on the next line
+      - Loud
+  # between items
+  - id: b
+    title: Blue`,
+        recommendation: "# whole line\n  option: a\n  why: |\n    Literal # text",
+        status: "open   # outside the text fields",
+        tags: "[a, b] # a flow list",
+      }),
+    );
+    expect(card.frontmatter.title).toBe("Should we write it in C # or Rust?");
+    expect(card.frontmatter.options[0]).toMatchObject({
+      id: "a",
+      title: "Red#ff0000",
+      summary: "Folded # not a comment",
+      pros: ["Loud"],
+    });
+    expect(card.frontmatter.recommendation?.why).toBe("Literal # text");
   });
 
   it("reports one error for a tab in the indentation", () => {

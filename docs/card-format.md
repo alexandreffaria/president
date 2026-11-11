@@ -54,7 +54,7 @@ title: How should the API client report errors?
 | Field | Required | Type | Meaning |
 |---|---|---|---|
 | `id` | yes | string | Same as the file name prefix. Quote it (`"0007"`): unquoted `0007` is read as the number 7 (still accepted, and matched by value). A quoted id must match exactly: `"07"` is not `0007`. |
-| `title` | yes | string | The question, phrased as a question. Quote it if it contains `: ` or starts with a special character. |
+| `title` | yes | string | The question, phrased as a question. Quote it if it contains `: ` or ` #`, or starts with a special character. |
 | `status` | yes | `open` \| `deferred` \| `resolved` | Agents create cards as `open`. |
 | `kind` | yes | `choice` \| `ab` \| `open` | See [kinds](#kinds). |
 | `priority` | no (default `normal`) | `high` \| `normal` \| `low` | High priority cards come first in the queue. |
@@ -93,7 +93,8 @@ it was.
 
 ```yaml
 options:
-  - id: result          # short lowercase slug: a, b, c or a word; unique; not "custom"
+  # id: a short lowercase slug (a, b, c or a word), unique, not "custom"
+  - id: result
     title: Return a result object
     summary: One sentence that says what this option is.
     pros:
@@ -109,7 +110,8 @@ options:
 ```yaml
 feedback:
   - at: 2026-11-05T18:40:00Z
-    type: neither        # neither | note | defer | reopen | undo
+    # type: neither | note | defer | reopen | undo
+    type: neither
     note: Both options assume a server. Only compare on-device storage.
 ```
 
@@ -295,9 +297,16 @@ resolution:
 
 ## YAML pitfalls
 
-- Quote strings that contain `: ` (colon and space) or start with `[`, `{`, `*`, `&`, `!`, `|`, `>`,
-  `'`, `"`, `%` or `@`.
+- Quote strings that contain `: ` (colon and space) or ` #` (space and hash), or start with
+  `[`, `{`, `*`, `&`, `!`, `|`, `>`, `'`, `"`, `%` or `@`.
 - Quote ids: `id: "0007"`, `depends_on: ["0003"]`.
+- ` #` starts a comment, so in `title: Write it in C # or Rust?` the title is just "Write it
+  in C". In `title`, `options`, `recommendation`, `feedback` and `resolution`, `validate`
+  reports unquoted text followed by a comment on the same line, with the line, as an error:
+  quote the text (`title: "Write it in C # or Rust?"`). Comments on their own line are fine
+  anywhere, and so is a comment after quoted text, after a `>-` or `|`, or after a key whose
+  value starts on the next line (`pros:   # see below`). president keeps every comment when
+  it writes the card.
 - For long text use a folded block: `why: >-` followed by indented lines.
 - Dates need a timezone when they include a time: `2026-11-10T14:03:00Z`. Don't invent them:
   `date -u +%Y-%m-%dT%H:%M:%SZ` prints the current time in this format.

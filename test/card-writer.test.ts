@@ -129,7 +129,7 @@ single: 'single quoted'
 feedback:
   # first round
   - at: 2026-11-01
-    note: earlier   # important
+    note: "earlier"   # important
 # trailing comment
 
 extra: kept
@@ -212,7 +212,7 @@ Body.
 
   it("appends to a flow or empty feedback list by rewriting just that field", () => {
     const flow = card.replace(
-      /feedback:\n {2}# first round\n {2}- at: 2026-11-01\n {4}note: earlier {3}# important\n/,
+      /feedback:\n {2}# first round\n {2}- at: 2026-11-01\n {4}note: "earlier" {3}# important\n/,
       "feedback: [{at: 2026-11-01, note: earlier}]\n",
     );
     const { out } = write(flow, { type: "note", note: "Second." });
@@ -320,6 +320,18 @@ mine: 1
     const noted = write(aliasedFeedback, { type: "note", note: "Two." });
     const raw = parsed(noted.out).raw;
     expect((raw.feedback as unknown[]).length).toBe((raw.history as unknown[]).length + 1);
+  });
+
+  // The parser refuses plain text cut by " #" (A); what the hub writes must never be that.
+  it("writes a note containing ` #` so that it reads back whole", () => {
+    for (const action of [
+      { type: "note", note: "Like C # and F #" },
+      { type: "resolve", choice: "a", note: "Red # the brand one" },
+    ] as const) {
+      // write() parses the result (which must be valid) and checks it is exactly the data.
+      const { out } = write(card, action);
+      expect(out).toContain(JSON.stringify(action.note));
+    }
   });
 
   it("returns the text unchanged when nothing changed", () => {

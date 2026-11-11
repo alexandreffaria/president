@@ -186,8 +186,9 @@ options:
   use `depends_on`.
 - `priority: high` only when work is blocked on it.
 
-YAML pitfalls: quote ids (`id: "0012"`, `depends_on: ["0003"]`); quote strings containing `: `;
-use `>-` for long text; timestamps need a timezone (`Z`).
+YAML pitfalls: quote ids (`id: "0012"`, `depends_on: ["0003"]`); quote any text containing ` #`
+or `: ` (unquoted, ` #` starts a comment and cuts the text off); use `>-` for long text;
+timestamps need a timezone (`Z`).
 
 ## Applying resolved cards
 
@@ -195,7 +196,8 @@ A resolved card has `status: resolved` and a `resolution`:
 
 ```yaml
 resolution:
-  choice: action          # an option id, or "custom" with the answer in the note
+  # choice: an option id, or "custom" with the answer in the note
+  choice: action
   note: Keep it under 8 words.
   resolved_at: 2026-11-10T15:20:00Z
 ```
