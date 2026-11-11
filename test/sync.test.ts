@@ -284,13 +284,20 @@ describe("Sync: the checks say not now and change nothing", () => {
 
   it("works only in a folder that is the top of a git repository", async () => {
     const s = await gitSandbox();
+    // Inside the repository, but not its top folder: never committed into.
+    const before = snapshot(s);
+    await answerAndAgentWork(s);
     const result = await syncRepo(join(s.laptop, "decisions"), "inner", s.options);
-    expect(result.outcome).toBe("unavailable");
-    expect(result.message).toMatch(/inside the git repository .* rather than its top folder/);
+    expect(result).toMatchObject({
+      outcome: "unavailable",
+      message: "Not synced: inner is skipped because it isn't the top folder of a git repository",
+    });
+    expect(s.head(s.laptop)).toBe(before.head);
+    expect(s.remoteLog()).toEqual(before.remote);
     const none = await syncRepo(join(s.root, "home"), "plain", s.options);
     expect(none).toMatchObject({
       outcome: "unavailable",
-      message: "Not synced: plain is skipped because it isn't a git repository",
+      message: "Not synced: plain is skipped because it isn't the top folder of a git repository",
     });
   });
 });
@@ -531,7 +538,7 @@ describe("the fetch at hub start and the counts", () => {
     const s = await gitSandbox();
     expect(await fetchRepo(join(s.laptop, "decisions"), s.options)).toEqual({});
     expect(await repoStatus(join(s.root, "home"), s.options)).toEqual({
-      unavailable: "it isn't a git repository",
+      unavailable: "it isn't the top folder of a git repository",
       unsynced: 0,
       remoteChanges: 0,
     });

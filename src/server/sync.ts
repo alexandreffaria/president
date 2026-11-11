@@ -25,9 +25,9 @@
  * project while its Sync runs (see {@link SyncService.writeCard}).
  */
 import { existsSync } from "node:fs";
-import { realpath } from "node:fs/promises";
+import { lstat, realpath } from "node:fs/promises";
 import { hostname } from "node:os";
-import { basename, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import type {
   ProjectSyncStatus,
   SyncOutcome,
@@ -97,12 +97,13 @@ class Repo {
    * Why Sync can't work here, or undefined when the folder is the top of a git work tree.
    */
   async unavailable(): Promise<string | undefined> {
-    const result = await this.run(["rev-parse", "--show-toplevel"]);
-    if (result.code !== 0) {
-      return /not a git repository/i.test(result.stderr)
-        ? "it isn't a git repository"
-        : `git can't read it: ${gitErrorText(result)}`;
+    // The top folder of a work tree always holds .git (a folder, or a file in a worktree).
+    // Checked first, so folders that aren't repositories cost no git process at all.
+    if (!(await lstat(join(this.dir, ".git")).then(Boolean, () => false))) {
+      return "it isn't the top folder of a git repository";
     }
+    const result = await this.run(["rev-parse", "--show-toplevel"]);
+    if (result.code !== 0) return `git can't read it: ${gitErrorText(result)}`;
     const top = result.stdout.trim();
     const [realTop, realDir] = await Promise.all([
       realpath(top).catch(() => top),
