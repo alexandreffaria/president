@@ -4,7 +4,7 @@
  */
 import { EventEmitter } from "node:events";
 import { stat } from "node:fs/promises";
-import { basename, dirname } from "node:path";
+import { basename, dirname, sep } from "node:path";
 import { type FSWatcher, watch } from "chokidar";
 import type { HubEvent } from "../core/api.ts";
 import { isIgnoredFile } from "./cards.ts";
@@ -76,6 +76,13 @@ export class HubWatcher {
    * created again (a watch on a deleted folder goes silent).
    */
   #roots = new Set<string>();
+  /**
+   * Folders watched one level deep because a project folder below them is missing. chokidar
+   * would watch a missing path's parent for it, but two such waits on one folder share its
+   * reads, so one of them misses its folder appearing, and a folder found that way is not
+   * watched inside.
+   */
+  #lookouts = new Set<string>();
   #closed = false;
 
   constructor(registry: Registry, bus: EventBus, options: HubWatcherOptions = {}) {
@@ -103,12 +110,12 @@ export class HubWatcher {
     const missing = await this.sync(true);
     this.#watcher.add(this.#registry.dir);
     await ready;
-    if (missing.length > 0) this.#watcher.add(missing);
+    await this.#watchMissing(missing);
   }
 
   /**
    * Re-reads the registry and adjusts the set of watched folders. With `holdMissing`, new
-   * folders that don't exist are returned for the caller to add, instead of now.
+   * folders that don't exist are returned for the caller to watch for, instead of now.
    */
   async sync(holdMissing = false): Promise<string[]> {
     let projects: Awaited<ReturnType<Registry["list"]>>;
@@ -137,7 +144,7 @@ export class HubWatcher {
     const missing = added.filter((_, i) => !there[i]);
     if (present.length > 0) this.#watcher.add(present);
     if (holdMissing) return missing;
-    if (missing.length > 0) this.#watcher.add(missing);
+    await this.#watchMissing(missing);
     return [];
   }
 
@@ -149,7 +156,12 @@ export class HubWatcher {
 
   /** True for paths whose changes don't matter (anything but registry entries, decisions/ and cards). */
   ignores(path: string): boolean {
-    if (path === this.#registry.dir || this.#dirs.has(path) || this.#roots.has(path)) {
+    if (
+      path === this.#registry.dir ||
+      this.#dirs.has(path) ||
+      this.#roots.has(path) ||
+      this.#lookouts.has(path)
+    ) {
       return false;
     }
     const parent = dirname(path);
@@ -159,6 +171,10 @@ export class HubWatcher {
     if (this.#roots.has(parent)) return basename(path) !== DECISIONS_DIR;
     // In decisions/ only card files matter.
     if (this.#dirs.has(parent)) return isIgnoredFile(basename(path));
+    // In a folder watched for a missing project folder only the way to that folder matters.
+    if (this.#lookouts.has(parent)) {
+      return ![...this.#roots].some((root) => root.startsWith(path + sep));
+    }
     return false;
   }
 
@@ -171,6 +187,16 @@ export class HubWatcher {
       });
       return;
     }
+    if (this.#roots.has(path) && (event === "addDir" || event === "unlinkDir")) {
+      if (event === "addDir") this.#watchRoot(path);
+      else void this.#lookFor(path);
+      return;
+    }
+    if (event === "addDir" && this.#lookouts.has(dirname(path))) {
+      // A folder on the way to a missing project folder appeared: look from there.
+      for (const root of this.#roots) if (root.startsWith(path + sep)) void this.#lookFor(root);
+      return;
+    }
     let project = this.#dirs.get(path);
     if (project && event === "addDir") {
       // decisions/ came back after being deleted: watch it afresh.
@@ -181,6 +207,62 @@ export class HubWatcher {
     if (!project) return;
     const name = project;
     this.#debouncer.run(`cards:${name}`, () => this.#bus.emit({ type: "cards", project: name }));
+  }
+
+  /** Watches for folders that don't exist yet. */
+  async #watchMissing(paths: string[]): Promise<void> {
+    // A missing decisions/ through its project's folder (as before); one whose project's
+    // folder is missing too is watched once that folder appears.
+    const dirs = paths.filter((path) => this.#dirs.has(path) && !paths.includes(dirname(path)));
+    if (dirs.length > 0) this.#watcher.add(dirs);
+    const roots = paths.filter((path) => this.#roots.has(path));
+    await Promise.all(roots.map((root) => this.#lookFor(root)));
+  }
+
+  /**
+   * Watches the nearest folder above a missing project folder, to see the way to it appear.
+   * It may have appeared before that watch was attached, which no event reports, so look once
+   * more after a debounce delay; `from` is the folder the last look found.
+   */
+  async #lookFor(root: string, from?: string): Promise<void> {
+    let folder = root;
+    while (!(await isFolder(folder))) {
+      if (dirname(folder) === folder) return;
+      folder = dirname(folder);
+    }
+    if (this.#closed || !this.#roots.has(root) || folder === from) return;
+    if (folder === root) {
+      this.#watchRoot(root);
+      return;
+    }
+    if (!this.#lookouts.has(folder)) {
+      this.#lookouts.add(folder);
+      this.#watcher.add(folder);
+    }
+    this.#debouncer.run(`look:${root}`, () => this.#lookFor(root, folder));
+  }
+
+  /**
+   * A project's folder appeared: watch it afresh (a folder that was missing is not watched
+   * inside). Its decisions/ may have been made before that watch was attached, which no event
+   * reports, so look once more after a debounce delay: watch the decisions/ folders that are
+   * there, and report the projects' cards after one more delay, once those watches are
+   * attached. A decisions/ made later is reported by the new watch.
+   */
+  #watchRoot(root: string): void {
+    this.#watcher.unwatch(root);
+    this.#watcher.add(root);
+    this.#debouncer.run(`root:${root}`, async () => {
+      for (const [dir, name] of this.#dirs) {
+        if (dirname(dir) !== root || !(await isFolder(dir))) continue;
+        if (this.#closed || this.#dirs.get(dir) !== name) continue;
+        this.#watcher.unwatch(dir);
+        this.#watcher.add(dir);
+        this.#debouncer.run(`cards:${name}`, () =>
+          this.#bus.emit({ type: "cards", project: name }),
+        );
+      }
+    });
   }
 }
 

@@ -6,7 +6,7 @@
  */
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { connect, type Socket } from "node:net";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type ClientOptions, WebSocket } from "ws";
 import type { HubEvent, LiveMessage } from "../src/core/api.ts";
@@ -54,6 +54,19 @@ function writeCard(dir: string, n: number): Promise<void> {
 }
 
 /** A watcher on a registry with the demo project; `setup` can change the registry first. */
+/** Keeps writing fresh cards into `dir` until the watcher sees one (a "cards" event can be late). */
+async function untilNewCardSeen(
+  fileEvents: { event: string; path: string }[],
+  dir: string,
+): Promise<void> {
+  let n = 10;
+  await until(
+    fileEvents,
+    (e) => e.event === "add" && dirname(e.path) === dir && e.path.endsWith("-x.md"),
+    () => writeCard(dir, n++),
+  );
+}
+
 async function watched(setup?: (registry: Registry) => Promise<void>) {
   const registry = new Registry(join(await tempDir(), "config"));
   await mkdir(registry.dir, { recursive: true });
@@ -199,6 +212,27 @@ describe("HubWatcher", () => {
     // No poke: a card written right after start() must be seen.
     await writeCard(join(demo, "decisions"), 5);
     await until(events, (e) => e.type === "cards" && e.project === "demo");
+  });
+
+  it("watches projects whose folders were missing at start once they come back (R11-2)", async () => {
+    // Two, in one folder: chokidar's waits for two missing paths in one folder clash.
+    const { paths, setup } = missing(["ghost1", "ghost2"]);
+    const { events, fileEvents } = await watched(setup);
+    for (const [name, path] of paths) {
+      await mkdir(join(path, "decisions"), { recursive: true });
+      await until(events, (e) => e.type === "cards" && e.project === name);
+      await untilNewCardSeen(fileEvents, join(path, "decisions"));
+    }
+  });
+
+  it("keeps reporting changes after a project's folder is deleted and created again", async () => {
+    const { demo, fileEvents } = await watched();
+    await rm(demo, { recursive: true });
+    // Once the watcher has seen the folder go: one made again before that looks unchanged to it.
+    await until(fileEvents, (e) => e.event === "unlinkDir" && e.path === demo);
+    await mkdir(join(demo, "decisions"), { recursive: true });
+    // Late events of the deletion also raise "cards", so wait for a new card to be seen.
+    await untilNewCardSeen(fileEvents, join(demo, "decisions"));
   });
 });
 
