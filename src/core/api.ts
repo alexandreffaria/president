@@ -80,8 +80,11 @@ export interface AddProjectResponse {
   alreadyRegistered: boolean;
 }
 
-/** Something in a project's cards, or the project list, changed. */
-export type HubEvent = { type: "cards"; project: string } | { type: "projects" };
+/**
+ * Something in a project's cards, or the project list, changed; or a Sync started or
+ * finished (refetch /api/sync).
+ */
+export type HubEvent = { type: "cards"; project: string } | { type: "projects" } | { type: "sync" };
 
 /**
  * A message on the /api/events WebSocket: "ready" once it is connected (anything may have
@@ -92,3 +95,70 @@ export type LiveMessage = HubEvent | { type: "ready" } | { type: "ping" };
 
 /** How often the hub pings each live socket (ms). */
 export const HEARTBEAT_MS = 25_000;
+
+/**
+ * How one project's Sync ended (see server/sync.ts):
+ *
+ * - "synced": committed, pulled and pushed.
+ * - "nothing": no card changes here or on the remote, so nothing was changed.
+ * - "not-now": a check failed before anything changed (another branch checked out, an
+ *   agent's unpushed commits, ...).
+ * - "not-synced": the fetch, the commit or the pull failed; nothing was pushed.
+ * - "not-pushed": the pull worked but Sync stopped before pushing, or the push failed.
+ * - "unavailable": the project folder isn't the top folder of a git repository.
+ */
+export type SyncOutcome =
+  | "synced"
+  | "nothing"
+  | "not-now"
+  | "not-synced"
+  | "not-pushed"
+  | "unavailable";
+
+export interface SyncResultDto {
+  project: string;
+  outcome: SyncOutcome;
+  /** One sentence saying what happened, or why not ("Not now: ..."). */
+  message: string;
+  /** What the human can do about it, when something is left to do. */
+  action?: string;
+  /** git's own error output, when a git command failed. */
+  gitError?: string;
+  /** Cards (ids; file names for other files) this Sync sent and received. */
+  sent: string[];
+  received: string[];
+  /** When this project's Sync ended (ISO time). */
+  at: string;
+}
+
+export interface ProjectSyncStatus {
+  project: string;
+  /** Why Sync can't work on this project (not a git repository); the counts are 0 then. */
+  unavailable?: string;
+  /**
+   * Changed and new files under decisions/, plus files there changed by local commits that
+   * aren't pushed yet ("3 answers not synced").
+   */
+  unsynced: number;
+  /**
+   * Cards the remote changed as of the last fetch (`git diff --name-only HEAD...@{u} --
+   * decisions/`), for "3 card changes on the remote, press Sync".
+   */
+  remoteChanges: number;
+  /** Set when the fetch at hub start failed (offline, no remote). Not fatal. */
+  fetchError?: string;
+  /** A Sync is running in this project right now. */
+  running: boolean;
+  /** How the last Sync of this project ended (since the hub started). */
+  last?: SyncResultDto;
+}
+
+export interface SyncStatusResponse {
+  projects: ProjectSyncStatus[];
+  /** A Sync is running in some project. */
+  running: boolean;
+}
+
+export interface SyncRunResponse {
+  results: SyncResultDto[];
+}

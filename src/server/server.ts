@@ -17,6 +17,7 @@ import { HEARTBEAT_MS, type LiveMessage } from "../core/api.ts";
 import { createApp } from "./app.ts";
 import { fileError, UserError } from "./errors.ts";
 import { Registry } from "./registry.ts";
+import { type SyncOptions, SyncService } from "./sync.ts";
 import { EventBus, HubWatcher } from "./watcher.ts";
 
 export const HOST = "127.0.0.1";
@@ -41,7 +42,16 @@ export interface RunningHub {
 }
 
 export async function startHub(
-  options: { port?: number; registry?: Registry; staticDir?: string; heartbeatMs?: number } = {},
+  options: {
+    port?: number;
+    registry?: Registry;
+    staticDir?: string;
+    heartbeatMs?: number;
+    /** Options for the git that Sync runs (tests point it at their own config). */
+    sync?: SyncOptions;
+    /** Run `git fetch` in every project once the hub is up (default true). */
+    fetchOnStart?: boolean;
+  } = {},
 ): Promise<RunningHub> {
   const registry = options.registry ?? new Registry();
   const port = options.port ?? portFromEnv();
@@ -53,7 +63,8 @@ export async function startHub(
   const bus = new EventBus();
   const watcher = new HubWatcher(registry, bus);
   await watcher.start();
-  const app = createApp({ registry, bus, staticDir: options.staticDir ?? BUILT_UI_DIR });
+  const sync = new SyncService(registry, bus, options.sync);
+  const app = createApp({ registry, bus, sync, staticDir: options.staticDir ?? BUILT_UI_DIR });
 
   // The upgrade request goes through the app (and its Host and Origin checks) first.
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 });
@@ -91,6 +102,9 @@ export async function startHub(
   }
   const address = server.address();
   const actualPort = typeof address === "object" && address ? address.port : port;
+  // Fetch only: it changes no file and no branch, so the top bar can say how many card
+  // changes wait on the remote. In the background: the hub doesn't wait for the network.
+  if (options.fetchOnStart ?? true) void sync.fetchAll();
 
   return {
     url: `http://${HOST}:${actualPort}`,
@@ -98,6 +112,9 @@ export async function startHub(
       stopHeartbeat();
       for (const socket of sockets.clients) socket.terminate();
       await watcher.close();
+      // Let a Sync in progress finish (each git call has a timeout): stopping it halfway
+      // could leave a rebase behind.
+      await sync.close();
       await new Promise<void>((resolve) => {
         server.close(() => resolve());
         if ("closeAllConnections" in server) server.closeAllConnections();
