@@ -74,6 +74,7 @@ symlinks also needs Developer Mode or admin rights).
   mkdir -p .claude/skills
   ln -sfn "$PRESIDENT/skills/decision-cards" .claude/skills/decision-cards
   EXCLUDE="$(git rev-parse --git-path info/exclude)"   # .git/info/exclude
+  mkdir -p "$(dirname "$EXCLUDE")"
   grep -qxF .claude/skills/decision-cards "$EXCLUDE" 2>/dev/null ||
     echo .claude/skills/decision-cards >> "$EXCLUDE"
   test -e .claude/skills/decision-cards/SKILL.md && echo ok || echo dangling

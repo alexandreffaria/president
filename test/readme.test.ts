@@ -38,7 +38,7 @@ function cleanEnv(home: string): NodeJS.ProcessEnv {
 }
 
 /** A president checkout and a project next to it, and a home folder for the global link. */
-async function sandbox() {
+async function sandbox(initArgs: string[] = []) {
   const root = await tempDir();
   const president = join(root, "president");
   const project = join(root, "project");
@@ -48,7 +48,7 @@ async function sandbox() {
   await writeFile(join(president, "skills", "decision-cards", "SKILL.md"), "skill\n");
   await mkdir(project);
   await mkdir(home);
-  execFileSync("git", ["init", "-q"], { cwd: project, env });
+  execFileSync("git", ["init", "-q", ...initArgs], { cwd: project, env });
   const run = (script: string, cwd: string) =>
     execFileSync("sh", ["-ec", script], { cwd, env, encoding: "utf8" });
   return { president, project, home, env, run };
@@ -84,21 +84,28 @@ describe("README skill links", () => {
     );
   });
 
-  it("keeps the local-only link out of git, listed once however often it runs", async () => {
-    const box = await sandbox();
-    const script = (snippets[0] ?? "").replace("/absolute/path/to/president", box.president);
-    for (let i = 0; i < 2; i++) box.run(script, box.project);
-    const exclude = await readFile(join(box.project, ".git", "info", "exclude"), "utf8");
-    expect(exclude.split("\n").filter((line) => line === ".claude/skills/decision-cards")).toEqual([
-      ".claude/skills/decision-cards",
-    ]);
-    const status = execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], {
-      cwd: box.project,
-      env: box.env,
-      encoding: "utf8",
-    });
-    expect(status).toBe("");
-  });
+  // `git init --template=` makes no .git/info/ folder; the snippet makes it (F-5).
+  it.each([
+    ["", []],
+    [" in a repo without .git/info/", ["--template="]],
+  ] as [string, string[]][])(
+    "keeps the local-only link out of git, listed once however often it runs%s",
+    async (_, initArgs) => {
+      const box = await sandbox(initArgs);
+      const script = (snippets[0] ?? "").replace("/absolute/path/to/president", box.president);
+      for (let i = 0; i < 2; i++) box.run(script, box.project);
+      const exclude = await readFile(join(box.project, ".git", "info", "exclude"), "utf8");
+      expect(
+        exclude.split("\n").filter((line) => line === ".claude/skills/decision-cards"),
+      ).toEqual([".claude/skills/decision-cards"]);
+      const status = execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], {
+        cwd: box.project,
+        env: box.env,
+        encoding: "utf8",
+      });
+      expect(status).toBe("");
+    },
+  );
 
   // Run this file again as if from a git hook or `git rebase -x` in a linked worktree, which
   // export GIT_DIR and GIT_INDEX_FILE: the repo they point at must stay untouched (F-2).
