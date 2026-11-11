@@ -14,7 +14,7 @@ recommendation:
     A Sync action gives you one commit per sitting instead of one per click and changes your
     checkouts only when you press it (starting the hub only fetches), so you can avoid syncing
     while an agent is working. With the checks in its sketch it says "not now" rather than
-    rebase an agent's unpushed work or put conflict markers in its files (its other uncommitted
+    rewrite an agent's unpushed work or put conflict markers in its files (its other uncommitted
     files are only set aside while the pull runs), and it does so while you are looking. Pick
     batched if you would rather not have to remember and accept git running in your projects
     at moments nobody chose (it retries by itself when a check says not now); pick auto if
@@ -28,7 +28,7 @@ options:
       - Each commit holds exactly one action, so history reads like a log of your decisions
     cons:
       - One commit per click (a 20-card session is 20 commits, plus one per undo)
-      - Commits land on whatever branch the project's checkout is on, possibly an agent's feature branch, in the middle of its work
+      - Commits land on whatever branch the project's checkout is on, possibly an agent's feature branch in the middle of its work, unless the hub skips committing while the checkout isn't on main (and your answers then wait)
       - Git runs behind the agent's back, so it can collide with the agent's own git commands
       - A push that fails (offline, or the other machine pushed first) needs a pull and maybe a conflict fix with nobody watching
       - Pushing also sends out any commits an agent hasn't pushed yet, unless the hub skips the push while there are any (and your answers then wait)
@@ -44,10 +44,10 @@ options:
       - Still a new piece of git code in the hub (checks, commit, pull, push, conflict reporting)
       - While an agent has commits it hasn't pushed, or is editing a file that also changed on your other machine, Sync says "not now" and changes nothing, so your answers can wait until the agent pushes
       - If an agent saves a file during the few seconds the pull takes, Sync stops without pushing and tells you, and leaves an old copy of that file in git's stash that someone has to clear (seen in a simulated test)
-      - It refuses while the checkout is on any other branch, so if an agent has a feature branch checked out in that folder, your answers wait until it switches back
+      - It refuses while the checkout is on any branch other than main, so if an agent has a feature branch checked out in that folder, your answers wait until it switches back
   - id: batched
     title: The hub syncs on its own after a quiet spell
-    summary: Like sync, but run by a timer; a few minutes after your last action (and when you stop the hub), the hub pulls, commits the changed and new card files in one commit and pushes.
+    summary: Like sync, but run by a timer; a few minutes after your last action (and when you stop the hub), the hub runs the same checks, commits the changed and new card files in one commit, pulls and pushes.
     pros:
       - Nothing to remember, like auto
       - One commit per sitting, like sync
@@ -59,7 +59,7 @@ options:
       - Answers made just before the machine sleeps (a closed laptop lid) stay behind until it wakes and the timer fires
   - id: agents
     title: Agents commit card changes as part of their work
-    summary: The skill tells agents to commit decisions/ along with their docs and code whenever they act through pending, applied, seen or update; the hub never runs git.
+    summary: The skill tells agents to commit decisions/ along with their docs and code whenever they act on cards; the hub never runs git.
     pros:
       - No git code in the hub at all; agents already commit and push
       - The decision and the docs change that applies it travel in the same commit
@@ -131,7 +131,8 @@ git push    # in the background; on failure the hub shows "not pushed" on the ca
 yet, and `git commit --only` refuses a file git doesn't know (`pathspec ... did not match any
 file(s) known to git`). `--only` then commits just that file, leaving anything you or an agent
 staged untouched. Undo would need a second commit (or a reset if it wasn't pushed yet). The
-commit lands on whatever branch is checked out in that folder.
+commit lands on whatever branch is checked out in that folder, unless the hub first checks the
+branch, as Sync does, and skips the commit when it isn't main.
 
 ## Option sync: A Sync button and shortcut in the hub
 
@@ -196,6 +197,9 @@ git pull --rebase --autostash    # if it fails: git rebase --abort if a rebase i
 # before pushing: stop if any file is conflicted or git stash list has a new entry
 git push
 ```
+
+The first check keeps your answers off an agent's feature branch (auto's cost) and out of a
+rebase or merge the agent has started.
 
 `git add -- decisions/` brings in new cards: `git commit --only -- decisions/` on its own commits
 changes to cards git already tracks and silently leaves new ones out (tested in a scratch
