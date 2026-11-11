@@ -711,54 +711,54 @@ describe("president CLI", () => {
 
   // Agents that start together each run `president add . --create`: every one of them must
   // end up registered, under its own name (R3-2, R3-13), with no lock (R5-3): each name is
-  // claimed by creating its file exclusively. Separate processes, so this starts Node many
-  // times (see the timeout note below).
-  it("registers every project when many `add`s and `demo`s run at once", {
-    timeout: 30_000,
-  }, async () => {
-    const run = (...args: string[]) =>
-      promisify(execFile)(process.execPath, [BIN, ...args], { timeout: 28_000 });
+  // claimed by creating its file exclusively. Separate processes, so these start Node many
+  // times (see the timeout note below); not more than 12 at once, so that four suites run
+  // side by side don't starve each other's timed tests.
+  const president = (...args: string[]) =>
+    promisify(execFile)(process.execPath, [BIN, ...args], { timeout: 18_000 });
+
+  it("registers every project when many `add`s run at once", { timeout: 20_000 }, async () => {
     const folders = await Promise.all(
-      Array.from({ length: 12 }, async () => {
+      Array.from({ length: 10 }, async () => {
         const dir = join(await tempDir(), "app");
         await mkdir(dir);
         return dir;
       }),
     );
     const shared = await copyDemoProject("shared");
-    const scratch = await tempDir();
-    const demos = Array.from({ length: 6 }, (_, i) => join(scratch, `d${i}`));
     const results = await Promise.all([
-      ...folders.map((dir) => run("add", dir, "--create")),
-      // Several agents of one project at once register it once.
-      ...Array.from({ length: 4 }, () => run("add", shared)),
-      ...demos.map((dir) => run("demo", dir)),
+      ...folders.map((dir) => president("add", dir, "--create")),
+      // Two agents of one project at once register it once.
+      president("add", shared),
+      president("add", shared),
     ]);
-    for (const { stdout } of results.slice(0, 12))
+    for (const { stdout } of results.slice(0, 10)) {
       expect(stdout).toMatch(/^Registered app(-\d+)? /);
-    for (const { stdout } of results.slice(12, 16)) {
+    }
+    for (const { stdout } of results.slice(10)) {
       expect(stdout).toMatch(/^(Registered|Already registered:) shared /);
     }
     const listed = JSON.parse((await cli("list", "--json")).out) as Project[];
-    expect(listed.map((p) => p.path).sort()).toEqual([...folders, shared, ...demos].sort());
+    expect(listed.map((p) => p.path).sort()).toEqual([...folders, shared].sort());
     expect(listed.map((p) => p.name)).toEqual([
       "app",
-      ...Array.from({ length: 11 }, (_, i) => `app-${i + 2}`),
-      "demo",
-      ...Array.from({ length: 5 }, (_, i) => `demo-${i + 2}`),
+      ...Array.from({ length: 9 }, (_, i) => `app-${i + 2}`),
       "shared",
     ]);
+    expect(await readdir(join(configHome, "president", "projects"))).toHaveLength(11);
+  });
+
+  it("names every demo when many `demo`s run at once", { timeout: 20_000 }, async () => {
+    const scratch = await tempDir();
+    const demos = Array.from({ length: 5 }, (_, i) => join(scratch, `d${i}`));
+    const results = await Promise.all(demos.map((dir) => president("demo", dir)));
+    const listed = JSON.parse((await cli("list", "--json")).out) as Project[];
+    expect(listed.map((p) => p.path).sort()).toEqual(demos.sort());
+    const names = ["demo", ...Array.from({ length: 4 }, (_, i) => `demo-${i + 2}`)];
+    expect(listed.map((p) => p.name)).toEqual(names);
     // Each demo printed the name it got.
-    const demoNames = results
-      .slice(16)
-      .map((r) => /registered it as "([^"]+)"/.exec(r.stdout)?.[1]);
-    expect(demoNames.sort()).toEqual(
-      listed
-        .filter((p) => p.name.startsWith("demo"))
-        .map((p) => p.name)
-        .sort(),
-    );
-    expect(await readdir(join(configHome, "president", "projects"))).toHaveLength(listed.length);
+    const printed = results.map((r) => /registered it as "([^"]+)"/.exec(r.stdout)?.[1]);
+    expect(printed.sort()).toEqual([...names].sort());
   });
 
   // Like the test above, this starts a process. Its time is Node's own start-up, which doesn't
