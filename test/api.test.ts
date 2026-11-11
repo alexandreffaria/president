@@ -535,6 +535,35 @@ describe("undo", () => {
     expect(await readFile(file, "utf8")).toBe(decided);
   });
 
+  it("words a refused undo for the action it was (R5-8)", async () => {
+    const { act, post, demo } = await setup();
+    /** Takes the action, lets an agent (another process) change the card, then undoes. */
+    const refusal = async (id: string, fileName: string, action: object) => {
+      const { card } = (await (await act(id, action)).json()) as { card: CardDetailDto };
+      const file = join(demo, "decisions", fileName);
+      await writeFile(file, `${await readFile(file, "utf8")}\nAn agent's answer.\n`);
+      const res = await post(`/api/cards/demo/${id}/undo`, { revision: card.revision });
+      expect(res.status).toBe(409);
+      return ((await res.json()) as { error: string }).error;
+    };
+    expect(await refusal("0002", "0002-api-errors.md", { type: "note", note: "Hm." })).toBe(
+      "the card changed since (an agent may already have read your note), so it can't be taken back; add another note to correct it",
+    );
+    expect(await refusal("0001", "0001-offline-storage.md", { type: "defer" })).toMatch(
+      /since you deferred it, so it can't be undone; reopen it if needed$/,
+    );
+    expect(await refusal("0004", "0004-map-tiles.md", { type: "reopen" })).toMatch(
+      /since you reopened it \(an agent may already be acting on it\).*decide it again/,
+    );
+    expect(
+      await refusal("0003", "0003-first-run-copy.md", {
+        type: "resolve",
+        choice: "custom",
+        note: "Hi.",
+      }),
+    ).toMatch(/after this action, so it can't be undone; review it and reopen it if needed$/);
+  });
+
   it("needs the revision the action returned", async () => {
     const { post, request } = await resolved();
     expect((await post("/api/cards/demo/0002/undo", {})).status).toBe(400);

@@ -396,9 +396,7 @@ export async function undoLastAction(
     const entry = undoJournal.get(card.path);
     const ours = entry?.after === revision ? entry : undefined;
     if (card.revision !== revision || (ours && (await fileStamp(card.path)) !== ours.stamp)) {
-      throw conflict(
-        "the card changed after this action, so it can't be undone; review it and reopen it if needed",
-      );
+      throw conflict(changedSince(ours?.action));
     }
     if (!ours || Date.now() - ours.at > UNDO_TTL_MS) {
       throw new UserError(
@@ -410,6 +408,25 @@ export async function undoLastAction(
     undoJournal.delete(card.path);
     return written;
   });
+}
+
+/**
+ * Why an undo was refused, and what the human can do instead, for the action they tried to
+ * undo (undefined: not known, president may have restarted). Neutral about who changed the
+ * card: it may have been the human, in another tab.
+ */
+function changedSince(action: CardActionType | undefined): string {
+  switch (action) {
+    case "note":
+    case "neither":
+      return "the card changed since (an agent may already have read your note), so it can't be taken back; add another note to correct it";
+    case "defer":
+      return "the card changed since you deferred it, so it can't be undone; reopen it if needed";
+    case "reopen":
+      return "the card changed since you reopened it (an agent may already be acting on it), so it can't be undone; decide it again if needed";
+    default:
+      return "the card changed after this action, so it can't be undone; review it and reopen it if needed";
+  }
 }
 
 async function writeChecked(project: Project, card: LoadedCard, text: string): Promise<LoadedCard> {
