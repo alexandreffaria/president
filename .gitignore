@@ -5,5 +5,8 @@ coverage/
 .DS_Store
 .vite/
 
-# Temporary git worktrees created by review agents
+# Claude Code: .claude/skills/ is committed (project skills for this repo).
+# Machine-local state under .claude/ stays out of git.
 .claude/worktrees/
+.claude/settings.local.json
+.claude/*.local.*

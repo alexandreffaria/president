@@ -48,14 +48,34 @@ locally, `npx` looks for an npm package with that name, and an unrelated package
 ### Install the agent skill
 
 The skill in [skills/decision-cards/SKILL.md](skills/decision-cards/SKILL.md) teaches Claude Code
-when and how to write cards, and how to act on your answers. Install it for all projects:
+when and how to write cards, and how to act on your answers.
 
-```sh
-mkdir -p ~/.claude/skills
-ln -s "$PWD/skills/decision-cards" ~/.claude/skills/decision-cards
-```
+**In this repo it's already active.** The repo commits a relative symlink,
+`.claude/skills/decision-cards` → `../../skills/decision-cards`, and Claude Code loads project
+skills from `.claude/skills/`. Any Claude Code session started in a clone of president has the
+skill, with nothing to install. Other projects are unaffected.
 
-Because it's a symlink, pulling this repo updates the skill.
+**For other projects**, pick one:
+
+- Per project: link it into that project's `.claude/skills/`, the same way this repo does. Commit
+  the link if everyone working on that project has president checked out at the same relative path;
+  otherwise keep it local.
+
+  ```sh
+  # from the other project's root; PRESIDENT is where you cloned president
+  mkdir -p .claude/skills
+  ln -s "$PRESIDENT/skills/decision-cards" .claude/skills/decision-cards
+  ```
+
+- Globally, for every project on this machine:
+
+  ```sh
+  # from the president repo root
+  mkdir -p ~/.claude/skills
+  ln -s "$PWD/skills/decision-cards" ~/.claude/skills/decision-cards
+  ```
+
+Because these are symlinks, pulling this repo updates the skill everywhere it's linked.
 
 ## Usage
 
