@@ -190,6 +190,21 @@ describe("president CLI", () => {
     const refused = `president: "${join(dir, "decisions")}" exists but is not a directory`;
     expect(await cli("add", dir)).toEqual({ code: 1, out: "", err: refused });
     expect(await cli("add", dir, "--create")).toEqual({ code: 1, out: "", err: refused });
+    const notFolder = `president: "${join(dir, "decisions")}" is not a folder`;
+    expect(await cli("pending", dir)).toEqual({ code: 1, out: "", err: notFolder });
+  });
+
+  // A decisions link to a folder that isn't there (not mounted, not checked out) (R9-1).
+  it("says decisions is a link to nothing, and --create doesn't pretend to make it", async () => {
+    const dir = await tempDir();
+    const decisions = join(dir, "decisions");
+    await symlink(join(dir, "gone"), decisions);
+    const refused = `president: "${decisions}" is a link to ${join(dir, "gone")}, which doesn't exist`;
+    expect(await cli("add", dir)).toEqual({ code: 1, out: "", err: refused });
+    expect(await cli("add", dir, "--create")).toEqual({ code: 1, out: "", err: refused });
+    expect(await cli("list", "--json")).toMatchObject({ code: 0, out: "[]" });
+    const notFolder = `president: "${decisions}" is not a folder`;
+    expect(await cli("pending", dir)).toEqual({ code: 1, out: "", err: notFolder });
   });
 
   it("validates cards and fails on broken ones", async () => {

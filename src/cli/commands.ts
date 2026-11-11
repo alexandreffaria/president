@@ -1,7 +1,7 @@
 /**
  * The \`president\` commands (see main.ts for the dispatch and the help text).
  */
-import { cp, mkdtemp, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
+import { cp, lstat, mkdtemp, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { isDeepStrictEqual, parseArgs } from "node:util";
@@ -40,8 +40,8 @@ export async function add(args: string[], out: Output): Promise<number> {
   if (
     !values.create &&
     (await isDirectory(path)) &&
-    // Something else there (a file) is the registry's to explain (R8-4).
-    (await stat(join(path, DECISIONS_DIR)).catch(() => undefined)) === undefined
+    // Something else there (a file, a link) is the registry's to explain (R8-4, R9-1).
+    (await lstat(join(path, DECISIONS_DIR)).catch(() => undefined)) === undefined
   ) {
     throw noDecisionsError(path, " Or add --create to make one here.");
   }
@@ -658,7 +658,12 @@ async function projectAt(path: string, out: Output): Promise<Project> {
     throw fileError("open", dir, error);
   });
   if (!found.isDirectory()) throw new UserError(`"${dir}" is not a folder`);
-  if (!(await isDirectory(join(dir, DECISIONS_DIR)))) throw noDecisionsError(dir);
+  const decisions = join(dir, DECISIONS_DIR);
+  if (!(await isDirectory(decisions))) {
+    // Nothing there is a missing folder; anything else (a file, a link to nothing) is not one (R9-1).
+    if ((await lstat(decisions).catch(() => undefined)) === undefined) throw noDecisionsError(dir);
+    throw new UserError(`"${decisions}" is not a folder`);
+  }
   return registeredAs(dir, out);
 }
 

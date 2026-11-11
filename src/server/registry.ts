@@ -18,9 +18,18 @@
  *
  * A projects.json from before this layout is moved into the folder on first use.
  */
-import { mkdir, readdir, readFile, realpath, rename, stat, unlink } from "node:fs/promises";
+import {
+  mkdir,
+  readdir,
+  readFile,
+  readlink,
+  realpath,
+  rename,
+  stat,
+  unlink,
+} from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { formatIssues } from "../core/schema.ts";
 import { fileError, UserError } from "./errors.ts";
@@ -338,13 +347,7 @@ async function ensureDecisionsDir(
   create: boolean | undefined,
 ): Promise<void> {
   const dir = decisionsDirOf(project);
-  try {
-    if ((await stat(dir)).isDirectory()) return;
-    throw new UserError(`"${dir}" exists but is not a directory`);
-  } catch (error) {
-    if (error instanceof UserError) throw error;
-    if (!isNotFound(error)) throw fileError("open", dir, error);
-  }
+  if (await isDecisionsDir(dir)) return;
   if (!create) {
     throw new UserError(
       `"${project.path}" has no ${DECISIONS_DIR}/ folder. Create it, or ask president to (CLI: --create).`,
@@ -354,10 +357,29 @@ async function ensureDecisionsDir(
   try {
     await mkdir(dir);
   } catch (error) {
-    // Another `add` of the same folder made it first.
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") return;
+    // Another `add` of the same folder made it first, or a link is there (R9-1).
+    if ((error as NodeJS.ErrnoException).code === "EEXIST" && (await isDecisionsDir(dir))) return;
     throw fileError("create", dir, error);
   }
+}
+
+/** True when `dir` is a folder, false when nothing is there; anything else is refused. */
+async function isDecisionsDir(dir: string): Promise<boolean> {
+  try {
+    if ((await stat(dir)).isDirectory()) return true;
+    throw new UserError(`"${dir}" exists but is not a directory`);
+  } catch (error) {
+    if (error instanceof UserError) throw error;
+    if (!isNotFound(error)) throw fileError("open", dir, error);
+  }
+  // stat follows links: a link to nothing is "not found" too (R9-1).
+  const target = await readlink(dir).catch(() => undefined);
+  if (target !== undefined) {
+    throw new UserError(
+      `"${dir}" is a link to ${resolve(dirname(dir), target)}, which doesn't exist`,
+    );
+  }
+  return false;
 }
 
 /** A registry name derived from the folder name. */
