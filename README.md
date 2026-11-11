@@ -123,8 +123,9 @@ president pending [path] [--json]                 what agents should act on: una
                                                   with the `done:` command to run once handled
 president applied <card-file> --token <token>     mark a resolved card as applied
 president seen <card-file> --token <token>        mark the human's feedback on a card as read
-president update <card-file> <new-version-file>  replace a card with an agent's rewrite, only if the
-                                                  human changed nothing since the agent read it
+president update <card-file> <new-version-file>  replace an undecided card with an agent's rewrite,
+                                                  only if the human changed nothing since the agent
+                                                  read it
 president demo [path] [--name <name>]             copy the sample project and register the copy
 president serve                                   start the hub (same as npm start)
 ```
