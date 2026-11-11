@@ -303,8 +303,9 @@ resolution:
   `summary`, `pros` and `cons`, `recommendation.why`, `feedback[].note`,
   `feedback[].previous_resolution.note` and `resolution.note`), `validate` reports unquoted
   text followed by a comment on the same line, with the line, as an error: quote the text
-  (`title: "Write it in C # or Rust?"`). Text an alias (`*name`) brings into one of them is
-  checked where it is anchored. Fields president doesn't know are not checked, since it can't
+  (`title: "Write it in C # or Rust?"`). Text a single-value alias (`title: *t`, `- *p`)
+  brings into one of them is checked where it is anchored; an alias that stands for a whole
+  list or mapping is not checked. Fields president doesn't know are not checked, since it can't
   tell whether they hold text. Comments on their own line are fine anywhere, and so
   is a comment after quoted text, after a `>-` or `|`, after a key whose value starts on the
   next line (`pros:   # see below`), or after a value that isn't free text, such as an id, a

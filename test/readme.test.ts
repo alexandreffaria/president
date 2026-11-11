@@ -28,13 +28,20 @@ const snippets = [...readme.matchAll(/^( *)```sh\n([\s\S]*?)\n\1```$/gm)]
  * The environment for every git and sh call (F-2): no `GIT_*` variables (a git hook or
  * `git rebase -x` in a linked worktree exports `GIT_DIR` and `GIT_INDEX_FILE`, which would
  * point git at that repo instead of the sandbox), no system or global git config, and the
- * sandbox's home folder.
+ * sandbox's home and config folders (F2-2: git reads `$XDG_CONFIG_HOME/git/ignore` even with
+ * no global config file).
  */
 function cleanEnv(home: string): NodeJS.ProcessEnv {
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
   );
-  return { ...env, HOME: home, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
+  return {
+    ...env,
+    HOME: home,
+    XDG_CONFIG_HOME: join(home, ".config"),
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+  };
 }
 
 /** A president checkout and a project next to it, and a home folder for the global link. */
