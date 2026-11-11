@@ -1,7 +1,7 @@
 ---
 id: "0015"
 title: In what order should the queue show cards?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-11T13:22:15Z
@@ -42,6 +42,10 @@ options:
     cons:
       - Old cards sink and can wait indefinitely while new ones keep arriving
       - The order changes under you every time an agent writes a card
+resolution:
+  choice: priority-oldest
+  resolved_at: 2026-11-11T17:36:40Z
+applied_at: 2026-11-11T18:09:32Z
 ---
 
 ## Context

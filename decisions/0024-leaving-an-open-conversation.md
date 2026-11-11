@@ -1,7 +1,7 @@
 ---
 id: "0024"
 title: What should happen to a conversation you leave without closing it?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-11T16:20:05Z
@@ -49,6 +49,10 @@ options:
       - An agent run, with its cost, every time you leave a card you talked about, even for a throwaway question or a quick look at the next card
       - You still have to read and save each summary (#0003), so unreviewed summaries can pile up
       - A summary still being written when you close the tab is fine, but one being written when the hub stops is lost and has to be written again
+resolution:
+  choice: remind
+  resolved_at: 2026-11-11T17:38:57Z
+applied_at: 2026-11-11T18:09:42Z
 ---
 
 ## Context

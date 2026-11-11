@@ -1,7 +1,7 @@
 ---
 id: "0021"
 title: Where should the hub remember which conversation belongs to a card?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-11T15:58:25Z
@@ -51,6 +51,10 @@ options:
       - New storage in the hub, outside the project, which you can't see in the card or in git
       - If a card is renumbered (two agents picked the same id) or a project is registered under a new name, the hub loses track and starts a new conversation from the summaries
       - The reserved session_id field in the card format goes unused and should be removed or redescribed
+resolution:
+  choice: local
+  resolved_at: 2026-11-11T17:38:50Z
+applied_at: 2026-11-11T18:09:39Z
 ---
 
 ## Context

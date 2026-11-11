@@ -1,7 +1,7 @@
 ---
 id: "0010"
 title: Should you be able to give your own answer on choice and A/B cards?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-11T13:22:10Z
@@ -43,6 +43,10 @@ options:
     cons:
       - Hidden one step deeper than option always; you have to know it's in the Neither panel
       - The panel's question ("What's wrong with them?") needs rewording to fit both buttons
+resolution:
+  choice: neither-plus
+  resolved_at: 2026-11-11T17:35:16Z
+applied_at: 2026-11-11T18:09:21Z
 ---
 
 ## Context

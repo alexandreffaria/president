@@ -1,7 +1,7 @@
 ---
 id: "0009"
 title: How should the queue treat a card that depends on an undecided card?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-11T13:22:09Z
@@ -43,6 +43,10 @@ options:
     cons:
       - A card whose dependency is deferred, or broken, stays hidden until you notice
       - You can't decide it from the queue even when you know the dependency doesn't matter
+resolution:
+  choice: sink
+  resolved_at: 2026-11-11T17:35:02Z
+applied_at: 2026-11-11T18:09:18Z
 ---
 
 ## Context

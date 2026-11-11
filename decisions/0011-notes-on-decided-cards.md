@@ -1,7 +1,7 @@
 ---
 id: "0011"
 title: Should you be able to add a note to a card you already decided?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-11T13:22:11Z
@@ -43,6 +43,10 @@ options:
     cons:
       - Every note, even "thanks, looks good", makes an agent redo the apply step unless you choose the kind of note
       - Mixes two meanings into one action, which the format and pending text then have to explain
+resolution:
+  choice: allow
+  resolved_at: 2026-11-11T17:35:33Z
+applied_at: 2026-11-11T18:09:23Z
 ---
 
 ## Context

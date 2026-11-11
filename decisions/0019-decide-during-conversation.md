@@ -1,7 +1,7 @@
 ---
 id: "0019"
 title: What should happen when you decide a card while a conversation about it is open?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-11T15:58:25Z
@@ -49,6 +49,10 @@ options:
       - Writing the summary is one more agent run, with its cost, as in wait
       - An agent can apply the decision before the summary arrives, then has to revisit its work when the note comes in
       - The summary to review pops up on a later card, away from the one it is about
+resolution:
+  choice: wait
+  resolved_at: 2026-11-11T17:38:29Z
+applied_at: 2026-11-11T18:09:36Z
 ---
 
 ## Context

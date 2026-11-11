@@ -1,7 +1,7 @@
 ---
 id: "0002"
 title: Where on the card page should the conversation with the agent appear?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-11T13:22:02Z
@@ -44,6 +44,10 @@ options:
     cons:
       - You see either the card or the conversation, never the full option text and the chat at once
       - A mode to enter and leave; the keyboard shortcuts on the card (1 to 9, n, m, d) need a clear rule for what works in it
+resolution:
+  choice: side
+  resolved_at: 2026-11-11T17:32:47Z
+applied_at: 2026-11-11T18:09:12Z
 ---
 
 ## Context
