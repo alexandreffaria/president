@@ -404,6 +404,65 @@ describe("president CLI", () => {
     expect(again.err).toMatch(/--name ignored: this folder is already registered as "demo"/);
   });
 
+  it("finds the project from a subfolder and says when it isn't registered (R5-12)", async () => {
+    const repo = await copyDemoProject("trips");
+    await mkdir(join(repo, ".git"));
+    await mkdir(join(repo, "src", "ui"), { recursive: true });
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(join(repo, "src", "ui"));
+    try {
+      const unregistered = await cli("pending");
+      expect(unregistered).toMatchObject({ code: 0, out: "Nothing pending." });
+      expect(unregistered.err).toContain(`president: note: using the project at ${repo}`);
+      expect(unregistered.err).toContain(
+        `president: note: ${repo} is not registered with the hub, so the human doesn't see its cards. Register it: president add ${repo}`,
+      );
+      expect((await cli("validate")).out).toContain(`in ${join(repo, "decisions")}`);
+      // add . from a subfolder registers the project, not the subfolder.
+      const added = await cli("add", ".", "--create");
+      expect(added.out).toBe(`Registered trips (${repo})`);
+      expect(added.err).toMatch(
+        /note: registering .*trips, the nearest folder above .*ui with a decisions\/ folder/,
+      );
+      expect((await readdir(join(repo, "src", "ui"))).includes("decisions")).toBe(false);
+      const registered = await cli("pending");
+      expect(registered.err).not.toMatch(/not registered/);
+      expect((await cli("validate", join(repo, "decisions", "0002-api-errors.md"))).err).toBe("");
+    } finally {
+      cwd.mockRestore();
+    }
+  });
+
+  it("registers a repository's root from a subfolder without decisions/ (R5-12)", async () => {
+    const repo = join(await tempDir(), "shop");
+    await mkdir(join(repo, ".git"), { recursive: true });
+    await mkdir(join(repo, "src"));
+    const added = await cli("add", join(repo, "src"), "--create");
+    expect(added.out).toBe(`Registered shop (${repo})`);
+    expect(added.err).toMatch(/note: registering .*shop, the root of the git repository/);
+    // A part of a monorepo is its own project once it has decisions/.
+    await mkdir(join(repo, "web", "decisions"), { recursive: true });
+    expect((await cli("add", join(repo, "web"), "--name", "shop-web")).out).toBe(
+      `Registered shop-web (${join(repo, "web")})`,
+    );
+  });
+
+  it("says where to find or create decisions/ when there is none (R5-12)", async () => {
+    const repo = join(await tempDir(), "app");
+    await mkdir(join(repo, ".git"), { recursive: true });
+    await mkdir(join(repo, "src"));
+    for (const command of ["pending", "validate"]) {
+      const result = await cli(command, join(repo, "src"));
+      expect(result.code).toBe(1);
+      expect(result.err).toBe(
+        `president: there is no decisions/ folder in ${join(repo, "src")} or its parents (up to the repository root, ${repo}). Run this in the project's folder, or create one and register the project: president add ${repo} --create`,
+      );
+    }
+    const loose = await tempDir();
+    expect((await cli("pending", loose)).err).toBe(
+      `president: there is no decisions/ folder in ${loose}. Run this in the project's folder, or create one and register the project: president add ${loose} --create`,
+    );
+  });
+
   it("treats . and .. as paths when removing", async () => {
     const demo = await copyDemoProject();
     await cli("add", demo);

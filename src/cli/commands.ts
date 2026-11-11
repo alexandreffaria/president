@@ -25,6 +25,7 @@ import { UserError } from "../server/errors.ts";
 import { DECISIONS_DIR, type Project, Registry } from "../server/registry.ts";
 
 import { CARD_FORMAT_DOC, DEMO_SOURCE, type Output } from "./main.ts";
+import { locateProject, noDecisionsError, projectFor } from "./project.ts";
 import { shellQuote } from "./shell.ts";
 
 export async function add(args: string[], out: Output): Promise<number> {
@@ -34,8 +35,15 @@ export async function add(args: string[], out: Output): Promise<number> {
     options: { name: { type: "string" }, create: { type: "boolean" } },
   });
   const path = single(positionals, "add <path>");
+  // From a subfolder, the project is the folder above it with decisions/, or the repository.
+  const located = await locateProject(path);
+  if (located.root !== located.start) {
+    out.error(
+      `president: note: registering ${located.root}, ${located.hasDecisions ? `the nearest folder above ${located.start} with a ${DECISIONS_DIR}/ folder` : `the root of the git repository ${located.start} is in`}. To register a folder inside a repository as its own project, create its ${DECISIONS_DIR}/ folder first.`,
+    );
+  }
   const { project, alreadyRegistered, renamedFrom } = await new Registry().add({
-    path: resolve(path),
+    path: located.root,
     name: values.name,
     createDecisions: values.create,
   });
@@ -135,7 +143,9 @@ export async function validate(args: string[], out: Output): Promise<number> {
   if (!info) throw new UserError(`"${target}" does not exist`);
   if (info.isFile()) return validateFile(target, out);
 
-  const project = await projectAt(target);
+  const located = await locateProject(target);
+  if (!located.hasDecisions) throw noDecisionsError(located);
+  const project = await projectFor(located, out);
   const { cards, broken, warnings, error } = await loadProjectCards(project);
   if (error) throw new UserError(error);
   for (const card of cards) out.log(`ok      ${card.fileName}`);
@@ -157,7 +167,7 @@ async function validateFile(file: string, out: Output): Promise<number> {
   let ok: boolean;
   if (basename(dirname(file)) === DECISIONS_DIR) {
     // Inside a project: also catches a duplicate id or an unknown depends_on.
-    const project = await projectAt(dirname(dirname(file)));
+    const project = await projectFor(await locateProject(dirname(file)), out);
     const { cards, broken, warnings } = await loadProjectCards(project);
     const mine = broken.filter((b) => b.fileName === fileName);
     ok = mine.length === 0 && cards.some((c) => c.fileName === fileName);
@@ -195,7 +205,9 @@ export async function pending(args: string[], out: Output): Promise<number> {
     allowPositionals: true,
     options: { json: { type: "boolean" } },
   });
-  const project = await projectAt(positionals[0] ?? ".");
+  const located = await locateProject(positionals[0] ?? ".");
+  if (!located.hasDecisions) throw noDecisionsError(located);
+  const project = await projectFor(located, out);
   const { cards, broken, warnings, error } = await loadProjectCards(project);
   if (error) throw new UserError(error);
   const toApply = cards.filter((c) => needsApplying(c.frontmatter));
@@ -406,7 +418,8 @@ async function cardFromFile(
   }
   const info = await stat(file).catch(() => undefined);
   if (!info?.isFile()) throw new UserError(`"${file}" does not exist`);
-  const project = await projectAt(dirname(dirname(file)));
+  const dir = dirname(dirname(file));
+  const project = { name: basename(dir), path: dir };
   const found = await findCard(project, name.id);
   if (!found.ok) {
     throw new UserError(`${found.broken.fileName} is broken; fix it first`, {
@@ -429,15 +442,6 @@ export async function serve(out: Output): Promise<number> {
 async function sameFolder(a: string, b: string): Promise<boolean> {
   const [x, y] = await Promise.all([realpath(a).catch(() => a), realpath(b).catch(() => b)]);
   return x === y;
-}
-
-/** A project for commands that work on a folder, whether or not it is registered. */
-async function projectAt(path: string): Promise<Project> {
-  let dir = resolve(path);
-  if (basename(dir) === DECISIONS_DIR) dir = dirname(dir);
-  const info = await stat(dir).catch(() => undefined);
-  if (!info?.isDirectory()) throw new UserError(`"${dir}" is not a folder`);
-  return { name: basename(dir), path: dir };
 }
 
 function single(positionals: string[], usage: string): string {

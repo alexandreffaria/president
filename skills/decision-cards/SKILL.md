@@ -38,10 +38,16 @@ the part that is the same for every option.
    president add . --create
    ```
 
+   Every `president` command works from any subfolder: the project is the nearest folder
+   above you with a `decisions/` folder, or else the root of the git repository. A command
+   that used a parent folder, or found a project the hub doesn't know, says so in a
+   `note:` line; if it says the project is not registered, run the `president add` it prints.
+
    The project is named after its folder. If another project already has that name,
    president adds `-2` (`app-2`) and says so. To choose the name yourself, add
-   `--name <name>` (letters, digits, `.`, `_` and `-`), for example `--name shop-web` for the
-   `web` folder of a `shop` monorepo.
+   `--name <name>` (letters, digits, `.`, `_` and `-`). For one part of a monorepo, say the
+   `web` folder of `shop`, create its `decisions/` folder first so it is a project of its own
+   (`mkdir decisions && president add . --name shop-web`).
 
    Use the `president` command, not `npx president` outside the president repo: an unrelated
    package with the same name exists on npm. If `president` isn't installed, tell the human
