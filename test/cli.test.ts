@@ -207,7 +207,8 @@ describe("president CLI", () => {
     expect(await cli("pending", dir)).toEqual({ code: 1, out: "", err: notFolder });
   });
 
-  // A path through a file or a loop of links is one line, not a stack trace (R10-1, R10-2).
+  // A path through a file or a loop of links is one line, not a stack trace (R10-1, R10-2),
+  // and validate says the same, not "does not exist" (R11-3).
   it("says a path goes through a file or a link loop, in one line", async () => {
     const scratch = await tempDir();
     await writeFile(join(scratch, "file.txt"), "notes");
@@ -218,7 +219,7 @@ describe("president CLI", () => {
       `president: cannot open ${path}: a part of the path is a file, not a folder`;
     const looped = (path: string) =>
       `president: cannot open ${path}: the path goes through a loop of links`;
-    for (const command of ["pending", "add"]) {
+    for (const command of ["pending", "add", "validate"]) {
       expect(await cli(command, throughFile)).toEqual({
         code: 1,
         out: "",
@@ -1152,6 +1153,22 @@ describe("president CLI", () => {
       expect(result.err).toBe(
         `president: cannot create ${join(dir, "decisions")}: permission denied`,
       );
+    } finally {
+      await chmod(dir, 0o700);
+    }
+  });
+
+  // Not "has no decisions/ folder" for one it may not look in (R11-4).
+  it.skipIf(process.getuid?.() === 0)("explains a project folder it may not look in", async () => {
+    const dir = await tempDir();
+    await mkdir(join(dir, "decisions"));
+    await chmod(dir, 0o600);
+    try {
+      const denied = `president: cannot open ${join(dir, "decisions")}: permission denied`;
+      for (const command of ["add", "pending", "validate"]) {
+        expect(await cli(command, dir), command).toEqual({ code: 1, out: "", err: denied });
+      }
+      expect(await cli("list", "--json")).toMatchObject({ code: 0, out: "[]" });
     } finally {
       await chmod(dir, 0o700);
     }

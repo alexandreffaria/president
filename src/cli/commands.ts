@@ -1,6 +1,8 @@
 /**
  * The \`president\` commands (see main.ts for the dispatch and the help text).
  */
+
+import type { Stats } from "node:fs";
 import { cp, lstat, mkdtemp, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
@@ -41,7 +43,7 @@ export async function add(args: string[], out: Output): Promise<number> {
     !values.create &&
     (await isDirectory(path)) &&
     // Something else there (a file, a link) is the registry's to explain (R8-4, R9-1).
-    (await lstat(join(path, DECISIONS_DIR)).catch(() => undefined)) === undefined
+    (await lstatIfThere(join(path, DECISIONS_DIR))) === undefined
   ) {
     throw noDecisionsError(path, " Or add --create to make one here.");
   }
@@ -157,8 +159,10 @@ export async function remove(args: string[], out: Output): Promise<number> {
 export async function validate(args: string[], out: Output): Promise<number> {
   const { positionals } = parseArgs({ args, allowPositionals: true });
   const target = resolve(positionals[0] ?? ".");
-  const info = await stat(target).catch(() => undefined);
-  if (!info) throw new UserError(`"${target}" does not exist`);
+  const info = await stat(target).catch((error: unknown) => {
+    if (isNotFound(error)) throw new UserError(`"${target}" does not exist`);
+    throw fileError("open", target, error);
+  });
   if (info.isFile()) return validateFile(target, out);
 
   const project = await projectAt(target, out);
@@ -661,7 +665,7 @@ async function projectAt(path: string, out: Output): Promise<Project> {
   const decisions = join(dir, DECISIONS_DIR);
   if (!(await isDirectory(decisions))) {
     // Nothing there is a missing folder; anything else (a file, a link to nothing) is not one (R9-1).
-    if ((await lstat(decisions).catch(() => undefined)) === undefined) throw noDecisionsError(dir);
+    if ((await lstatIfThere(decisions)) === undefined) throw noDecisionsError(dir);
     throw new UserError(`"${decisions}" is not a folder`);
   }
   return registeredAs(dir, out);
@@ -692,6 +696,14 @@ async function registeredAs(root: string, out: Output): Promise<Project> {
     );
   }
   return registered ?? { name: basename(root), path: root };
+}
+
+/** What is at `path` (not following a link), or undefined when nothing is; other errors say why. */
+async function lstatIfThere(path: string): Promise<Stats | undefined> {
+  return lstat(path).catch((error: unknown) => {
+    if (isNotFound(error)) return undefined;
+    throw fileError("open", path, error);
+  });
 }
 
 async function isDirectory(path: string): Promise<boolean> {
