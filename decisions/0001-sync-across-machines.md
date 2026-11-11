@@ -14,7 +14,8 @@ recommendation:
     A Sync action gives you one commit per sitting instead of one per click and changes your
     checkouts only when you press it (starting the hub only fetches), so you can avoid syncing
     while an agent is working. With the checks in its sketch it says "not now" rather than
-    touch an agent's unpushed or uncommitted work, and it does so while you are looking. Pick
+    rebase an agent's unpushed work or put conflict markers in its files (its other uncommitted
+    files are only set aside while the pull runs), and it does so while you are looking. Pick
     batched if you would rather not have to remember and accept git running in your projects
     at moments nobody chose (it retries by itself when a check says not now); pick auto if
     your projects' checkouts are almost always on main with no agent working in them.
@@ -28,9 +29,9 @@ options:
     cons:
       - One commit per click (a 20-card session is 20 commits, plus one per undo)
       - Commits land on whatever branch the project's checkout is on, possibly an agent's feature branch, in the middle of its work
-      - Git runs behind the agent's back, so the two can collide on .git/index.lock or a rebase in progress
-      - A push that fails (offline, remote ahead) needs a pull and maybe a conflict fix with nobody watching
-      - git push publishes every unpushed commit on the branch, an agent's included, unless the hub skips the push while there are others (and your answers then wait)
+      - Git runs behind the agent's back, so it can collide with the agent's own git commands
+      - A push that fails (offline, or the other machine pushed first) needs a pull and maybe a conflict fix with nobody watching
+      - Pushing also sends out any commits an agent hasn't pushed yet, unless the hub skips the push while there are any (and your answers then wait)
   - id: sync
     title: A Sync button and shortcut in the hub
     summary: The hub writes files as now; a Sync button (and key) per project checks the checkout, commits the changed and new card files in one commit, pulls and pushes; when the hub starts it only fetches and shows how many card changes are waiting.
@@ -41,9 +42,9 @@ options:
     cons:
       - You have to remember to press it before you leave a machine; forget once and the answers stay behind
       - Still a new piece of git code in the hub (checks, commit, pull, push, conflict reporting)
-      - To keep an agent's work safe, Sync refuses while the branch has unpushed commits that change files outside decisions/, or while the remote changed a file that has uncommitted edits here, so while an agent works on that checkout it may say "not now" until the agent pushes
-      - The pull still sets the checkout's other uncommitted changes aside while it runs; an agent that writes one of those files in that moment leaves an old copy in git stash list, where its own git stash pop could pick it up (simulated in a test); the hub then stops without pushing and says so
-      - Like auto, it commits on whatever branch the checkout is on
+      - While an agent has commits it hasn't pushed, or is editing a file that also changed on your other machine, Sync says "not now" and changes nothing, so your answers can wait until the agent pushes
+      - If an agent saves a file during the few seconds the pull takes, Sync stops without pushing and tells you, and leaves an old copy of that file in git's stash that someone has to clear (seen in a simulated test)
+      - It refuses while the checkout is on any other branch, so if an agent has a feature branch checked out in that folder, your answers wait until it switches back
   - id: batched
     title: The hub syncs on its own after a quiet spell
     summary: Like sync, but run by a timer; a few minutes after your last action (and when you stop the hub), the hub pulls, commits the changed and new card files in one commit and pushes.
@@ -52,8 +53,8 @@ options:
       - One commit per sitting, like sync
       - When sync's checks say "not now" (an agent has unpushed work), it simply tries again later
     cons:
-      - Git runs behind the agent's back at a moment nobody chose, so it can collide with the agent's own git commands, and sync's leftover (an old copy of an agent's file in git stash list) can happen with nobody watching
-      - Like auto, commits land on whatever branch the checkout is on
+      - Git runs at moments nobody chose, so it can collide with an agent's own git commands, and Sync's rare leftover (an old copy in git's stash) can happen with nobody watching
+      - Like sync, it waits while the checkout is on another branch, and nobody is told until someone looks at the hub
       - A pull that conflicts or a push that fails is found later, by whoever next looks at the hub
       - Answers made just before the machine sleeps (a closed laptop lid) stay behind until it wakes and the timer fires
   - id: agents
@@ -134,18 +135,64 @@ commit lands on whatever branch is checked out in that folder.
 
 ## Option sync: A Sync button and shortcut in the hub
 
-The top bar gets **Sync** (for example the `S` key) that, for each project with changed card
-files:
+The top bar gets **Sync** (for example the `S` key). For each project with card changes, here
+or on the other machine, pressing it:
+
+1. checks that it is safe to touch the checkout, and if not, changes nothing and says why
+   ("Not now: an agent in shop has commits it hasn't pushed");
+2. commits all your card changes in one commit ("decisions from laptop: 0003, 0005, 0009");
+3. pulls the other machine's changes, then pushes.
+
+If the same card changed on both machines, Sync puts everything back as it was, keeps your
+answers in a local commit and says "Not synced: 0001 changed on both machines". Fixing that
+is a manual git step, as today.
+
+The top bar shows "3 answers not synced", so leaving without syncing is visible. When the hub
+starts it only fetches, which changes no file and no branch, and shows "3 card changes on the
+remote, press Sync".
+
+The git commands, and what each check protects against, are under **How Sync works in git**,
+after the options.
+
+## Option batched: The hub syncs on its own after a quiet spell
+
+The same commands as Sync, run by the hub when you have done nothing for, say, 5 minutes, and
+once more when you stop the hub. When a check says "not now", it tries again at the next quiet
+spell. The top bar shows "Syncing in 4 min" and, after a failure, "Not synced: the pull
+conflicted in shop". It sits between auto (git at every click) and sync
+(git when you press it).
+
+## Option agents: Agents commit card changes as part of their work
+
+The skill gains one step under "Applying resolved cards" and the other handlers:
+
+> Commit the card files you changed or that the human changed (`git add decisions/`) in the same
+> commit as the docs and code change, and push when you push your work.
+
+The hub stays git-free. Your notes and decisions travel with the next agent commit on that machine.
+
+## Option manual: Leave it manual
+
+A README section:
+
+```sh
+# before leaving a machine
+git -C ~/projects/my-app add decisions && git -C ~/projects/my-app commit -m "decisions" && git -C ~/projects/my-app push
+```
+
+## How Sync works in git
+
+For each project, Sync runs:
 
 ```sh
 git fetch
 # checks; if one fails, stop here, change nothing and say why:
-#  - the expected branch is checked out, and no rebase or merge is in progress
+#  - the project's main branch (the remote's default, usually main) is checked out, and no rebase or merge is in progress
 #  - git log @{u}..HEAD shows no unpushed commit that changes files outside decisions/
 #  - no file the remote changed (git diff --name-only HEAD...@{u}) has uncommitted edits here
 git add -- decisions/
-git commit --only -m "decisions from laptop: 0003, 0005, 0009" -- decisions/
-git pull --rebase --autostash    # if it fails: git rebase --abort, and don't push
+git commit --only -m "decisions from laptop: 0003, 0005, 0009" -- decisions/    # skipped when there is nothing new to commit
+git pull --rebase --autostash    # if it fails: git rebase --abort if a rebase is in progress, and don't push
 # before pushing: stop if any file is conflicted or git stash list has a new entry
 git push
 ```
@@ -180,36 +227,6 @@ Each step is there because of something tested in scratch repositories (git 2.56
 A stricter check, refusing whenever files outside `decisions/` have any uncommitted changes,
 would make `--autostash` unnecessary, at the cost of Sync refusing whenever an agent has work in
 progress.
-
-The top bar shows "3 answers not synced" so leaving without syncing is visible. When the hub
-starts it only runs `git fetch`, which changes no file and no branch, and shows "3 card changes
-on the remote, press Sync".
-
-## Option batched: The hub syncs on its own after a quiet spell
-
-The same commands as Sync, run by the hub when you have done nothing for, say, 5 minutes, and
-once more when you stop the hub. When a check says "not now", it tries again at the next quiet
-spell. The top bar shows "Syncing in 4 min" and, after a failure, "Not synced: the pull
-conflicted in shop". It sits between auto (git at every click) and sync
-(git when you press it).
-
-## Option agents: Agents commit card changes as part of their work
-
-The skill gains one step under "Applying resolved cards" and the other handlers:
-
-> Commit the card files you changed or that the human changed (`git add decisions/`) in the same
-> commit as the docs and code change, and push when you push your work.
-
-The hub stays git-free. Your notes and decisions travel with the next agent commit on that machine.
-
-## Option manual: Leave it manual
-
-A README section:
-
-```sh
-# before leaving a machine
-git -C ~/projects/my-app add decisions && git -C ~/projects/my-app commit -m "decisions" && git -C ~/projects/my-app push
-```
 
 ## Sources
 

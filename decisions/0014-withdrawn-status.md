@@ -14,9 +14,9 @@ recommendation:
     A retraction should take the card out of your queue at once, say why, and stay
     reversible and visible. A withdrawn field does all three through the president update
     agents already use, with its guard, and leaves the card answerable if you disagree; a
-    status needs a new command and new transition rules, though it does make your putting a
-    card back something update's guard already protects (with the field, putting it back must
-    also add a feedback entry to get that protection). Pick status if
+    status needs a new command and new transition rules, though with a status, update's guard
+    already covers your putting a card back (with the field, the Back to queue button has to
+    add a feedback entry for that). Pick status if
     you want "withdrawn" to be a real state that every tool knows. Deleting is simpler but
     leaves you wondering where a card went.
 options:
