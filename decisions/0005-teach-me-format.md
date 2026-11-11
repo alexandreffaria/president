@@ -23,7 +23,7 @@ options:
     summary: About 300 words of background (the concepts, the vocabulary, why the question is hard), written for someone who hasn't seen the code, then back to the card.
     pros:
       - Fastest to produce and to read; a familiar format
-      - Fills vocabulary gaps (what a merge driver is, what dontAsk mode means) that block reading the card at all
+      - Fills vocabulary gaps (what a rebase or an autostash is, what dontAsk mode means) that block reading the card at all
     cons:
       - Reading is passive; reviews of study techniques rate rereading and summaries low for lasting learning
       - Easy to feel you understood without being able to apply it to the options (the illusion of explanatory depth)
@@ -119,11 +119,11 @@ Example card for every option below: #0001 (who commits and pushes your answers)
 >
 > **The scenario, option by option:**
 >
-> | Step | auto | sync | agents | manual |
-> |---|---|---|---|---|
-> | 6 decisions on laptop | 6 commits, pushed | 0 commits yet | nothing | nothing |
-> | Leave laptop | done | press Sync: 1 commit | answers stay on laptop | you must commit and push |
-> | Desktop agent pulls | has all 6 | has all 6 | has none | has all 6 if you did |
+> | Step | auto | sync | batched | agents | manual |
+> |---|---|---|---|---|---|
+> | 6 decisions on laptop | 6 commits, pushed | 0 commits yet | 0 commits yet | nothing | nothing |
+> | Leave laptop | done | press Sync: 1 commit | 1 commit after 5 quiet minutes, if the laptop is still awake | answers stay on laptop | you must commit and push |
+> | Desktop agent pulls | has all 6 | has all 6 | has all 6 if the timer ran | has none | has all 6 if you did |
 >
 > **What made the difference:** whether git runs at the moment you act or at a moment you choose,
 > and who is around when a push fails. **What this leaves out:** conflicts, which need a second

@@ -12,13 +12,14 @@ recommendation:
   option: sync
   why: >-
     A Sync action gives you one commit per sitting instead of one per click, runs git only
-    when you ask (so it never collides with an agent's git work), and gives conflicts one
-    place to show up. Pick auto instead if your projects' checkouts are almost always on
-    main with no agent committing in them, and you want zero extra steps.
+    when you ask (so you can avoid running it while an agent is working), and gives conflicts
+    one place to show up, while you are looking. Pick batched if you would rather not have to
+    remember and accept git running in your projects at moments nobody chose; pick auto if
+    your projects' checkouts are almost always on main with no agent working in them.
 options:
   - id: auto
     title: The hub commits and pushes after every action
-    summary: After each decide, note, defer, neither, reopen or undo, the hub commits that one card file and pushes in the background.
+    summary: After each decide, note, defer, neither, reopen or undo, the hub adds and commits that one card file and pushes in the background.
     pros:
       - Nothing to remember; a git pull on the other machine always has your latest answers
       - Each commit holds exactly one action, so history reads like a log of your decisions
@@ -29,7 +30,7 @@ options:
       - A push that fails (offline, remote ahead) needs a pull and maybe a conflict fix with nobody watching
   - id: sync
     title: A Sync button and shortcut in the hub
-    summary: The hub writes files as now; a Sync button (and key) per project pulls, commits the changed card files in one commit and pushes, and the hub pulls once when it starts.
+    summary: The hub writes files as now; a Sync button (and key) per project pulls, commits the changed and new card files in one commit and pushes, and the hub pulls once when it starts.
     pros:
       - One commit per sitting (for example "decisions from laptop, 0003 0005 0009")
       - Git runs only when you ask, so the hub can first check that the checkout is clean enough and on the expected branch, and say so if not
@@ -37,6 +38,19 @@ options:
     cons:
       - You have to remember to press it before you leave a machine; forget once and the answers stay behind
       - Still a new piece of git code in the hub (pull, commit, push, conflict reporting)
+      - Pulling updates the checked-out branch and stashes every uncommitted change to files git tracks, including an agent's work in progress, so pressing Sync (or starting the hub) while an agent works can still collide with it
+      - Like auto, it commits on whatever branch the checkout is on
+  - id: batched
+    title: The hub syncs on its own after a quiet spell
+    summary: Like sync, but run by a timer; a few minutes after your last action (and when you stop the hub), the hub pulls, commits the changed and new card files in one commit and pushes.
+    pros:
+      - Nothing to remember, like auto
+      - One commit per sitting, like sync
+    cons:
+      - Git runs behind the agent's back at a moment nobody chose, so sync's collision (an agent's uncommitted work stashed and rebased under it) can happen with nobody watching
+      - Like auto, commits land on whatever branch the checkout is on
+      - A pull that conflicts or a push that fails is found later, by whoever next looks at the hub
+      - Answers made just before the machine sleeps (a closed laptop lid) stay behind until it wakes and the timer fires
   - id: agents
     title: Agents commit card changes as part of their work
     summary: The skill tells agents to commit decisions/ along with their docs and code whenever they act through pending, applied, seen or update; the hub never runs git.
@@ -64,9 +78,9 @@ You work on several machines and want `git pull` to bring both the cards and **y
 everywhere. Cards are already plain files in each project's git repository, so the question
 is only who runs `git commit` and `git push` for the changes you make in the hub.
 
-**What happens today.** No git code exists in president at all (`grep -rn git src/` finds only
-comments). When you act on a card, the hub rewrites that one file in place:
-`actOnCard` in `src/server/cards.ts` applies the action from `src/core/actions.ts`, then writes
+**What happens today.** No git code exists in president at all (`grep -rn git src/` finds no git
+commands, only comments and one warning that mentions git). When you act on a card, the hub
+rewrites that one file in place: `actOnCard` in `src/server/cards.ts` applies the action from `src/core/actions.ts`, then writes
 the file atomically (temp file plus rename). The change then sits as an uncommitted
 modification in the project's working tree. Agents also write card files: new cards directly,
 and existing ones through `president update`, `applied` and `seen` (`src/cli/commands.ts`). The
@@ -102,13 +116,16 @@ answer: if conversations are git-tracked, whatever commits your actions also com
 After each successful write, in the project folder:
 
 ```sh
+git add -- decisions/0007-api-errors.md
 git commit --only -m "decisions: resolve 0007 (use result objects)" -- decisions/0007-api-errors.md
 git push    # in the background; on failure the hub shows "not pushed" on the card
 ```
 
-`--only` commits just that file, leaving anything you or an agent staged untouched. Undo would
-need a second commit (or a reset if it wasn't pushed yet). The commit lands on whatever branch is
-checked out in that folder.
+`git add` comes first because a card an agent has just written is usually not tracked by git
+yet, and `git commit --only` refuses a file git doesn't know (`pathspec ... did not match any
+file(s) known to git`). `--only` then commits just that file, leaving anything you or an agent
+staged untouched. Undo would need a second commit (or a reset if it wasn't pushed yet). The
+commit lands on whatever branch is checked out in that folder.
 
 ## Option sync: A Sync button and shortcut in the hub
 
@@ -117,14 +134,33 @@ files:
 
 ```sh
 git pull --rebase --autostash
+git add -- decisions/
 git commit --only -m "decisions from laptop: 0003, 0005, 0009" -- decisions/
 git push
 ```
 
+`git add -- decisions/` brings in new cards: `git commit --only -- decisions/` on its own commits
+changes to cards git already tracks and silently leaves new ones out (tested in a scratch
+repository), so an answer on a card that was never committed would never sync.
+
 Before it runs, the hub checks the branch and that no rebase or merge is in progress, and shows
-what it will commit. If the pull conflicts on a card, it stops, leaves the conflict for you, and
-the card shows as broken with the conflicted lines. The top bar shows "3 answers not synced" so
+what it will commit. It doesn't refuse when other files have uncommitted changes: `--autostash`
+sets them aside for the pull and puts them back. If an agent is editing code at that moment, its
+files change under it, and if putting them back conflicts, the conflict markers land in its code
+(tested: `git pull` still exits 0 and leaves the agent's file conflicted). The check could
+instead refuse while files outside `decisions/` have uncommitted changes, which avoids that at
+the cost of Sync often refusing while an agent works.
+
+If the pull conflicts on a card, it stops, leaves the conflict for you, and the card shows as
+broken with the conflicted lines. The top bar shows "3 answers not synced" so
 leaving without syncing is visible. The hub also pulls once when it starts.
+
+## Option batched: The hub syncs on its own after a quiet spell
+
+The same commands as Sync, run by the hub when you have done nothing for, say, 5 minutes, and
+once more when you stop the hub. The top bar shows "Syncing in 4 min" and, after a failure,
+"Not synced: the pull conflicted in shop". It sits between auto (git at every click) and sync
+(git when you press it).
 
 ## Option agents: Agents commit card changes as part of their work
 

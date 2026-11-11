@@ -13,8 +13,8 @@ recommendation:
   why: >-
     The working agent is the one that knows the branch, the plan and the code, and it already
     has a safe path (pending, applied, tokens, undo entries). Applying from the chat would
-    need write permissions on a browser-started session (#0004) and would end the 10-second
-    undo window the moment it writes. If you find decisions waiting too long, "per-card"
+    need write permissions on a browser-started session (#0004) and can cut short the
+    10-second undo window if it writes fast. If you find decisions waiting too long, "per-card"
     adds an explicit "apply now" without changing the default.
 options:
   - id: chat
@@ -26,7 +26,7 @@ options:
     cons:
       - Needs write permissions for a browser-started session (option "docs", "ask" or "full" on card 0004)
       - Edits land in whatever branch is checked out, possibly next to a working agent's uncommitted changes
-      - Undo stops working as soon as it applies (undo is refused once anything changed the card), and a decision undone before that has to revert docs it already wrote
+      - If it writes within Undo's 10-second window, Undo is refused, and a decision undone after it started must also revert the docs it wrote
       - The working agent may still have the old assumption in its head until it next runs pending
   - id: working
     title: The project's working agent applies it later
@@ -34,7 +34,7 @@ options:
     pros:
       - The agent doing the work changes the docs and code, on its branch, as part of its plan
       - Already built and tested, with tokens that refuse stale applies and undo entries that tell agents to revert
-      - Undo works for as long as nothing has applied it
+      - Undo stays available for its usual 10 seconds
     cons:
       - Nothing happens until an agent runs in that project; in a quiet project a decision can wait days
       - The agent that applies it didn't hear your conversation about the card, only what is in the card
@@ -60,10 +60,12 @@ says "Waiting for an agent to apply it to the project." (`StatusNotice` in
 and runs the `done:` line (`president applied <file> --token <token>`), which sets
 `applied_at`. The token refuses if you changed the decision meanwhile.
 
-**Undo interacts with this.** After deciding, a toast offers Undo for 10 seconds
-(`src/web/toast.tsx`); the server keeps the undo for 30 minutes (`UNDO_TTL_MS` in
-`src/server/cards.ts`) but refuses it once anything else has written the card, such as an
-agent applying it. Undoing a decision adds an `undo` feedback entry so an agent that saw it
+**Undo interacts with this.** After deciding, a toast offers Undo for 10 seconds, paused while
+the pointer is over it or it has focus (`src/web/toast.tsx`), and `u` works only while that notice is shown.
+That is the only way to undo from the page. The server would accept an undo for 30 minutes
+(`UNDO_TTL_MS` in `src/server/cards.ts`), but nothing in the page offers it after the toast is
+gone, and the server refuses it once anything else has written the card, such as an agent
+applying it. Undoing a decision adds an `undo` feedback entry so an agent that saw it
 reverts its work.
 
 PR 2 adds a per-card Claude Code session that has discussed the card with you. This card

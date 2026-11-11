@@ -13,7 +13,8 @@ recommendation:
   why: >-
     Deferring usually means "not now", not "never", and a collapsed list you have to remember
     to open is where cards go to be forgotten. A snooze with a default of one week keeps d a
-    single key, and lets you say "until I'm back from holiday" when you mean it.
+    single key, and lets you say "until I'm back from holiday" when you mean it. Pick
+    on-change if most of your deferrals wait on an agent rather than on you.
 options:
   - id: manual
     title: Keep it manual
@@ -43,6 +44,15 @@ options:
     cons:
       - Cards you parked for good reason (waiting on a release next month) come back every week
       - The only way to park something longer is to defer it again each week
+  - id: on-change
+    title: Back when an agent changes the card
+    summary: A deferred card returns to the queue when an agent rewrites it with president update after the deferral (for example to answer the note you deferred it with), marked "changed since you deferred it".
+    pros:
+      - Cards come back only when there is something new to read, so it never nags
+      - Fits the common "waiting on X" deferral; the agent that does X updates the card, and it is back
+    cons:
+      - A card waiting on you, not on an agent, never comes back, so it is forgotten as easily as today
+      - Needs the hub to know when the card was deferred and when an agent last changed it (two new recorded times), and agents must know that updating a deferred card brings it back
 ---
 
 ## Context
@@ -84,3 +94,18 @@ from deferral". The file isn't rewritten when the date passes.
 
 Deferring writes a `defer` feedback entry even without a note, and the queue brings the card back
 7 days after it.
+
+## Option on-change: Back when an agent changes the card
+
+You defer #0007 with "Waiting until we know if the HTTP client throws on 404". An agent reads
+that note in `president pending`, checks, and rewrites the card's context with the answer through
+`president update`. The card is back in the queue:
+
+```
+#0007  How should the API client report errors?   changed since you deferred it
+```
+
+Deferring records when it happened (for example a `defer` entry even without a note), and
+`president update` records when an agent last changed the card (for example an `updated_at`
+field). The queue shows deferred cards whose `updated_at` is later than their deferral. An
+agent's `president seen` doesn't count; only a rewrite of the card does.

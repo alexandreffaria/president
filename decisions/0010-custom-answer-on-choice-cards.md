@@ -32,7 +32,7 @@ options:
       - The fastest path when you know what you want, on any card
       - Same action everywhere, easy to learn
     cons:
-      - A fourth action in the action bar (Decide, Neither, Note, Own answer) and another key
+      - A fifth action in the action bar (Decide, Own answer, Neither, Note, Defer) and another key
       - Easy to reach for instead of reading the options properly
   - id: neither-plus
     title: A second button in the Neither panel

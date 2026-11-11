@@ -2,7 +2,7 @@
 id: "0007"
 title: When you reject every option, who should write the new ones, and when?
 status: open
-kind: ab
+kind: choice
 priority: normal
 created: 2026-11-11T13:22:07Z
 created_by: claude (batch-1 writer)
@@ -15,7 +15,8 @@ recommendation:
     can sit in "Waiting for new options" for days in a quiet project. Rewriting options needs
     only reading and research, so it fits a read-only session (#0004) with the hub writing
     the result. Keep "wait" if you'd rather the agent that knows the current work always
-    writes the options.
+    writes the options; pick "per-card" if you often reject options on cards tied to work an
+    agent is in the middle of.
 options:
   - id: spawn
     title: The hub starts an agent right away
@@ -25,7 +26,7 @@ options:
       - Works in projects where no agent is running
       - The session can see your earlier conversation about the card (if there was one) and do research for it
     cons:
-      - The session knows the code but not the working agent's plan or uncommitted work, so its options can miss context
+      - The session can read the code, including uncommitted files, but doesn't know the working agent's plan or what it is in the middle of, so its options can miss context
       - Costs a Claude Code run per "neither", even for cards you would have deferred anyway
       - The working agent later finds options it didn't write, and pending still lists the card for it to read
   - id: wait
@@ -38,6 +39,15 @@ options:
     cons:
       - Nothing happens until an agent runs in that project; the card can wait for days
       - By the time new options arrive, you have lost the context you had when you rejected the old ones
+  - id: per-card
+    title: You choose per rejection
+    summary: The Neither panel keeps "Ask for new options" (today's flow, the project's agent rewrites them) and gains "Ask for new options now", which starts the card's session as in option spawn.
+    pros:
+      - Quiet projects and research-only questions get new options at once; cards tied to an agent's work in progress wait for that agent
+      - The default stays the tested path, and a session runs (and costs) only when you ask for one
+    cons:
+      - Two buttons, and you have to judge which one each time, without seeing whether an agent is about to run in that project
+      - Still needs everything option spawn needs (the read-only session of card 0004, the hub writing the options), for the cards where you use it
 ---
 
 ## Context
@@ -54,7 +64,7 @@ the queue as soon as the file changes.
 PR 2 adds a per-card Claude Code session, so the hub could start the rewrite itself. Depends
 on #0004: the session needs to read and research; the write can be the hub's.
 
-The two options are compared on the same scenario: you reject both options of card 0007 at
+The options are compared on the same scenario: you reject both options of card 0007 at
 21:00 with "Both assume a server. Compare on-device storage only." No agent is running in that
 project tonight.
 
@@ -81,3 +91,19 @@ feedback, and `--json-schema` for the options it returns.
 Day+2  An agent runs `president pending`, rewrites the options, runs `president seen`.
 Day+2  The card is back in the queue; you read your own note from two days ago to remember why.
 ```
+
+## Option per-card: You choose per rejection
+
+```
+None of these. What's wrong with them, or what would you rather see?
+[ Both assume a server. Compare on-device storage only.            ]
+[ Ask for new options Ctrl ⏎ ]  [ Ask for new options now Ctrl ⇧⏎ ]
+```
+
+```
+21:00  You: Neither → same note → "Ask for new options now".
+21:02  As in option spawn: new options, back in the queue.
+```
+
+"Ask for new options" behaves as in option wait. If you also pick "neither-plus" on #0010, the
+panel gets a third button, "Decide this as my answer".

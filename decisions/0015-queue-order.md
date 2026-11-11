@@ -12,7 +12,7 @@ recommendation:
   option: priority-oldest
   why: >-
     Priority is the agent's signal that work is blocked, and oldest-first makes sure nothing
-    starves; the project chips already give you the by-project view when you want it. Switch
+    starves within its priority; the project chips already give you the by-project view when you want it. Switch
     to by-project if you find that jumping between projects' contexts is what slows you down.
 options:
   - id: priority-oldest
@@ -20,7 +20,7 @@ options:
     summary: Today's order across all projects; high before normal before low, and within a priority the card created first comes first.
     pros:
       - Blocked work (high priority) is always at the top, wherever it comes from
-      - Nothing waits forever; the oldest card of a priority is always next
+      - Within a priority nothing waits forever; the oldest card is always next
     cons:
       - Consecutive cards can jump between projects, so you switch context on every card
       - A card written a minute ago, while you still remember the conversation that led to it, sits behind week-old ones

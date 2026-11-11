@@ -11,11 +11,13 @@ depends_on: []
 recommendation:
   option: rename
   why: >-
-    The npm package called president is a tool for running commands with elevated
-    privileges, and the people most likely to type npx president are agents that found the
-    command missing. A warning in the docs relies on every agent reading it; a name nobody
-    else owns doesn't. Renaming now, with few users, is the cheapest it will ever be. If you
-    never expect president to be installed on a machine without the command on PATH, keep.
+    The npm package called president is someone else's library; today npx president only
+    fails, but its owner could add a president command in any release, and the people most
+    likely to type npx president are agents that found the command missing (and npx doesn't
+    ask them before installing). A warning in the docs relies on every agent reading it; a
+    name nobody else owns doesn't. Renaming now, with few users, is the cheapest it will ever
+    be. It is a guard against something that may never happen: if a release adding a command
+    to a package untouched since 2017 seems too unlikely to plan around, keep.
 options:
   - id: keep
     title: Keep president, with the warning in the docs
@@ -24,7 +26,7 @@ options:
       - No rename; the product and the command share one name
       - Nothing breaks for registered projects, installed links or the skill
     cons:
-      - An agent that finds president missing and tries npx president downloads and runs a privilege-elevation tool from 2015
+      - If the president package on npm ever gains a "president" executable (a new release by its owner, or a hijacked account), a mistaken npx president would run it; today it fails with "could not determine executable to run"
       - The protection is a sentence agents have to read and follow
   - id: rename
     title: Rename the command to a name nobody owns on npm
@@ -42,7 +44,7 @@ options:
       - The command people and agents type every day doesn't change
       - Gives a correct npx line to use when the command is missing
     cons:
-      - A plain npx president still runs the other package; only the documented line is safe
+      - A plain npx president still goes to the other package (an error today, its code if it ever gains a president command); only the documented line is safe
       - Publishing to npm means versioning and releasing, for a tool that so far runs from a git checkout
 ---
 
@@ -59,9 +61,26 @@ maintainers = 'jviotti <juanchiviotti@gmail.com>'
 time.created = '2015-04-01T16:39:51.459Z'
 ```
 
-`npx <name>` runs the local `node_modules/.bin/<name>` if there is one, and otherwise
-downloads the npm package with that name and runs it. It prints a prompt before installing,
-which `--yes` suppresses; an agent that adds `--yes`, or answers yes, runs it.
+It is a library (`"main": "build/president.js"`) with **no `bin` field**, so it has no
+command to run, in any of its six versions (`npm view president@<version> bin` is empty). Its last
+release, 2.0.4, is from 2017-08-07.
+
+**What `npx president` does.** `npx <name>` runs the local `node_modules/.bin/<name>` if there
+is one. Otherwise it looks up the npm package with that name and runs the command that package
+declares. The `president` package declares none, so today `npx president` stops with
+`npm error could not determine executable to run` before installing anything (tried today in an
+empty folder with npm 12.2.2; in npm's code the bin lookup, `getBinFromManifest`, comes before
+the install step). Two things make the name a risk anyway:
+
+- The name belongs to someone else. Its owner, or whoever takes over the account, can publish a
+  release with a `president` command at any time, and from then on `npx president` would
+  download and run it.
+- npx asks before installing only in a terminal: "When standard input is not a TTY or a CI
+  environment is detected, `--yes` is assumed." Agents usually run commands without a terminal,
+  so nobody would be asked.
+
+Today the practical cost is smaller: an agent that tries `npx president` gets a confusing error
+and may try something else.
 
 **Today** our package is `"private": true` with `"bin": { "president": "bin/president.js" }`
 (`package.json`). It's installed by linking `bin/president.js` onto your PATH (README, "Install
@@ -106,6 +125,13 @@ npx @alexandreffaria/president pending            # not installed
 - npm docs, npx: packages not present locally are "installed to a folder in the npm cache", and
   "A prompt is printed (which can be suppressed by providing either `--yes` or `--no`)." Without
   `--package`, "npm will attempt to determine the executable name from the package specifier
-  provided as the first positional argument".
-  https://docs.npmjs.com/cli/v11/commands/npx
+  provided as the first positional argument", and "If this does not result in exactly one option
+  (either because there are no bin entries, or none of them match the `name` of the package),
+  then `npm exec` exits with an error." https://docs.npmjs.com/cli/v12/commands/npx
+- npm docs, npm exec: "When standard input is not a TTY or a CI environment is detected, `--yes`
+  is assumed." https://docs.npmjs.com/cli/v12/commands/npm-exec
+- npm's code (12.2.2): `libnpmexec/lib/index.js` calls `getBinFromManifest` (which throws
+  "could not determine executable to run") before it installs anything, and when `!yes` and
+  `noTTY() || ciInfo.isCI` it only logs a warning and installs.
+  https://github.com/npm/cli/tree/v12.2.2/workspaces/libnpmexec/lib
 - The package: https://www.npmjs.com/package/president

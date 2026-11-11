@@ -9,11 +9,13 @@ created_by: claude (batch-1 writer)
 tags: [format, lifecycle, status]
 depends_on: []
 recommendation:
-  option: status
+  option: field
   why: >-
     A retraction should take the card out of your queue at once, say why, and stay
-    reversible and visible. A status does all three, and it reuses the patterns deferred
-    cards already have (a collapsed section, "Back to queue"). Deleting is simpler but
+    reversible and visible. A withdrawn field does all three through the president update
+    agents already use, with its guard, and leaves the card answerable if you disagree; a
+    status needs a new command and new transition rules for the same result. Pick status if
+    you want "withdrawn" to be a real state that every tool knows. Deleting is simpler but
     leaves you wondering where a card went.
 options:
   - id: status
@@ -26,6 +28,17 @@ options:
     cons:
       - A schema change every tool and doc must learn (status list, transitions, pending, UI filters)
       - Withdrawn cards pile up in decisions/ unless someone cleans them up
+  - id: field
+    title: A withdrawn field, status unchanged
+    summary: The agent adds withdrawn (when and why) to the card with president update, which already lets agents add their own fields; the hub moves such cards to a collapsed "Withdrawn" section with the reason, and you can still answer them.
+    pros:
+      - No new status, command or transitions; it uses update and its guard (refused if you acted on the card meanwhile)
+      - Out of your queue immediately, with the agent's reason on the card
+      - Reversible either way, as the agent can remove the field with another update, or you can answer the card anyway
+    cons:
+      - The card is still "open" to everything that doesn't know the field (president pending, validate, a search for status open), so the hub and the docs must still learn it
+      - Putting it back in the queue yourself needs a new hub action that removes the agent's field (answering it directly works without one)
+      - Withdrawn cards pile up in decisions/, as with a status
   - id: delete
     title: Let agents delete the file
     summary: The skill allows deleting an open card that is obsolete, with the reason in the commit message; git keeps the history.
@@ -57,6 +70,11 @@ above" and "Never resolve a card yourself". Nothing in the skill covers deleting
 the code moves on and a question stops mattering (the feature was dropped, another decision
 answered it), the card stays in your queue until you decide, defer or reject it.
 
+Agents can already add fields of their own, though: "Any other field is allowed and is kept
+untouched when president updates the card, so agents can add their own bookkeeping to an open or
+deferred card (through `president update`" (`docs/card-format.md`). The hub ignores such fields
+today, so one only takes effect once the hub learns to read it (option field).
+
 ## Option status: A withdrawn status
 
 ```sh
@@ -72,6 +90,21 @@ withdrawn:
 ```
 
 Queue: `▸ Withdrawn by agents (1)`. The card page shows the reason and a **Back to queue** button.
+
+## Option field: A withdrawn field, status unchanged
+
+The agent writes its new version of the card with this added, and runs `president update`:
+
+```yaml
+status: open
+withdrawn:
+  at: 2026-11-14T10:00:00Z
+  reason: The queue was rewritten in #0015; dependencies no longer affect ordering.
+```
+
+Queue: `▸ Withdrawn by agents (1)`. The card page shows "Withdrawn by the agent: The queue was
+rewritten..." above the options, which still work. An agent that changes its mind removes the
+field with another `president update`.
 
 ## Option delete: Let agents delete the file
 

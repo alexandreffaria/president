@@ -53,7 +53,7 @@ options:
     pros:
       - What you learned and asked for travels with the card and reaches the agent through president pending, like a note
       - No transcript in git; the card grows by a few lines per conversation, not per message
-      - Exact resume on the machine that has the session
+      - Exact resume on the machine that has the session, for 30 days by default (cleanupPeriodDays)
     cons:
       - A summary loses detail; on another machine the conversation restarts from the summary, not from where it was
       - Someone has to write the summary (the session, at the end), and you should be able to read and edit it before it is added

@@ -59,8 +59,11 @@ moment. More often in this project's own process ("Every task is done by a fresh
 its own branch", `docs/foundations.md`), each agent works in its own git worktree with its own
 copy of `decisions/`: two branches both add `0018`, and the clash appears only after both are
 merged. Neither agent's own `validate` saw the other card. (The CI step added with this batch
-runs `president validate .` on each pull request merged with main, so the second PR would at
-least fail CI.)
+runs `president validate .` on each pull request merged with main, so a PR whose CI runs after
+the other is merged fails; two PRs checked before either merges can both pass, because GitHub
+doesn't rerun a PR's checks when main moves. The CI run on main then fails, after both are
+merged. Requiring branches to be up to date before merging would close that gap, but this
+private repository's plan doesn't offer branch protection.)
 
 Ids appear in: file names, `depends_on`, the UI (`#0013`), queue tie-breaks (`compareQueue` in
 `src/core/queue.ts`), and `president pending`'s output.

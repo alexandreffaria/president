@@ -19,7 +19,7 @@ recommendation:
 options:
   - id: readonly
     title: Read the project and research the web, nothing else
-    summary: Only Read, Grep, Glob, WebSearch and WebFetch are available, in dontAsk mode, so anything else is denied without asking; the hub writes any card change the session proposes.
+    summary: Only Read, Grep, Glob, WebSearch and WebFetch are available, file reads are confined to the project (--restricted), and dontAsk mode denies anything else without asking; the hub writes any card change the session proposes.
     pros:
       - A click can't edit files, run commands or commit, whatever the session reads on the web
       - Nothing to approve mid-conversation, so the chat never stalls
@@ -76,20 +76,30 @@ once started, including after reading a malicious page.
 
 - **Modes** (`--permission-mode`): `manual`/default asks before edits, commands and network;
   `acceptEdits` edits files without asking; `plan` only researches and proposes; `auto` has a
-  classifier review each action; `dontAsk` denies every call that would otherwise prompt;
-  `bypassPermissions` runs everything without checks.
+  classifier review most actions instead of you; `dontAsk` denies every call that would
+  otherwise prompt, "though a mod you installed can still approve some of those calls";
+  `bypassPermissions` runs everything without checks. Separately, `--permission-prompts none`
+  says nobody answers prompts, so anything that would prompt is denied; it matters most when
+  something else (a `--permission-prompt-tool`) would otherwise be asked.
 - **In `-p` mode nobody can answer a prompt.** "In a Manual mode `claude -p` run, a call that
   needs approval is denied unless something approves it, such as a `PermissionRequest` hook or a
   `--permission-prompt-tool`."
 - **Tool lists.** `--tools` limits which built-in tools exist at all; `--allowedTools` lists rules
   that run without asking; `--disallowedTools` lists deny rules. Rules look like `Read`,
   `Edit(docs/**)`, `Bash(npm run test *)`, `WebFetch(domain:example.com)`. Deny is checked first
-  and "An allow rule can't carve an exception out of a deny rule."
+  and "An allow rule can't carve an exception out of a deny rule." A bare `Read` rule "Matches
+  all file reads", anywhere on the machine (`~/.ssh`, other projects); `Read(./**)` matches
+  only files under the folder the session runs in.
 - **Untrusted folders.** `-p` never shows the workspace trust dialog. In an untrusted folder,
   the project's `.claude/settings.json` allow rules are not used, but its hooks run and its
   `.mcp.json` servers are connected. `--setting-sources user` and `--strict-mcp-config` stop that.
   (`--bare` would too, but it ignores your Claude Code login and needs an API key, which goes
   against "uses the user's existing Claude Code login" in `docs/foundations.md`.)
+- **Restricted mode.** `--restricted` removes the tools that run commands or code, and
+  WebFetch, unless `--tools` names them; ignores user, project and local settings files (so
+  no hook or allow rule from those files applies); confines the file tools to the working
+  directories; and refuses `bypassPermissions`. It keeps your Claude Code login: a
+  `--restricted` run here answered without an API key.
 - **Rules are enforced by Claude Code, not the model**: instructions in a prompt don't widen or
   narrow them.
 
@@ -100,21 +110,29 @@ Installed here: Claude Code 2.1.302 (`claude --version`), whose `--help` lists t
 
 ```sh
 claude -p --output-format stream-json --verbose --resume "$SESSION_ID" \
+  --restricted --strict-mcp-config \
   --tools "Read,Grep,Glob,WebSearch,WebFetch" \
-  --allowedTools "Read,Grep,Glob,WebSearch,WebFetch" \
-  --permission-mode dontAsk \
-  --setting-sources user --strict-mcp-config \
+  --allowedTools "WebSearch,WebFetch" \
+  --permission-mode dontAsk --permission-prompts none \
   --max-budget-usd 1 \
   "$MESSAGE"
 ```
 
 In `dontAsk` mode, "file reads in your working directories" run without approval, and anything
-that would prompt is denied. Whether the bare `Read` in `--allowedTools` also allows reads
-outside the project is to be checked when this is built; leaving `Read` out of
-`--allowedTools` (reads inside the project still run) or writing `Read(./**)` avoids the
-question. New options for *Neither*
-come back as structured output (`--json-schema`), and the hub writes them through the same
-checks as `president update`.
+that would prompt is denied, so `Read`, `Grep` and `Glob` need no allow rule inside the
+project; only the two web tools do. `--restricted` keeps the file tools inside the project and
+skips every settings file, yours included, so a hook or allow rule in your own settings doesn't
+widen the session; it also makes `--setting-sources user` unnecessary.
+
+Tested here with Claude Code 2.1.302, from a scratch folder: with these flags, Glob, Grep and
+Read of a file in the folder ran. Asked to read `/etc/hostname`, a session with a bare `Read`
+allow rule and no `--restricted` read it; with `Read(./**)` in its place, or with
+`--restricted`, the read was refused.
+
+Whether a mod you installed still loads under `--restricted` isn't documented; `--safe-mode`
+turns installed mods off, along with CLAUDE.md and skills, and can be weighed when this is
+built. New options for *Neither* come back as structured output (`--json-schema`), and the hub
+writes them through the same checks as `president update`.
 
 ## Option docs: Read-only, plus editing docs/ and running president
 
@@ -122,16 +140,20 @@ Same as above, with:
 
 ```sh
   --tools "Read,Grep,Glob,WebSearch,WebFetch,Edit,Write,Bash" \
-  --allowedTools "Read,Grep,Glob,WebSearch,WebFetch,Edit(docs/**),Bash(president *)" \
-  --permission-mode dontAsk
+  --allowedTools "WebSearch,WebFetch,Edit(docs/**),Bash(president *)" \
+  --permission-mode dontAsk --permission-prompts none
 ```
 
-Edits outside `docs/` and any other command are denied.
+Edits outside `docs/` and any other command are denied. `--restricted` stays: it removes Bash
+only when `--tools` doesn't name it.
 
 ## Option ask: Anything, but you approve each risky step in the chat
 
-The read-only allowlist, plus `--permission-prompt-tool mcp__president__approve`, an MCP tool
-served by the hub. A call outside the allowlist appears in the conversation:
+The read-only flags with three changes: `--tools` names every tool the session may ask for
+(`--restricted` drops Bash and the other code-running tools unless they are named), the mode is
+`manual` instead of `dontAsk`, and `--permission-prompt-tool mcp__president__approve` points at
+an MCP tool served by the hub (passed with `--mcp-config`, since `--strict-mcp-config` ignores
+every other MCP configuration). A call that needs approval appears in the conversation:
 
 ```
 The agent wants to run:  npm test -- api-errors
@@ -152,24 +174,37 @@ claude -p --output-format stream-json --verbose --resume "$SESSION_ID" --permiss
 - Claude Code docs, headless mode: "In a Manual mode `claude -p` run, a call that needs approval
   is denied unless something approves it, such as a `PermissionRequest` hook or a
   `--permission-prompt-tool`." and "`dontAsk`: Claude Code denies every call that would otherwise
-  prompt, which is useful for locked-down CI runs", and "Actions that need no approval in Manual
-  mode still run, such as file reads in your working directories and the read-only command set."
-  https://code.claude.com/docs/en/headless
+  prompt, which is useful for locked-down CI runs, though a mod you installed can still approve
+  some of those calls", and "Actions that need no approval in Manual mode still run, such as file
+  reads in your working directories and the read-only command set." On auto: "have a classifier
+  review most actions instead of you". On `--permission-prompts none`: "Pass `--permission-prompts
+  none` when nobody is available to answer permission prompts". https://code.claude.com/docs/en/headless
 - Claude Code docs, permission modes: `bypassPermissions` "disables permission prompts and safety
-  checks so tool calls execute immediately, including writes to protected paths."
+  checks so tool calls execute immediately, including writes to protected paths." On auto:
+  "Reads and working-directory edits outside protected paths skip the classifier".
   https://code.claude.com/docs/en/permission-modes
 - Claude Code docs, permissions: "Rules are evaluated in order: deny, then ask, then allow." "An
   allow rule can't carve an exception out of a deny rule." "Permission rules are enforced by
   Claude Code, not by the model." "Claude Code shows the trust dialog in interactive sessions
   only. A `claude -p` run or an SDK session never shows it." On Bash rules: "a deny or ask rule
   covers the invocation Claude usually produces and isn't a security boundary around the
-  program." https://code.claude.com/docs/en/permissions
-- Claude Code docs, headless mode, on `--bare`: "Without it, a `-p` session runs the hooks in a
-  project's `.claude/settings.json` and connects the servers in its `.mcp.json`, even in a folder
-  you've never trusted." https://code.claude.com/docs/en/headless
+  program." In the table of rules: "`Read` | Matches all file reads".
+  https://code.claude.com/docs/en/permissions
+- Claude Code docs, headless mode, on `--bare`: "Without `--bare`, a `-p` session runs the hooks
+  in a project's `.claude/settings.json` and connects the servers in its `.mcp.json`, even in a
+  folder you've never trusted." https://code.claude.com/docs/en/headless
 - Claude Code docs, CLI reference: `--max-budget-usd` "Stop the run once estimated spend on API
   calls reaches this amount (print mode only)"; `--tools` "Restrict which built-in tools Claude
-  can use." https://code.claude.com/docs/en/cli-reference
+  can use."; `--restricted` "removes the built-in tools that run commands or code, and WebFetch,
+  unless you name them individually in `--tools`, not through the `default` preset. It also
+  confines the built-in file tools to the working directories, loads only managed settings and
+  `--settings`, refuses `bypassPermissions`". https://code.claude.com/docs/en/cli-reference
+- `claude --help` (2.1.302): `--restricted` "removes the built-in tools that run commands or code
+  (Bash, PowerShell and the other code-running tools) and WebFetch unless --tools names them, and
+  ignores user, project and local settings files (managed settings and --settings still apply;
+  add --strict-mcp-config to skip MCP servers too)"; `--permission-prompts`: `"none" (nobody:
+  anything that would prompt is denied automatically; the permission mode still decides
+  everything else)`.
 - Claude Code docs, security: "Avoid piping untrusted content directly to Claude."
   https://code.claude.com/docs/en/security
 - Simon Willison, "The lethal trifecta for AI agents" (private data, untrusted content, and a way
