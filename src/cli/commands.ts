@@ -293,12 +293,19 @@ export async function pending(args: string[], out: Output): Promise<number> {
     for (const note of entries) {
       out.log(`    ${note.type ?? "note"} ${note.at}: ${continued(note.note)}`);
     }
-    const last = entries.at(-1)?.type;
-    if (last === "undo") {
+    // Whatever came after them: a note after an undo or a reopen doesn't make them stale.
+    for (const undo of entries.filter((f) => f.type === "undo")) {
+      const now = needsApplying(c.frontmatter)
+        ? `, then apply the current decision (${describeDecision(c.frontmatter.resolution)}) as usual`
+        : "";
       out.log(
-        "    The human took back this decision. If you recorded it in the docs or changed code for it, revert that, then run the done line.",
+        `    The human took back the earlier decision ${describeDecision(undo.previous_resolution)}. If you recorded it in the docs or changed code for it, revert that${now}, then run the done line.`,
       );
-    } else if (last === "reopen" && c.frontmatter.status === "open") {
+    }
+    const reopened = entries.some(
+      (f) => f.type === "reopen" && f.previous_resolution !== undefined,
+    );
+    if (reopened && c.frontmatter.status === "open") {
       out.log(
         '    Reopened, not decided again yet: don\'t change the docs or code for it now. Run the done line; when the human decides again, pending says "Decided again".',
       );

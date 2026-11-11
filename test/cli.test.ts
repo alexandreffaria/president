@@ -430,17 +430,45 @@ describe("president CLI", () => {
     // However late the agent looks, pending still says so.
     const later = (await cli("pending", demo)).out;
     expect(later).toMatch(
-      /New notes from the human[\s\S]*undo \S+: Took back the decision "result"[\s\S]*\n {4}The human took back this decision\. If you recorded it in the docs or changed code for it, revert that, then run the done line\./,
+      /New notes from the human[\s\S]*undo \S+: Took back the decision "result"[\s\S]*\n {4}The human took back the earlier decision "result"\. If you recorded it in the docs or changed code for it, revert that, then run the done line\./,
     );
     expect((await runDone(later, file)).code).toBe(0);
     expect((await cli("pending", demo)).out).toBe("Nothing pending.");
   });
 
+  // "This decision" read as the new one, shown just above (R6-3).
+  it("names the decision taken back when the card was decided again since", async () => {
+    const demo = await copyDemoProject();
+    const decided = await human(demo, "0002", { type: "resolve", choice: "throw" });
+    await undoLastAction({ name: "demo", path: demo }, "0002", decided.revision);
+    await human(demo, "0002", { type: "resolve", choice: "result", note: "Go with results." });
+    const out = (await cli("pending", demo)).out;
+    expect(out).toMatch(/Resolved, not yet applied[\s\S]*-> result \(Go with results\.\)/);
+    expect(out).toContain(
+      '    The human took back the earlier decision "throw". If you recorded it in the docs or changed code for it, revert that, then apply the current decision ("result" ("Go with results.")) as usual, then run the done line.',
+    );
+  });
+
+  const reopenHint =
+    '    Reopened, not decided again yet: don\'t change the docs or code for it now. Run the done line; when the human decides again, pending says "Decided again".';
+
   it("says to wait for a new decision after a reopen alone (R5-17)", async () => {
     const demo = await copyDemoProject();
     await human(demo, "0004", { type: "reopen", note: "Costs changed." });
-    expect((await cli("pending", demo)).out).toContain(
-      '    Reopened, not decided again yet: don\'t change the docs or code for it now. Run the done line; when the human decides again, pending says "Decided again".',
+    expect((await cli("pending", demo)).out).toContain(reopenHint);
+  });
+
+  // The hints are about the entries, not about which came last (R6-12).
+  it("keeps the reopen and undo hints when a note comes after them", async () => {
+    const demo = await copyDemoProject();
+    await human(demo, "0004", { type: "reopen" });
+    await human(demo, "0004", { type: "note", note: "Still thinking about cost." });
+    expect((await cli("pending", demo)).out).toContain(reopenHint);
+    const decided = await human(demo, "0001", { type: "resolve", choice: "sqlite" });
+    await undoLastAction({ name: "demo", path: demo }, "0001", decided.revision);
+    await human(demo, "0001", { type: "note", note: "Let me sleep on it." });
+    expect((await cli("pending", demo)).out).toMatch(
+      /Let me sleep on it\.\n {4}The human took back the earlier decision "sqlite"\. If you recorded it/,
     );
   });
 
