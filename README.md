@@ -151,6 +151,37 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
 
 4. **Decisions** lists everything you decided, newest first, and whether an agent has applied it.
 
+5. **Sync** (the button in the top bar, or `s`) sends your answers to your other machines and
+   brings theirs here. president writes card files but never commits them on its own; the top
+   bar shows "3 answers not synced" while a project has card changes that aren't pushed, so
+   press Sync before you leave a machine. When the hub starts it only runs `git fetch`, which
+   changes no file and no branch, and shows "2 card changes on the remote, press Sync".
+
+   For each project with card changes, here or on the remote, Sync runs `git fetch`, checks
+   that it is safe to touch the checkout, commits everything in `decisions/` in one commit
+   ("decisions from laptop: 0003, 0005"), then `git pull --rebase --autostash` and `git push`.
+   The top bar then lists what happened in each project. It says "Not now" and changes
+   nothing when:
+
+   - the checkout isn't on the remote's main branch (an agent's feature branch, say), a rebase
+     or merge is in progress, or the branch has no upstream;
+   - there are commits that aren't pushed and change files outside `decisions/` (an agent's
+     work: the pull would rebase it and the push would publish it);
+   - a file outside `decisions/` that changed on the remote has uncommitted edits here.
+
+   If the same card changed on both machines, Sync puts everything back as it was, keeps your
+   answers in a local commit and says "Not synced: 0001 changed on both machines"; fixing that
+   is a manual git step, and pressing Sync again retries. If the pull or the push fails
+   (offline, authentication), it shows git's error; your answers stay in the local commit for
+   the next Sync. If an agent saves a file during the few seconds the pull takes, Sync stops
+   before pushing and says so: git keeps the older copy in its stash (`git stash list`), and
+   someone has to clear it. Sync is the only time president changes a checkout (otherwise it
+   only reads git's state, and fetches at start), and while it runs in a project, card
+   actions there are refused. git never asks
+   for a password or passphrase (a remote that needs one fails instead, so use a credential
+   helper or an ssh agent), and each git command is stopped after a timeout. Sync only works
+   on a project whose folder is the top folder of its git repository.
+
 To try it with sample cards:
 
 ```sh
@@ -209,7 +240,7 @@ Layout:
 
 ```
 src/core/     card format: zod schemas, parser/writer, state transitions, queue ordering (shared)
-src/server/   Hono API, registry, file access, watcher + live events (WebSocket)
+src/server/   Hono API, registry, file access, watcher + live events (WebSocket), Sync
 src/cli/      the president command
 src/web/      React UI
 skills/       the Claude Code skill for agents
@@ -247,6 +278,15 @@ How it fits together:
   stuck on a slow disk) closes the socket and shows Offline too. The page reconnects with
   backoff (0.5 s doubling to 3 s) and refetches everything when it is back. The handshake passes the same Host and
   Origin checks as writes, so another site can't open one.
+- Sync (`src/server/sync.ts`) runs the steps in [card #0001](decisions/0001-sync-across-machines.md)
+  ("How Sync works in git"), one project after another and never two at once in the same
+  project. Each step is a spawned `git` with an argument list (no shell), run in the
+  registered project folder with every inherited `GIT_*` variable removed,
+  `GIT_TERMINAL_PROMPT=0`, no askpass program and no terminal, and a timeout (60 s for fetch,
+  pull and push, 30 s for the rest) after which git and whatever it started are stopped.
+  `POST /api/sync` passes the same Host and Origin checks as every write. While a project's
+  Sync runs, card actions there are refused (409 `syncing`), and a Sync waits for a card
+  write already under way.
 - State transitions live in `src/core/actions.ts`, shared by the API and the CLI. The coming
   per-card chat ("ask", "teach me", "research") plugs in there and in
   `src/web/components/CardAssistant.tsx`.

@@ -11,7 +11,7 @@ details no card fixes and that only an implementer would notice (which free key 
 gets, a variable name) are yours; say in the pull request what you picked so the human can
 object.
 
-Status on 2026-11-11: none of this is built. Cards #0001 to #0024 are all decided.
+Status on 2026-11-11: B (Sync) is built; the rest isn't. Cards #0001 to #0024 are all decided.
 
 ## Build plan
 
@@ -21,7 +21,7 @@ Each row is one pull request (PR 2 may be split, see its section). The order is 
 | # | Work | Decided by | Depends on | Suggested order |
 |---|---|---|---|---|
 | A | [Agent rules: the skill line for #0022](#a-agent-rules-the-skill-line-for-0022) | #0022 | PR #7 (it edits `SKILL.md`). It doesn't wait for [Needs a card](#needs-a-card) 1: A ships the card's line as written plus the main-folder rule, and a later pull request narrows them once that card is answered | First: every agent that applies a decision needs it, starting with the next one |
-| B | [Sync](#b-sync-0001) | #0001, #0022 | nothing | Early: until it ships, your answers reach main only by a hand commit (#0022) |
+| B | [Sync](#b-sync-0001) | #0001, #0022 | nothing | **Built** (`src/server/sync.ts`, `src/web/components/Sync.tsx`) |
 | C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017 | D's `withdrawn` definition, for the Withdrawn section only | Alongside B; before PR 2, which builds on #0010's Neither panel and #0011's notes on decided cards |
 | D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part) | PR #7 (it edits `card-format.md` and `SKILL.md`) | Before or with C and PR 2; `chat` must exist before PR 2 writes it |
 | E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024 | C (#0010's panel, #0011's notes on decided cards), D (`chat` type); the PR 2 cards in [Needs a card](#needs-a-card) | After C and D |
@@ -65,6 +65,7 @@ pull request is dropped, nothing on the card says so.
 
 ### Until the Sync button exists
 
+(Sync, B, is now built: press Sync in the hub. What follows is for a checkout without it.)
 Your answers reach main only when someone commits `decisions/` on main by hand in the main
 folder (the step Sync will automate); an agent can do it when you ask. Agents must not do it
 inside their pull requests. Because those pull requests never touch `decisions/`, a plain
@@ -75,9 +76,41 @@ you have changed; that was PR 5's problem).
 ## B. Sync (#0001)
 
 Card: [0001-sync-across-machines.md](../decisions/0001-sync-across-machines.md), option
-`sync`. Today president has no git code at all; card changes sit as uncommitted edits in each
-project's working tree. Under #0022 this is the only way your answers reach git, apart from a
-hand commit.
+`sync`. Under #0022 this is the only way your answers reach git, apart from a hand commit.
+
+**Built** as written below: the git sequence and its checks in `src/server/sync.ts` (git is
+run by `src/server/git.ts`), `GET` and `POST /api/sync` in `src/server/app.ts`, the fetch at
+hub start in `src/server/server.ts`, the top bar's Sync button, `s` key, counts and report in
+`src/web/components/Sync.tsx`. Tests against scratch repositories: `test/sync.test.ts`,
+`test/sync-api.test.ts`, `test/web/sync.test.tsx`. Usage is in the README. Details this
+section left open were settled the simplest safe way, and the human can change any of them:
+
+- Card actions in a project are **refused** (409, "Sync is running in shop, so nothing was
+  changed; try again when it finishes"), not held, while its Sync runs; what the human typed
+  stays as a draft. A Sync waits for a card write already under way.
+- Sync only works on a project whose folder is the **top folder of its git repository** (or
+  worktree). A project inside a bigger repository (a home folder kept in git, a monorepo
+  subfolder) is reported as skipped rather than committed into that repository.
+- Check 1 also requires the checked-out branch to have the **same name** as the remote's
+  default branch, not only to track it: `git checkout -b feat origin/main` tracks
+  `origin/main` too. The remote's default comes from `refs/remotes/<remote>/HEAD` (git 2.48+
+  records it on fetch), else from `git ls-remote --symref`.
+- Check 3 also counts **untracked files** at a path the remote added as uncommitted edits
+  (the pull would otherwise fail on them).
+- The rebase, merge, detached-HEAD and no-upstream parts of check 1 run **before** the fetch
+  (they need no network); the rest after it, as in the card.
+- Sync skips a project with no card changes here or on the remote (after its fetch) without
+  saying anything; if every project had none, the page says "Nothing to sync".
+- Commits run the project's own git hooks (no `--no-verify`) and sign as the user's git
+  config says. The machine's name in the commit message is the short hostname.
+- Timeouts: 60 s for `fetch`, `pull`, `push` and `ls-remote`, 30 s for local commands; git
+  gets SIGTERM, then SIGKILL 2 s later, with everything it started. git never prompts:
+  `GIT_TERMINAL_PROMPT=0`, an empty `GIT_ASKPASS` (which also turns off `core.askPass` and
+  `SSH_ASKPASS`), `SSH_ASKPASS_REQUIRE=never`, no stdin and no terminal.
+- The last result per project is kept in the running hub (every tab shows it until
+  dismissed in that tab); a restart forgets it.
+- The notice an open card shows after a pull brought in a change ("An agent changed this
+  card...") is unchanged; the suggestion under "Notes for whoever builds it" is not built.
 
 ### What the human sees
 
