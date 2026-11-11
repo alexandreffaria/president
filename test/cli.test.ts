@@ -624,7 +624,7 @@ describe("president CLI", () => {
     const out = (await cli("pending", demo)).out;
     expect(out).toMatch(/Resolved, not yet applied[\s\S]*-> result \(Go with results\.\)/);
     expect(out).toContain(
-      '    The human took back the earlier decision "throw". If you recorded it in the docs or changed code for it, revert that, then apply the current decision ("result" ("Go with results.")) as usual, then run the done line.',
+      '    The human took back the earlier decision "throw". If you recorded it in the docs or changed code for it, revert that, then apply the current decision, "result", as usual, then run the done line.',
     );
   });
 

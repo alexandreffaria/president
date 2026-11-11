@@ -295,7 +295,7 @@ export async function pending(args: string[], out: Output): Promise<number> {
     // Whatever came after them: a note after an undo or a reopen doesn't make them stale.
     for (const undo of entries.filter((f) => f.type === "undo")) {
       const now = needsApplying(c.frontmatter)
-        ? `, then apply the current decision (${describeDecision(c.frontmatter.resolution)}) as usual`
+        ? `, then apply the current decision, ${describeDecision({ choice: c.frontmatter.resolution?.choice })}, as usual`
         : "";
       out.log(
         `    The human took back the earlier decision ${describeDecision(undo.previous_resolution)}. If you recorded it in the docs or changed code for it, revert that${now}, then run the done line.`,
