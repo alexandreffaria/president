@@ -13,7 +13,7 @@ Status on 2026-11-11: none of this is built.
 | Work | Decided by | Blocked on |
 |---|---|---|
 | [Sync](#sync-0001) | #0001 | nothing; can start now |
-| [PR 2: per-card chat](#pr-2-the-per-card-chat-0003-0004-0006) | #0003, #0004, #0006 | #0002 (placement), #0005 (Teach me); the Neither button also on #0007 |
+| [PR 2: per-card chat](#pr-2-the-per-card-chat-0003-0004-0006) | #0003, #0004, #0006 | #0002 (placement), #0005 (Teach me), #0018 (showing the earlier conversation), #0019 (deciding while a conversation is open); the Neither button also on #0007; each part marked "Open — see #0020", "#0021" or "#0023" on that card |
 
 ## Sync (#0001)
 
@@ -128,8 +128,9 @@ Sync would then refuse whenever an agent has work in progress.
 PR 2 replaces the placeholder `src/web/components/CardAssistant.tsx` with a conversation with a
 headless Claude Code session per card (see "Chat engine" in foundations.md), plus *Teach me*,
 *More info / research* and *Neither, try again* buttons. Three cards fix how the session runs,
-where the conversation lives and what it may change; two more must be decided before PR 2 can
-start (see [Cross-card consequences](#cross-card-consequences)).
+where the conversation lives and what it may change; #0002 and #0005 (see
+[Cross-card consequences](#cross-card-consequences)) and the open questions #0018 and #0019
+(below) must be decided before PR 2 can start.
 
 ### The session: read and research only (#0004)
 
@@ -160,7 +161,7 @@ What each flag guarantees, so none is dropped by accident:
 | `--permission-prompts none` | Nobody answers prompts; nothing is sent to a host or prompt tool. |
 | `--max-budget-usd 1` | Caps the spend of one run. |
 | `--output-format stream-json --verbose` | The hub streams the reply into the page. |
-| `$MESSAGE` on stdin | The hub writes the message to the process's standard input (`-p` reads it, `--input-format` is `text` by default), or passes it after `--`, never as a bare positional argument: a message starting with `-` is parsed as an option (`error: unknown option '--why-not-both'`), and one placed after a list flag (`--tools`, `--allowedTools`) would be taken as a tool name. |
+| `$MESSAGE` on stdin | The hub writes the message to the process's standard input (`claude --help`: `-p` is "useful for pipes", and `--input-format` is `text` by default), never as a command-line argument: a message starting with `-` is parsed as an option (`error: unknown option '--why-not-both'`), and one placed after a list flag (`--tools`, `--allowedTools`) would be taken as a tool name. |
 
 The session never writes anything itself. **Every change to a card goes through the hub**,
 with the same checks as today:
@@ -245,9 +246,9 @@ from `president pending` and runs `president applied`. For PR 2 this means:
 - The chat session never records decisions in docs, edits code or runs `president applied`
   (it couldn't anyway: #0004 gives it no write tools and no Bash). Don't send it instructions
   to apply, and don't add a "Decide and apply now" button.
-- Deciding stays one action with today's 10-second Undo window (`src/web/toast.tsx`), and
-  nothing may write the card after the decision inside that window: Undo restores the card only
-  if it is still the file president wrote for the decision.
+- Deciding keeps today's 10-second Undo window (`src/web/toast.tsx`), and nothing may write
+  the card after the decision inside that window: Undo restores the card only if it is still
+  the file president wrote for the decision.
 - **Open — see #0019:** what happens when you decide while a conversation is open. #0003 says
   the summary is offered when you decide; neither card says how that fits Decide's single
   keypress (wait for the summary to be written and edited before recording the decision, decide
@@ -257,11 +258,13 @@ from `president pending` and runs `president applied`. For PR 2 this means:
 - The working agent didn't hear the conversation. What it learns about it is the summary
   feedback entry (#0003), so the summary should state what the human concluded and asked for,
   not just what was discussed.
-- docs/card-format.md and the skill's "Applying resolved cards" stay as they are.
+- The skill's "Applying resolved cards" and the apply flow in docs/card-format.md need no change
+  for #0006.
 
 ## Cross-card consequences
 
-- **PR 2 waits on #0002 and #0005**, both still open:
+- **PR 2 waits on #0002 and #0005**, both still open (and on the open questions #0018 and
+  #0019, see the #0003 and #0006 sections):
   [#0002](../decisions/0002-conversation-placement.md) decides where the conversation sits on
   the card page (side panel, below the options, or a focus mode) and
   [#0005](../decisions/0005-teach-me-format.md) what *Teach me* produces. Every option on both
