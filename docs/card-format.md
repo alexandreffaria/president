@@ -308,8 +308,8 @@ resolution:
   tell whether they hold text. Comments on their own line are fine anywhere, and so
   is a comment after quoted text, after a `>-` or `|`, after a key whose value starts on the
   next line (`pros:   # see below`), or after a value that isn't free text, such as an id, a
-  choice, a type or a timestamp (`- id: result   # the slug`). president keeps every comment when
-  it writes the card.
+  choice, a type or a timestamp (`- id: result   # the slug`). When president writes the card,
+  it keeps every comment outside the fields it changes (see [frontmatter fields](#frontmatter-fields)).
 - For long text use a folded block: `why: >-` followed by indented lines.
 - Dates need a timezone when they include a time: `2026-11-10T14:03:00Z`. Don't invent them:
   `date -u +%Y-%m-%dT%H:%M:%SZ` prints the current time in this format.
