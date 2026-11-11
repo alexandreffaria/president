@@ -220,7 +220,7 @@ describe("president CLI", () => {
     // The card is its id, so a name with another slug finds it, and the token still decides.
     expect(wrongSlug).toMatchObject({
       code: 1,
-      err: expect.stringMatching(/is now 0004-map-tiles\.md[^]*changed since/),
+      err: expect.stringMatching(/is now 0004-map-tiles\.md[\s\S]*changed since/),
     });
     const noCard = await cli("applied", join(demo, "decisions", "0042-nothing.md"), ...token);
     expect(noCard).toMatchObject({
@@ -290,7 +290,7 @@ describe("president CLI", () => {
       const refused = await cli("update", file, mine);
       expect(refused.code).toBe(1);
       expect(refused.err).toMatch(
-        /^president: 0002-api-errors\.md was not changed: what the human owns differs[^]*Read the card again[^]*\n {2}- feedback: the human added 1 entry since you read the card:\n {2}- {3}note \S+: Actually two words is fine too\./,
+        /^president: 0002-api-errors\.md was not changed: what the human owns differs[\s\S]*Read the card again[\s\S]*\n {2}- feedback: the human added 1 entry since you read the card:\n {2}- {3}note \S+: Actually two words is fine too\./,
       );
       expect(await readFile(file, "utf8")).toBe(withNote);
       expect(await readFile(mine, "utf8")).toBe(rewrite(read));
@@ -322,7 +322,7 @@ describe("president CLI", () => {
       const broken = await cli("update", file, mine);
       expect(broken.code).toBe(1);
       expect(broken.err).toMatch(
-        /broken {2}0002-api-errors\.md\n\s+- kind: Invalid option[^]*was not changed/,
+        /broken {2}0002-api-errors\.md\n\s+- kind: Invalid option[\s\S]*was not changed/,
       );
       expect(await readFile(file, "utf8")).toBe(resolved);
       expect((await cli("update", file, file)).err).toMatch(/as a separate file/);
@@ -399,18 +399,18 @@ describe("president CLI", () => {
     const file = join(demo, "decisions", "0002-api-errors.md");
     const decided = await human(demo, "0002", { type: "resolve", choice: "result" });
     const shown = (await cli("pending", demo)).out;
-    expect(shown).toMatch(/Resolved, not yet applied[^]*-> result/);
+    expect(shown).toMatch(/Resolved, not yet applied[\s\S]*-> result/);
     // The agent records the decision and does the work; meanwhile the human clicks Undo.
     await undoLastAction({ name: "demo", path: demo }, "0002", decided.revision);
     const refused = await runDone(shown, file);
     expect(refused.code).toBe(1);
     expect(refused.err).toMatch(
-      /it is now open[^]*If the decision pending showed you is no longer the card's \(it was taken back, reopened or changed\), revert what you recorded in the docs and changed for it\./,
+      /it is now open[\s\S]*If the decision pending showed you is no longer the card's \(it was taken back, reopened or changed\), revert what you recorded in the docs and changed for it\./,
     );
     // However late the agent looks, pending still says so.
     const later = (await cli("pending", demo)).out;
     expect(later).toMatch(
-      /New notes from the human[^]*undo \S+: Took back the decision "result"[^]*\n {4}The human took back this decision\. If you recorded it in the docs or changed code for it, revert that, then run the done line\./,
+      /New notes from the human[\s\S]*undo \S+: Took back the decision "result"[\s\S]*\n {4}The human took back this decision\. If you recorded it in the docs or changed code for it, revert that, then run the done line\./,
     );
     expect((await runDone(later, file)).code).toBe(0);
     expect((await cli("pending", demo)).out).toBe("Nothing pending.");
