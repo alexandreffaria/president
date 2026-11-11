@@ -9,17 +9,32 @@
  * The state is the socket's own: "live" once the server says it is subscribed ("ready"),
  * "offline" from the moment it closes until a new socket is ready again. A closed socket is
  * reopened with backoff, and the new socket's "ready" makes the page refetch what it missed.
+ *
+ * The server sends a "ping" message with each heartbeat (HEARTBEAT_MS). A socket that hears
+ * nothing for SILENCE_MS (two heartbeats and a half) belongs to a hub that hangs without
+ * closing it (stopped, stuck on a slow disk): it is closed and treated like any other drop,
+ * so the page says Offline instead of Live while every request hangs.
  */
-import type { LiveMessage } from "../core/api.ts";
+import { HEARTBEAT_MS, type LiveMessage } from "../core/api.ts";
 
 export type LiveState = "connecting" | "live" | "offline";
 
-export type LiveEvent = LiveMessage;
+/** What the page is told about: everything but the heartbeat's "ping". */
+export type LiveEvent = Exclude<LiveMessage, { type: "ping" }>;
 
 export interface LiveHandlers {
   onEvent: (event: LiveEvent) => void;
   onState: (state: LiveState) => void;
 }
+
+export interface LiveOptions {
+  url?: string;
+  /** Give up on a socket that received nothing for this long (ms). */
+  silenceMs?: number;
+}
+
+/** Two and a half of the server's heartbeats. */
+export const SILENCE_MS = HEARTBEAT_MS * 2.5;
 
 const EVENT_TYPES = new Set<string>(["ready", "cards", "projects"]);
 
@@ -34,17 +49,39 @@ function eventsUrl(): string {
 }
 
 /** Keeps a socket open until the returned function is called. */
-export function connectLive(handlers: LiveHandlers, url = eventsUrl()): () => void {
+export function connectLive(handlers: LiveHandlers, options: LiveOptions = {}): () => void {
+  const url = options.url ?? eventsUrl();
+  const silenceMs = options.silenceMs ?? SILENCE_MS;
   let socket: WebSocket | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
+  let silence: ReturnType<typeof setTimeout> | undefined;
   let failures = 0;
   let stopped = false;
+
+  /** The socket is gone (closed, or silent too long): say so and try again later. */
+  const lost = (ws: WebSocket) => {
+    if (stopped || socket !== ws) return;
+    clearTimeout(silence);
+    socket = undefined;
+    handlers.onState("offline");
+    retry = setTimeout(open, retryDelay(failures++));
+  };
 
   const open = () => {
     retry = undefined;
     const ws = new WebSocket(url);
     socket = ws;
+    // Counted from the start, so a handshake that never completes is given up on too.
+    const listen = () => {
+      clearTimeout(silence);
+      silence = setTimeout(() => {
+        ws.close();
+        lost(ws);
+      }, silenceMs);
+    };
+    listen();
     ws.onmessage = (message) => {
+      listen();
       let event: LiveEvent;
       try {
         event = JSON.parse(String(message.data)) as LiveEvent;
@@ -59,12 +96,7 @@ export function connectLive(handlers: LiveHandlers, url = eventsUrl()): () => vo
       handlers.onEvent(event);
     };
     // Every failure ends in "close" (a refused handshake too), so that is the one to watch.
-    ws.onclose = () => {
-      if (stopped || socket !== ws) return;
-      socket = undefined;
-      handlers.onState("offline");
-      retry = setTimeout(open, retryDelay(failures++));
-    };
+    ws.onclose = () => lost(ws);
   };
 
   handlers.onState("connecting");
@@ -72,6 +104,7 @@ export function connectLive(handlers: LiveHandlers, url = eventsUrl()): () => vo
   return () => {
     stopped = true;
     clearTimeout(retry);
+    clearTimeout(silence);
     socket?.close();
     socket = undefined;
   };

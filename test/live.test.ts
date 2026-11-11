@@ -288,6 +288,13 @@ describe("running hub", () => {
     expect(answering.ws.readyState).toBe(WebSocket.OPEN);
   });
 
+  it("sends a ping message with each heartbeat, so a page can tell the hub hangs (R5-5)", async () => {
+    const { hub: running } = await hub({ heartbeatMs: 30 });
+    const { messages } = await socket(running);
+    await until(messages, () => messages.filter((m) => m.type === "ping").length >= 2);
+    expect(messages[0]).toEqual({ type: "ready" });
+  });
+
   it("closes its sockets when it stops", async () => {
     const { hub: running } = await hub();
     const { closed } = await socket(running);

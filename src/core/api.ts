@@ -85,6 +85,10 @@ export type HubEvent = { type: "cards"; project: string } | { type: "projects" }
 
 /**
  * A message on the /api/events WebSocket: "ready" once it is connected (anything may have
- * changed before, so refetch), then hub events.
+ * changed before, so refetch), then hub events, and a "ping" with each heartbeat so the page
+ * can tell a hub that stopped answering from a quiet one.
  */
-export type LiveMessage = HubEvent | { type: "ready" };
+export type LiveMessage = HubEvent | { type: "ready" } | { type: "ping" };
+
+/** How often the hub pings each live socket (ms). */
+export const HEARTBEAT_MS = 25_000;

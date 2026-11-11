@@ -182,8 +182,10 @@ How it fits together:
   WebSocket (`/api/events`), one per tab, hidden or not. Browsers keep WebSockets out of the 6
   connections per host that HTTP requests share, so any number of tabs and windows can be live
   at once without holding up API calls. The indicator in the top bar shows the socket's state:
-  Live, or Offline from the moment it closes; the page reconnects with backoff (0.5 s doubling
-  to 3 s) and refetches everything when it is back. The handshake passes the same Host and
+  Live, or Offline from the moment it closes. The hub sends a `ping` message every 25 s, and a
+  page that hears nothing for 62.5 s (a hub that hangs without closing the socket: stopped, or
+  stuck on a slow disk) closes the socket and shows Offline too. The page reconnects with
+  backoff (0.5 s doubling to 3 s) and refetches everything when it is back. The handshake passes the same Host and
   Origin checks as writes, so another site can't open one.
 - State transitions live in `src/core/actions.ts`, shared by the API and the CLI. The coming
   per-card chat ("ask", "teach me", "research") plugs in there and in

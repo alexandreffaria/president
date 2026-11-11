@@ -6,7 +6,14 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LiveMessage } from "../../src/core/api.ts";
-import { connectLive, type LiveEvent, type LiveState, retryDelay } from "../../src/web/live.ts";
+import {
+  connectLive,
+  type LiveEvent,
+  type LiveOptions,
+  type LiveState,
+  retryDelay,
+  SILENCE_MS,
+} from "../../src/web/live.ts";
 
 class FakeWebSocket {
   static all: FakeWebSocket[] = [];
@@ -48,13 +55,16 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function connect() {
+function connect(options: LiveOptions = {}) {
   const tab = { events: [] as LiveEvent[], states: [] as LiveState[] };
   closers.push(
-    connectLive({
-      onEvent: (event) => tab.events.push(event),
-      onState: (state) => tab.states.push(state),
-    }),
+    connectLive(
+      {
+        onEvent: (event) => tab.events.push(event),
+        onState: (state) => tab.states.push(state),
+      },
+      options,
+    ),
   );
   return tab;
 }
@@ -124,6 +134,39 @@ describe("live connection", () => {
     socket?.drop();
     vi.advanceTimersByTime(60_000);
     expect(FakeWebSocket.all).toHaveLength(1);
+  });
+
+  it("says offline and reconnects when the hub goes silent without closing (R5-5)", () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const tab = connect();
+    const first = open()[0];
+    first?.send({ type: "ready" });
+    // The heartbeat's pings keep it live; each one restarts the wait.
+    for (let i = 0; i < 4; i++) {
+      vi.advanceTimersByTime(SILENCE_MS - 1);
+      first?.send({ type: "ping" });
+    }
+    expect(tab.states.at(-1)).toBe("live");
+    expect(first?.closed).toBe(false);
+    expect(tab.events).toEqual([{ type: "ready" }]);
+    // A hub that stopped (SIGSTOP, a hung disk) sends nothing and closes nothing.
+    vi.advanceTimersByTime(SILENCE_MS);
+    expect(tab.states.at(-1)).toBe("offline");
+    expect(first?.closed).toBe(true);
+    vi.advanceTimersByTime(500);
+    expect(FakeWebSocket.all).toHaveLength(2);
+    // The late close of the abandoned socket changes nothing.
+    first?.drop();
+    expect(FakeWebSocket.all).toHaveLength(2);
+    open()[0]?.send({ type: "ready" });
+    expect(tab.states.at(-1)).toBe("live");
+  });
+
+  it("gives up on a handshake that never completes", () => {
+    const tab = connect({ silenceMs: 1000 });
+    vi.advanceTimersByTime(1000);
+    expect(tab.states).toEqual(["connecting", "offline"]);
+    expect(FakeWebSocket.all[0]?.closed).toBe(true);
   });
 
   it("stops a pending reconnect when disconnected", () => {

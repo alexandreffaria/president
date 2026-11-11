@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type ServerType, serve } from "@hono/node-server";
 import { WebSocketServer } from "ws";
+import { HEARTBEAT_MS, type LiveMessage } from "../core/api.ts";
 import { createApp } from "./app.ts";
 import { fileError, UserError } from "./errors.ts";
 import { Registry } from "./registry.ts";
@@ -54,7 +55,7 @@ export async function startHub(
 
   // The upgrade request goes through the app (and its Host and Origin checks) first.
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 });
-  const stopHeartbeat = heartbeat(sockets, options.heartbeatMs ?? 25_000);
+  const stopHeartbeat = heartbeat(sockets, options.heartbeatMs ?? HEARTBEAT_MS);
 
   let server: ServerType;
   try {
@@ -89,9 +90,12 @@ export async function startHub(
 
 /**
  * Pings every socket each `ms` and drops the ones that didn't answer the last ping (a
- * browser that went away without closing). Browsers answer pings by themselves.
+ * browser that went away without closing). Browsers answer pings by themselves, but a page
+ * can't see them, so each ping also goes out as a "ping" message: a page that hears nothing
+ * for a while knows the hub stopped answering (see web/live.ts).
  */
 function heartbeat(sockets: WebSocketServer, ms: number): () => void {
+  const ping = JSON.stringify({ type: "ping" } satisfies LiveMessage);
   const answered = new WeakSet<object>();
   sockets.on("connection", (socket) => {
     answered.add(socket);
@@ -99,8 +103,12 @@ function heartbeat(sockets: WebSocketServer, ms: number): () => void {
   });
   const timer = setInterval(() => {
     for (const socket of sockets.clients) {
-      if (!answered.delete(socket)) socket.terminate();
-      else socket.ping();
+      if (!answered.delete(socket)) {
+        socket.terminate();
+      } else {
+        socket.ping();
+        socket.send(ping);
+      }
     }
   }, ms);
   timer.unref();
