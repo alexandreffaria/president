@@ -323,7 +323,8 @@ async function realDirectory(path: string): Promise<string> {
   return real;
 }
 
-async function findByPath(projects: Project[], path: string): Promise<Project | undefined> {
+/** The project registered at `path` (a real path), also when its entry names a link to it. */
+export async function findByPath(projects: Project[], path: string): Promise<Project | undefined> {
   for (const project of projects) {
     if (project.path === path) return project;
     const real = await realpath(project.path).catch(() => undefined);

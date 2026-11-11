@@ -25,7 +25,7 @@ import {
 } from "../server/cards.ts";
 import { UserError } from "../server/errors.ts";
 import { writeFileAtomic } from "../server/fs-utils.ts";
-import { DECISIONS_DIR, type Project, Registry } from "../server/registry.ts";
+import { DECISIONS_DIR, findByPath, type Project, Registry } from "../server/registry.ts";
 
 import { CARD_FORMAT_DOC, DEMO_SOURCE, type Output } from "./main.ts";
 import { shellQuote } from "./shell.ts";
@@ -669,13 +669,7 @@ function noDecisionsError(dir: string, more = ""): UserError {
 async function registeredAs(root: string, out: Output): Promise<Project> {
   const real = await realpath(root).catch(() => root);
   const registered = await new Registry().list().then(
-    async (projects) => {
-      for (const project of projects) {
-        if (project.path === real) return project;
-        if ((await realpath(project.path).catch(() => undefined)) === real) return project;
-      }
-      return undefined;
-    },
+    (projects) => findByPath(projects, real),
     (error: unknown) => {
       out.error(`president: note: can't read the registry: ${(error as Error).message}`);
       return null;
