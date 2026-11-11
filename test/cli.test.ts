@@ -83,6 +83,26 @@ async function runDone(pendingOut: string, file: string) {
   return cli(...stdout.split("\0").slice(0, -1));
 }
 
+/** Runs git in `cwd` without GIT_* variables from a hook, nor system or global config. */
+function git(cwd: string, ...args: string[]) {
+  const env = {
+    ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_"))),
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+  };
+  return promisify(execFile)("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+    cwd,
+    env,
+  });
+}
+
+/** Makes `dir` a git repository whose main branch has everything in it committed. */
+async function commitDemo(dir: string) {
+  await git(dir, "init", "-q", "-b", "main");
+  await git(dir, "add", ".");
+  await git(dir, "commit", "-qm", "cards");
+}
+
 /** Acts on a card the way the UI does (with the revision it has now). */
 async function human(demo: string, id: string, action: CardAction) {
   const project = { name: "demo", path: demo };
@@ -1061,28 +1081,15 @@ describe("president CLI", () => {
   });
 
   // A linked worktree's decisions/ is its own copy, without the human's answers (#0022).
-  it("warns, without refusing, when pending, applied, seen or update run in a git worktree", async () => {
+  it("warns, without refusing, when add, pending, applied, seen or update run in a git worktree", async () => {
     const main = await realpath(await copyDemoProject("trips"));
     const wt = join(dirname(main), "wt");
-    // No GIT_* variables from a hook, no system or global git config.
-    const env = {
-      ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_"))),
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_CONFIG_GLOBAL: "/dev/null",
-    };
-    const git = (...args: string[]) =>
-      promisify(execFile)("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
-        cwd: main,
-        env,
-      });
-    await git("init", "-q");
-    await git("add", ".");
-    await git("commit", "-qm", "cards");
-    await git("worktree", "add", "-q", wt);
+    await commitDemo(main);
+    await git(main, "worktree", "add", "-q", wt);
     await cli("add", main);
 
     expect(await cli("pending", main)).toMatchObject({ code: 0, err: "" });
-    const warning = `president: warning: ${wt} is in a git worktree, which has its own copy of decisions/: the human's answers are not in it, and this command reads or marks only that copy. Run president commands in the project's main folder (${main}), and don't run president add in a worktree.`;
+    const warning = `president: warning: ${wt} is in a git worktree, which has its own copy of decisions/: the human's answers are not in it, and this command reads or marks only that copy. Give president commands paths in the project's main folder instead (${main}), and don't register a worktree with president add.`;
     const pending = await cli("pending", wt);
     expect(pending).toMatchObject({ code: 0, out: "Nothing pending." });
     // First, before the note that suggests registering the worktree.
@@ -1098,9 +1105,76 @@ describe("president CLI", () => {
     // A project in a subfolder: the same subfolder of the main checkout.
     expect(await linkedWorktree(join(wt, "decisions"))).toEqual({
       main: join(main, "decisions"),
+      bare: false,
+      checkouts: [join(main, "decisions")],
     });
     expect(await linkedWorktree(main)).toBeUndefined();
     expect(await linkedWorktree(dirname(main))).toBeUndefined();
+
+    // GIT_DIR, as a git hook in the main checkout sets it, doesn't change the answer.
+    vi.stubEnv("GIT_DIR", join(main, ".git"));
+    expect((await linkedWorktree(wt))?.main).toBe(main);
+    expect(await linkedWorktree(main)).toBeUndefined();
+    // GIT_CEILING_DIRECTORIES is the user's: git doesn't look above it for the repository.
+    vi.stubEnv("GIT_CEILING_DIRECTORIES", wt);
+    expect(await linkedWorktree(join(wt, "decisions"))).toBeUndefined();
+    vi.unstubAllEnvs();
+    vi.stubEnv("XDG_CONFIG_HOME", configHome);
+
+    // add warns too, and still registers. A registered worktree is the project's folder.
+    expect(await cli("add", wt)).toEqual({
+      code: 0,
+      out: `Registered wt (${wt})`,
+      err: warning,
+    });
+    expect(await cli("pending", wt)).toMatchObject({ code: 0, err: "" });
+  });
+
+  // git before 2.31 prints an option it doesn't know (--path-format) and gives relative paths.
+  it("gives no worktree warning when git is too old to say", async () => {
+    const main = await realpath(await copyDemoProject("trips"));
+    const wt = join(dirname(main), "wt");
+    await commitDemo(main);
+    await git(main, "worktree", "add", "-q", wt);
+    const realGit = (await promisify(execFile)("sh", ["-c", "command -v git"])).stdout.trim();
+    const bin = await tempDir();
+    await writeFile(
+      join(bin, "git"),
+      `#!/bin/sh\nif [ "$1" = rev-parse ] && [ "$2" = --path-format=absolute ]; then\n  echo "$2"; shift 2; exec '${realGit}' rev-parse "$@"\nfi\nexec '${realGit}' "$@"\n`,
+    );
+    await chmod(join(bin, "git"), 0o755);
+    vi.stubEnv("PATH", `${bin}:${process.env.PATH}`);
+    expect((await promisify(execFile)("git", ["--version"], { cwd: main })).stdout).toMatch(/^git/);
+    // Not registered, so that only the git answer can keep the warning away.
+    const pending = await cli("pending", main);
+    expect(pending.code).toBe(0);
+    expect(pending.err).toMatch(/^president: note: .* is not registered with the hub/);
+    expect(pending.err).not.toMatch(/warning/);
+    expect(await linkedWorktree(main)).toBeUndefined();
+    expect(await linkedWorktree(wt)).toBeUndefined();
+  });
+
+  // A bare repository in proj/.git, every checkout a worktree: proj/ itself has no decisions/.
+  it("names the registered checkout, never the bare folder, when the repository is bare", async () => {
+    const source = await realpath(await copyDemoProject("trips"));
+    await commitDemo(source);
+    const proj = join(dirname(source), "proj");
+    await git(source, "clone", "-q", "--bare", source, join(proj, ".git"));
+    const mainWt = join(proj, "main-wt");
+    const featWt = join(proj, "feat-wt");
+    await git(proj, "worktree", "add", "-q", mainWt, "main");
+    await git(proj, "worktree", "add", "-q", "-b", "feat", featWt);
+    expect(await linkedWorktree(featWt)).toEqual({ bare: true, checkouts: [mainWt] });
+
+    const start = `president: warning: ${featWt} is in a git worktree, which has its own copy of decisions/: the human's answers are not in it, and this command reads or marks only that copy.`;
+    expect((await cli("pending", featWt)).err.split("\n")[0]).toBe(
+      `${start} The repository is bare, so every checkout is a worktree, and none is registered with president: ask the human which one is the project's main folder.`,
+    );
+    await cli("add", mainWt);
+    expect(await cli("pending", mainWt)).toMatchObject({ code: 0, err: "" });
+    expect((await cli("pending", featWt)).err.split("\n")[0]).toBe(
+      `${start} Give president commands paths in the project's main folder instead (${mainWt}), and don't register a worktree with president add.`,
+    );
   });
 
   // A link to a registered project's folder is that project (R8-6).

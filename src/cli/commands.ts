@@ -40,6 +40,8 @@ export async function add(args: string[], out: Output): Promise<number> {
     options: { name: { type: "string" }, create: { type: "boolean" } },
   });
   const path = resolve(single(positionals, "add <path>"));
+  // A hint, not a refusal: the human may register a worktree on purpose.
+  await warnIfWorktree(path, out);
   if (
     !values.create &&
     (await isDirectory(path)) &&
@@ -683,14 +685,33 @@ function noDecisionsError(dir: string, more = ""): UserError {
 
 /**
  * A warning, not an error: in a git worktree `decisions/` is the worktree's own copy, so an
- * agent there misses the human's answers and marks only that copy (#0022).
+ * agent there misses the human's answers and marks only that copy (#0022). None for a
+ * worktree registered with the hub, since the rule is "the registered folder": with a bare
+ * repository, every checkout is a worktree, and the registered one is the main folder.
  */
 async function warnIfWorktree(dir: string, out: Output): Promise<void> {
   const worktree = await linkedWorktree(dir);
   if (worktree === undefined) return;
-  const main = worktree.main === undefined ? "" : ` (${worktree.main})`;
+  const projects = await new Registry().list().catch(() => []);
+  const registered = async (folder: string) =>
+    (await findByPath(projects, await realpath(folder).catch(() => folder))) !== undefined;
+  if (await registered(dir)) return;
+  // The registered checkout, else the main one (none when the repository is bare).
+  let main = worktree.main;
+  for (const checkout of worktree.checkouts) {
+    if (await registered(checkout)) {
+      main = checkout;
+      break;
+    }
+  }
+  const instead =
+    main !== undefined
+      ? `Give president commands paths in the project's main folder instead (${main}), and don't register a worktree with president add.`
+      : worktree.bare
+        ? "The repository is bare, so every checkout is a worktree, and none is registered with president: ask the human which one is the project's main folder."
+        : "Give president commands paths in the project's main folder instead (the folder registered with president), and don't register a worktree with president add.";
   out.error(
-    `president: warning: ${dir} is in a git worktree, which has its own copy of ${DECISIONS_DIR}/: the human's answers are not in it, and this command reads or marks only that copy. Run president commands in the project's main folder${main}, and don't run president add in a worktree.`,
+    `president: warning: ${dir} is in a git worktree, which has its own copy of ${DECISIONS_DIR}/: the human's answers are not in it, and this command reads or marks only that copy. ${instead}`,
   );
 }
 
