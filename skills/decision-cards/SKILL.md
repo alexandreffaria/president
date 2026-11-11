@@ -303,4 +303,5 @@ validate it again.
   `resolution` the human made.
 - Change existing cards only with `president update` (see **Changing a card**), except to fix
   a broken one.
-- Unknown frontmatter fields are kept by president, so you can add your own bookkeeping fields.
+- Unknown frontmatter fields are kept by president, so you can add your own bookkeeping fields
+  to an open or deferred card, through `president update`. A decided card can't be changed.
