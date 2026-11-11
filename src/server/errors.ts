@@ -20,7 +20,7 @@ export class UserError extends Error {
   }
 }
 
-/** A user-facing message for a file system error (permission denied, read-only, ...). */
+/** A user-facing message for a file system error (permission denied, read-only, a link loop, ...). */
 export function fileError(action: string, path: string, error: unknown): UserError | unknown {
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
   const reason =
@@ -30,6 +30,10 @@ export function fileError(action: string, path: string, error: unknown): UserErr
         ? "the file system is read-only"
         : code === "ENOSPC"
           ? "the disk is full"
-          : undefined;
+          : code === "ENOTDIR"
+            ? "a part of the path is a file, not a folder"
+            : code === "ELOOP"
+              ? "the path goes through a loop of links"
+              : undefined;
   return reason ? new UserError(`cannot ${action} ${path}: ${reason}`, { status: 422 }) : error;
 }

@@ -1,4 +1,14 @@
-import { chmod, readFile, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  symlink,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type {
@@ -92,6 +102,27 @@ describe("projects API", () => {
 
     expect((await remove("/api/projects/fresh")).status).toBe(200);
     expect((await remove("/api/projects/fresh")).status).toBe(404);
+  });
+
+  // A typo through a file, or a link loop, is the user's to fix: a 422 that says so (R10-2).
+  it("answers a path through a file or a link loop with what is wrong, not a 500", async () => {
+    const { post } = await setup();
+    const scratch = await tempDir();
+    await writeFile(join(scratch, "file.txt"), "notes");
+    await symlink("loop", join(scratch, "loop"));
+    const project = join(scratch, "project");
+    await mkdir(project);
+    await symlink("decisions", join(project, "decisions"));
+    const cases: [object, string][] = [
+      [{ path: join(scratch, "file.txt", "x") }, "a part of the path is a file, not a folder"],
+      [{ path: join(scratch, "loop") }, "the path goes through a loop of links"],
+      [{ path: project, createDecisions: true }, "the path goes through a loop of links"],
+    ];
+    for (const [body, reason] of cases) {
+      const res = await post("/api/projects", body);
+      expect(res.status).toBe(422);
+      expect((await json(res)).error).toMatch(`: ${reason}`);
+    }
   });
 
   it("validates the request body", async () => {

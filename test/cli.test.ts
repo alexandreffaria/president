@@ -207,6 +207,37 @@ describe("president CLI", () => {
     expect(await cli("pending", dir)).toEqual({ code: 1, out: "", err: notFolder });
   });
 
+  // A path through a file or a loop of links is one line, not a stack trace (R10-1, R10-2).
+  it("says a path goes through a file or a link loop, in one line", async () => {
+    const scratch = await tempDir();
+    await writeFile(join(scratch, "file.txt"), "notes");
+    const throughFile = join(scratch, "file.txt", "x");
+    const loop = join(scratch, "loop");
+    await symlink("loop", loop);
+    const notFolder = (path: string) =>
+      `president: cannot open ${path}: a part of the path is a file, not a folder`;
+    const looped = (path: string) =>
+      `president: cannot open ${path}: the path goes through a loop of links`;
+    for (const command of ["pending", "add"]) {
+      expect(await cli(command, throughFile)).toEqual({
+        code: 1,
+        out: "",
+        err: notFolder(throughFile),
+      });
+      expect(await cli(command, loop)).toEqual({ code: 1, out: "", err: looped(loop) });
+    }
+    // decisions -> decisions: add explains it (with or without --create), pending says what it is.
+    const dir = join(scratch, "project");
+    const decisions = join(dir, "decisions");
+    await mkdir(dir);
+    await symlink("decisions", decisions);
+    expect(await cli("add", dir)).toEqual({ code: 1, out: "", err: looped(decisions) });
+    expect(await cli("add", dir, "--create")).toEqual({ code: 1, out: "", err: looped(decisions) });
+    expect(await cli("list", "--json")).toMatchObject({ code: 0, out: "[]" });
+    const notAFolder = `president: "${decisions}" is not a folder`;
+    expect(await cli("pending", dir)).toEqual({ code: 1, out: "", err: notAFolder });
+  });
+
   it("validates cards and fails on broken ones", async () => {
     const demo = await copyDemoProject();
     expect((await cli("validate", demo)).code).toBe(0);
