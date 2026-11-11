@@ -645,12 +645,11 @@ async function missingFolder(project: Project): Promise<string | undefined> {
 }
 
 /**
- * The project of a command given a folder (`validate`, `pending`): that folder, as given (or
- * the folder that holds it, when it is a decisions/ folder). Nothing above it is looked at.
+ * The project of a command given a folder (`validate`, `pending`): that folder, exactly as
+ * given, whatever it is called. Nothing above it is looked at.
  */
 async function projectAt(path: string, out: Output): Promise<Project> {
-  let dir = resolve(path);
-  if (basename(dir) === DECISIONS_DIR) dir = dirname(dir);
+  const dir = resolve(path);
   if (!(await isDirectory(dir))) throw new UserError(`"${dir}" is not a folder`);
   if (!(await isDirectory(join(dir, DECISIONS_DIR)))) throw noDecisionsError(dir);
   return registeredAs(dir, out);

@@ -172,7 +172,7 @@ describe("president CLI", () => {
       join(demo, "decisions", "0009-bad.md"),
       cardText({ id: '"0009"', status: "maybe" }),
     );
-    const result = await cli("validate", join(demo, "decisions"));
+    const result = await cli("validate", demo);
     expect(result.code).toBe(1);
     expect(result.err).toMatch(/broken {2}0009-bad\.md\n\s+- status: Invalid option/);
     expect(result.out).toMatch(/4 valid, 1 broken/);
@@ -869,6 +869,34 @@ describe("president CLI", () => {
       // --create makes decisions/ in the folder given, never in a parent.
       expect((await cli("add", ".", "--create")).out).toBe(`Registered src (${join(repo, "src")})`);
       expect((await readdir(join(repo, "src"))).includes("decisions")).toBe(true);
+    } finally {
+      cwd.mockRestore();
+    }
+  });
+
+  // A folder argument is used exactly as given, even one called decisions (R8-1).
+  it("uses a project folder named decisions as the project, in every command", async () => {
+    const root = join(await tempDir(), "decisions");
+    await mkdir(root);
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(root);
+    try {
+      expect((await cli("add", ".", "--create")).out).toBe(`Registered decisions (${root})`);
+      await writeFile(join(root, "decisions", "0001-pick-a-colour.md"), cardText());
+      await human(root, "0001", { type: "note", note: "Blue, maybe?" });
+      expect(await cli("validate")).toEqual({
+        code: 0,
+        out: `ok      0001-pick-a-colour.md\n\n1 valid, 0 broken in ${join(root, "decisions")}. Format: ${CARD_FORMAT_DOC}`,
+        err: "",
+      });
+      const listed = await cli("pending");
+      expect(listed).toMatchObject({ code: 0, err: "" });
+      expect(listed.out).toMatch(/New notes from the human[\s\S]*Blue, maybe\?/);
+      // Its own decisions/ folder is a folder like any other: not a way to name the project.
+      const inner = `president: ${join(root, "decisions")} has no decisions/ folder. Run this from the project root (the folder that contains decisions/).`;
+      for (const command of ["pending", "validate"]) {
+        expect(await cli(command, "decisions")).toEqual({ code: 1, out: "", err: inner });
+      }
+      expect((await cli("add", "decisions")).err).toBe(`${inner} Or add --create to make one here.`);
     } finally {
       cwd.mockRestore();
     }
