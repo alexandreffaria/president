@@ -16,7 +16,7 @@ import { App } from "../../src/web/App.tsx";
 import { clearWrites } from "../../src/web/app-writes.ts";
 import { clearDrafts } from "../../src/web/drafts.ts";
 import { navigate } from "../../src/web/router.tsx";
-import { copyDemoProject, tempDir } from "../helpers.ts";
+import { cardText, copyDemoProject, tempDir } from "../helpers.ts";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -656,6 +656,24 @@ describe("queue keyboard", () => {
   it("says each card's priority in words", async () => {
     await open("/", () => host.querySelectorAll(".queue-link").length >= 2, "the queue");
     expect(host.querySelector(".queue-link")?.textContent).toContain("High priority");
+  });
+});
+
+describe("the queue after a reconnect (R5-4)", () => {
+  it("shows a card an agent added while the socket was down", async () => {
+    await open("/", () => host.querySelectorAll(".queue-link").length >= 2, "the queue");
+    const before = host.querySelectorAll(".queue-link").length;
+    // A file write while the tab is offline: no event reaches it, only the new "ready".
+    await whileDisconnected(() =>
+      io(() =>
+        writeFile(
+          join(demo, "decisions", "0009-new-question.md"),
+          cardText({ id: '"0009"', title: "A question added while offline" }),
+        ),
+      ),
+    );
+    await until(() => text().includes("A question added while offline"), "the new card");
+    expect(host.querySelectorAll(".queue-link")).toHaveLength(before + 1);
   });
 });
 
