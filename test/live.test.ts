@@ -53,17 +53,31 @@ function writeCard(dir: string, n: number): Promise<void> {
   return writeFile(join(dir, `${id}-x.md`), cardText({ id: `"${id}"` }));
 }
 
-/** Keeps writing fresh cards into `dir` until the watcher sees one (a "cards" event can be late). */
-async function untilNewCardSeen(
-  fileEvents: { event: string; path: string }[],
-  dir: string,
-): Promise<void> {
+/** What a watcher did, in order: file events it acted on and events it emitted. */
+type Log = ({ event: string; path: string } | HubEvent)[];
+
+/**
+ * Keeps writing fresh cards into project `name`'s `dir` until the watcher sees one and then
+ * reports the project's cards. A "cards" event alone can come from older changes. Each card
+ * is also written into the folders `also`.
+ */
+async function untilNewCardSeen(log: Log, name: string, dir: string, also: string[] = []) {
   let n = 10;
-  await until(
-    fileEvents,
-    (e) => e.event === "add" && dirname(e.path) === dir && e.path.endsWith("-x.md"),
-    () => writeCard(dir, n++),
-  );
+  const seen = () => {
+    const added = log.findIndex(
+      (e) =>
+        "event" in e && e.event === "add" && dirname(e.path) === dir && e.path.endsWith("-x.md"),
+    );
+    return (
+      added >= 0 &&
+      log.slice(added).some((e) => "type" in e && e.type === "cards" && e.project === name)
+    );
+  };
+  const poke = () => {
+    const id = n++;
+    return Promise.all([dir, ...also].map((to) => writeCard(to, id)));
+  };
+  await until([0], seen, poke);
 }
 
 /** A watcher on a registry with the demo project; `setup` can change the registry first. */
@@ -75,15 +89,23 @@ async function watched(setup?: (registry: Registry) => Promise<void>) {
   await setup?.(registry);
   const bus = new EventBus();
   const events: HubEvent[] = [];
-  bus.subscribe((e) => events.push(e));
+  const log: Log = [];
+  bus.subscribe((e) => {
+    events.push(e);
+    log.push(e);
+  });
   const fileEvents: { event: string; path: string }[] = [];
   const watcher = new HubWatcher(registry, bus, {
     debounceMs: 30,
-    onFileEvent: (event, path) => fileEvents.push({ event, path }),
+    pollMs: 100,
+    onFileEvent: (event, path) => {
+      fileEvents.push({ event, path });
+      log.push({ event, path });
+    },
   });
   closers.push(() => watcher.close());
   await watcher.start();
-  return { registry, demo, events, fileEvents, watcher };
+  return { registry, demo, events, fileEvents, log, watcher };
 }
 
 describe("Debouncer", () => {
@@ -127,8 +149,9 @@ describe("HubWatcher", () => {
     expect(watcher.ignores(join(registry.dir, "other.json"))).toBe(false);
     expect(watcher.ignores(join(registry.dir, ".other.json.123.ab.tmp"))).toBe(true);
     expect(watcher.ignores(join(registry.dir, "notes.txt"))).toBe(true);
-    expect(watcher.ignores(demo)).toBe(false);
     expect(watcher.ignores(dir)).toBe(false);
+    expect(watcher.ignores(demo)).toBe(true);
+    expect(watcher.ignores(dirname(demo))).toBe(true);
     expect(watcher.ignores(join(demo, "README.md"))).toBe(true);
     expect(watcher.ignores(join(demo, "src"))).toBe(true);
     expect(watcher.ignores(join(dir, "0005-new.md"))).toBe(false);
@@ -170,20 +193,33 @@ describe("HubWatcher", () => {
   });
 
   it("keeps reporting changes after decisions/ is deleted and created again", async () => {
-    const { demo, events } = await watched();
+    const { demo, log } = await watched();
     const dir = join(demo, "decisions");
     await rm(dir, { recursive: true });
-    await until(events, (e) => e.type === "cards");
+    // At once: the watcher may not have seen the old folder go.
     await mkdir(dir);
-    events.length = 0;
-    // The new folder is attached asynchronously; keep writing fresh cards until one is seen.
-    let n = 10;
-    await until(
-      events,
-      (e) => e.type === "cards" && e.project === "demo",
-      () => writeCard(dir, n++),
-    );
+    await untilNewCardSeen(log, "demo", dir);
   });
+
+  // rm -rf removes a folder's entries in readdir order, so decisions/ needn't go last.
+  it.each([
+    ["decisions/ first", ["decisions", "a", "z"]],
+    ["decisions/ last", ["a", "z", "decisions"]],
+    ["all at once", []],
+  ])(
+    "keeps reporting changes after a project's folder is deleted and created again (%s)",
+    async (_, order) => {
+      const { demo, log } = await watched();
+      for (const name of ["a", "z"]) {
+        await mkdir(join(demo, name, "sub"), { recursive: true });
+        await writeFile(join(demo, name, "file"), "x");
+      }
+      for (const name of order) await rm(join(demo, name), { recursive: true });
+      await rm(demo, { recursive: true });
+      await mkdir(join(demo, "decisions"), { recursive: true });
+      await untilNewCardSeen(log, "demo", join(demo, "decisions"));
+    },
+  );
 
   /** Registers projects in one folder, then removes their folders (or only decisions/). */
   function missing(names: string[], only?: "decisions") {
@@ -202,7 +238,7 @@ describe("HubWatcher", () => {
   }
 
   it("is watching the projects once start() resolves, with folders missing (R11-1)", async () => {
-    // chokidar counts each missing path twice toward its one ready event.
+    // Missing folders mustn't end start() early (chokidar would count each twice toward ready).
     const gone = missing(["gone1", "gone2"]);
     const bare = missing(["bare1", "bare2"], "decisions");
     const { demo, events } = await watched(async (registry) => {
@@ -215,24 +251,62 @@ describe("HubWatcher", () => {
   });
 
   it("watches projects whose folders were missing at start once they come back (R11-2)", async () => {
-    // Two, in one folder: chokidar's waits for two missing paths in one folder clash.
+    // Two, in one folder, back at once.
     const { paths, setup } = missing(["ghost1", "ghost2"]);
-    const { events, fileEvents } = await watched(setup);
-    for (const [name, path] of paths) {
-      await mkdir(join(path, "decisions"), { recursive: true });
-      await until(events, (e) => e.type === "cards" && e.project === name);
-      await untilNewCardSeen(fileEvents, join(path, "decisions"));
-    }
+    const { log } = await watched(setup);
+    await Promise.all(
+      [...paths].map(async ([name, path]) => {
+        await mkdir(join(path, "decisions"), { recursive: true });
+        await untilNewCardSeen(log, name, join(path, "decisions"));
+      }),
+    );
   });
 
-  it("keeps reporting changes after a project's folder is deleted and created again", async () => {
-    const { demo, fileEvents } = await watched();
-    await rm(demo, { recursive: true });
-    // Once the watcher has seen the folder go: one made again before that looks unchanged to it.
-    await until(fileEvents, (e) => e.event === "unlinkDir" && e.path === demo);
-    await mkdir(join(demo, "decisions"), { recursive: true });
-    // Late events of the deletion also raise "cards", so wait for a new card to be seen.
-    await untilNewCardSeen(fileEvents, join(demo, "decisions"));
+  it("reports the cards of a project folder that comes back with cards in it", async () => {
+    // As a clone does: a folder that is added raises no events for what is already in it.
+    const { paths, setup } = missing(["clone"]);
+    const { events } = await watched(setup);
+    const dir = join(paths.get("clone") ?? "", "decisions");
+    await mkdir(dir, { recursive: true });
+    await writeCard(dir, 1);
+    await until(events, (e) => e.type === "cards" && e.project === "clone");
+  });
+
+  it("stops looking for a project's folder once the project is unregistered", async () => {
+    const { paths, setup } = missing(["kept", "dropped"]);
+    const { registry, watcher, log } = await watched(setup);
+    await registry.remove("dropped");
+    await watcher.sync();
+    const kept = join(paths.get("kept") ?? "", "decisions");
+    const dropped = join(paths.get("dropped") ?? "", "decisions");
+    for (const dir of [kept, dropped]) await mkdir(dir, { recursive: true });
+    // Cards go into both: the look that finds "kept" back would find "dropped" too.
+    await untilNewCardSeen(log, "kept", kept, [dropped]);
+    const aboutDropped = log.filter((e) =>
+      "path" in e ? e.path.startsWith(dropped) : e.type === "cards" && e.project === "dropped",
+    );
+    expect(aboutDropped).toEqual([]);
+  });
+
+  it("leaves no timers or watches behind once closed", async () => {
+    // getActiveResourcesInfo() doesn't list the poll's interval, as it is unref'd: fake it to count it.
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const watches = () =>
+        process.getActiveResourcesInfo().filter((r) => r === "FSEventWrap").length;
+      const before = watches();
+      const { demo, watcher, fileEvents } = await watched(missing(["gone"]).setup);
+      await writeCard(join(demo, "decisions"), 5);
+      await until(fileEvents, (e) => e.path.endsWith("0005-x.md"));
+      expect(vi.getTimerCount()).toBe(1);
+      expect(watches()).toBeGreaterThan(before);
+      await watcher.close();
+      expect(vi.getTimerCount()).toBe(0);
+      // A closed fs.watch handle is let go of a moment later.
+      await until([0], () => watches() === before);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
