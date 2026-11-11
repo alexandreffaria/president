@@ -648,6 +648,52 @@ describe("president CLI", () => {
     );
   });
 
+  // Outside a git repository nothing above the folder is looked at: an ancestor's decisions/
+  // (~/decisions, /tmp/decisions, a parent workspace) is not this project's (R6-2).
+  it("uses the folder itself outside a git repository", async () => {
+    const walk = join(await tempDir(), "walk");
+    const proj = join(walk, "sub", "proj");
+    await mkdir(join(walk, "decisions"), { recursive: true });
+    await mkdir(proj, { recursive: true });
+    expect((await cli("pending", proj)).err).toMatch(
+      new RegExp(`^president: there is no decisions/ folder in ${proj}\\. `),
+    );
+    expect(await cli("add", proj, "--create")).toEqual({
+      code: 0,
+      out: `Registered proj (${proj})`,
+      err: "",
+    });
+    expect((await readdir(proj)).includes("decisions")).toBe(true);
+  });
+
+  it("looks for a git repository no higher than $HOME (R6-2)", async () => {
+    const outer = await tempDir();
+    await mkdir(join(outer, ".git"));
+    await mkdir(join(outer, "decisions"));
+    const proj = join(outer, "home", "proj");
+    await mkdir(proj, { recursive: true });
+    vi.stubEnv("HOME", join(outer, "home"));
+    expect((await cli("pending", proj)).err).toMatch(
+      new RegExp(`^president: there is no decisions/ folder in ${proj}\\. `),
+    );
+  });
+
+  // A code folder called decisions/ inside a registered project is not a project (R6-4).
+  it("prefers the registered project to a nearer decisions/ folder", async () => {
+    const repo = await copyDemoProject("app");
+    await mkdir(join(repo, ".git"));
+    await mkdir(join(repo, "src", "decisions"), { recursive: true });
+    await writeFile(join(repo, "src", "decisions", "index.ts"), "export {};\n");
+    await cli("add", repo);
+    const result = await cli("pending", join(repo, "src"));
+    expect(result.out).toBe("Nothing pending.");
+    expect(result.err).toBe(`president: note: using the project at ${repo}`);
+    await rm(join(repo, "decisions"), { recursive: true });
+    expect((await cli("validate", join(repo, "src"))).err).toMatch(
+      new RegExp(`^president: there is no decisions/ folder in ${repo}\\. `),
+    );
+  });
+
   it("treats . and .. as paths when removing", async () => {
     const demo = await copyDemoProject();
     await cli("add", demo);

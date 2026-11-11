@@ -38,8 +38,8 @@ export async function add(args: string[], out: Output): Promise<number> {
     options: { name: { type: "string" }, create: { type: "boolean" } },
   });
   const path = single(positionals, "add <path>");
-  // From a subfolder, the project is the folder above it with decisions/, or the repository.
-  const located = await locateProject(path);
+  // From a subfolder of a git repository, the project it is in (see locateProject).
+  const located = await locateProject(path, false);
   if (located.root !== located.start) {
     out.error(
       `president: note: registering ${located.root}, ${located.hasDecisions ? `the nearest folder above ${located.start} with a ${DECISIONS_DIR}/ folder` : `the root of the git repository ${located.start} is in`}. To register a folder inside a repository as its own project, create its ${DECISIONS_DIR}/ folder first.`,
