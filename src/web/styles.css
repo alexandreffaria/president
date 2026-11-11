@@ -235,6 +235,65 @@ kbd {
   background: var(--bad);
 }
 
+/* Sync (#0001) */
+
+.sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sync-summary {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.sync-button {
+  gap: 0.35rem;
+}
+
+/* The count on the button only shows where the summary next to it is hidden. */
+.sync-button .sync-count {
+  display: none;
+}
+
+.notice.sync-report {
+  max-width: 50rem;
+  margin: 1rem auto 0;
+}
+
+.sync-results {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sync-result + .sync-result {
+  margin-top: 0.5rem;
+}
+
+.sync-result-muted {
+  color: var(--text-muted);
+}
+
+.sync-git-error {
+  margin: 0.35rem 0 0;
+  padding: 0.4rem 0.6rem;
+  border-radius: 4px;
+  background: var(--code-bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 52rem) {
+  .notice.sync-report {
+    margin: 1rem 1.25rem 0;
+  }
+}
+
 .main {
   padding: 2rem 1.25rem 8rem;
 }
@@ -1299,13 +1358,31 @@ body:has(.action-bar-open) .toasts {
   }
 
   /* Hidden from sight only: screen readers still read (and announce) it. */
-  .connection-label {
+  .connection-label,
+  .sync-summary {
     position: absolute;
     width: 1px;
     height: 1px;
     overflow: hidden;
     clip: rect(0 0 0 0);
     white-space: nowrap;
+  }
+
+  .sync-button .sync-count {
+    display: inline-block;
+  }
+
+  .sync-button kbd {
+    display: none;
+  }
+
+  /* Sync and ? next to the nav: keep them on a 375 px screen. */
+  .topbar-end .button {
+    padding: 0.3rem 0.45rem;
+  }
+
+  .notice.sync-report {
+    margin: 1rem 0.9rem 0;
   }
 
   .main {

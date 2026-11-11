@@ -2,6 +2,7 @@ import { useState } from "react";
 import { buildQueue } from "../core/queue.ts";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import { HelpOverlay } from "./components/HelpOverlay.tsx";
+import { SyncControl, SyncProvider, SyncReport } from "./components/Sync.tsx";
 import { type Connection, HubProvider, useHub } from "./hub.tsx";
 import { useKeyboard } from "./keyboard.ts";
 import { Link, parseRoute, usePathname } from "./router.tsx";
@@ -16,7 +17,9 @@ export function App() {
     <ErrorBoundary>
       <ToastProvider>
         <HubProvider>
-          <Shell />
+          <SyncProvider>
+            <Shell />
+          </SyncProvider>
         </HubProvider>
       </ToastProvider>
     </ErrorBoundary>
@@ -34,6 +37,7 @@ function Shell() {
     <>
       <Header current={route.name} onHelp={() => setHelp(true)} />
       <LoadErrorBanner />
+      <SyncReport />
       <main className="main">
         <ErrorBoundary key={pathname} inPage>
           <Route route={route} />
@@ -115,6 +119,7 @@ function Header(props: { current: string; onHelp: () => void }) {
         ))}
       </nav>
       <div className="topbar-end">
+        <SyncControl />
         {/* A status region: screen readers announce it when it changes (R5-7). */}
         <span className={`connection connection-${connection}`} role="status">
           <span className="connection-dot" aria-hidden="true" />

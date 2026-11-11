@@ -9,6 +9,8 @@ import type {
   CardDetailDto,
   CardListResponse,
   CardResponse,
+  SyncRunResponse,
+  SyncStatusResponse,
 } from "../core/api.ts";
 import { recordWrite } from "./app-writes.ts";
 
@@ -85,6 +87,9 @@ export const api = {
     ),
   addProject: (input: AddProjectRequest) =>
     call<AddProjectResponse>("/api/projects", { method: "POST", body: JSON.stringify(input) }),
+  syncStatus: () => call<SyncStatusResponse>("/api/sync"),
+  /** Runs Sync in every project; answers when all are done. */
+  sync: () => call<SyncRunResponse>("/api/sync", { method: "POST", body: "{}" }),
   removeProject: (name: string) =>
     call<{ removed: { name: string; path: string } }>(`/api/projects/${segment(name)}`, {
       method: "DELETE",
