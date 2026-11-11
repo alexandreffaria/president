@@ -53,12 +53,17 @@ never in a worktree, and never run `president add` from a worktree. The chosen o
 marks the decision "in the project's main folder", and from a worktree an agent following
 today's line would miss the human's uncommitted answers (`president pending` reads the folder
 it runs in) and mark the worktree's copy applied (`applied`, `seen` and `update` act on the card
-path they are given).
+path they are given). From a worktree, "in the main folder" means passing the main folder's
+absolute path to each command, not `cd`-ing there: agent harnesses keep agents in their
+worktree, and a `cd` would also send the agent's own git commands to the main checkout.
 
 Not decided: whether the line also covers card changes an agent makes outside an apply (new
 cards, `president update` rewrites; see [Needs a card](#needs-a-card) 1); read literally, it
 does. A doesn't wait for that card: it ships the card's line as written plus the main-folder
 rule, and once the card is answered a later pull request narrows them if the answer calls for it.
+Read literally, an agent in a worktree writes new cards and `update` drafts in the main
+folder's `decisions/` by absolute path, picks a new card's id there, and leaves them
+uncommitted; the skill says so until the card is answered.
 
 Known costs the human accepted: main can say "applied" before the docs are merged, and if the
 pull request is dropped, nothing on the card says so.
@@ -183,7 +188,8 @@ Sync would then refuse whenever an agent has work in progress.
   (#0022), conversation summaries (#0003, #0023), `defer_until` (#0017) and `withdrawn` (#0014).
   Session ids, the hub's copy of conversations and the "not summarized" list never travel
   (#0018, #0021, #0024): they live outside the project.
-- Document Sync in the README (Usage) when it ships.
+- Document Sync in the README (Usage) when it ships, and remove `SKILL.md`'s *Until Sync
+  exists* note.
 
 ## C. Queue and card UX
 
@@ -304,7 +310,12 @@ Card: [0017-deferred-resurfacing.md](../decisions/0017-deferred-resurfacing.md),
   - `defer_until` joins `HUMAN_FIELDS` in `president update` (`src/cli/commands.ts`; the CLI
     part can go in D), so an agent's rewrite can't drop or change it. Today `update` guards only
     `status`, `resolution`, `feedback`, `applied_at` and `seen_at`, so a rewrite could silently
-    drop the field and leave the card deferred for good.
+    drop the field and leave the card deferred for good. The field lists in `SKILL.md`
+    ("Keep `status`, `resolution`, …" in *Changing a card*, and "Keep `feedback`, `id`,
+    `created` and `status`" in *Cards that need new options*, since the human can defer a card
+    after "neither"; a test in `test/card-file.test.ts` quotes the second) and
+    `docs/card-format.md` ("…are still the same in both") gain it too. Not added before the
+    field exists: an agent would be told to keep a field no card has.
 - `defer_until` goes in `docs/card-format.md` (D can document it, or this PR).
 - Not decided: what a deferred card **without** `defer_until` does (deferred before this
   ships, or by a hand edit). See [Needs a card](#needs-a-card).
@@ -740,14 +751,12 @@ build PR named in brackets fixes each.
   (#0023) [D]; fields: gains `withdrawn` (#0014) [D] and `defer_until` (#0017) [C or D].
 - `docs/card-format.md` Lifecycle, notes only on open and deferred cards: #0011 allows them on
   resolved cards [C].
-- README `d` row and the card-format Lifecycle: a deferred card returns only by reopen; under
-  #0017 it also returns when `defer_until` passes [C].
+- README `d` row ("defer"): under #0017 `d` defers for a week [C].
+- The card-format Lifecycle (`deferred ──reopen──▶ open` is the only way back): under #0017 a
+  deferred card also returns when `defer_until` passes [C].
 - README, the `n` row ("an agent writes new ones"): under #0007 the hub starts the card's
   session at once [E].
 - README and the skill, "Use `president`, not `npx president`": #0016 renames the command [F].
-- The skill has no rule about committing card files: #0022 adds one [A].
-- The skill, "Run every `president` command from the project root, the folder that contains
-  `decisions/`": under #0022 that is the main folder, not a worktree [A].
 
 ## Needs a card
 
