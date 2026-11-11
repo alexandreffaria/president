@@ -32,6 +32,24 @@ vi.mock("../src/core/card-file.ts", async (importOriginal) => {
   };
 });
 
+/** Once, when set: drops this card file from what `loadProjectCards` found (gone meanwhile). */
+const loading = vi.hoisted(() => ({ drop: undefined as string | undefined }));
+
+vi.mock("../src/server/cards.ts", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../src/server/cards.ts")>();
+  return {
+    ...real,
+    loadProjectCards: async (...args: Parameters<typeof real.loadProjectCards>) => {
+      const result = await real.loadProjectCards(...args);
+      const drop = loading.drop;
+      loading.drop = undefined;
+      return drop === undefined
+        ? result
+        : { ...result, cards: result.cards.filter((c) => c.fileName !== drop) };
+    },
+  };
+});
+
 async function cli(...args: string[]) {
   const stdout: string[] = [];
   const stderr: string[] = [];
@@ -946,7 +964,9 @@ describe("president CLI", () => {
       for (const command of ["pending", "validate"]) {
         expect(await cli(command, "decisions")).toEqual({ code: 1, out: "", err: inner });
       }
-      expect((await cli("add", "decisions")).err).toBe(`${inner} Or add --create to make one here.`);
+      expect((await cli("add", "decisions")).err).toBe(
+        `${inner} Or add --create to make one here.`,
+      );
     } finally {
       cwd.mockRestore();
     }
@@ -972,6 +992,31 @@ describe("president CLI", () => {
     const unreadable = await cli("pending", demo);
     expect(unreadable).toMatchObject({ code: 0, out: "Nothing pending." });
     expect(unreadable.err).toMatch(/^president: note: can't read the registry: /);
+  });
+
+  // A link to a registered project's folder is that project (R8-6).
+  it("knows a registered project given through a link to its folder", async () => {
+    const demo = await copyDemoProject("trips");
+    await cli("add", demo);
+    const link = join(await tempDir(), "trips-link");
+    await symlink(demo, link);
+    expect(await cli("pending", link)).toEqual({ code: 0, out: "Nothing pending.", err: "" });
+    expect(await cli("validate", link)).toMatchObject({ code: 0, err: "" });
+    const card = join(link, "decisions", "0002-api-errors.md");
+    expect(await cli("validate", card)).toMatchObject({ code: 0, err: "" });
+  });
+
+  // A path that isn't there is said so, not taken for a folder without decisions/ (R8-6).
+  it("says a path is missing before looking for its decisions/ folder", async () => {
+    const missing = join(await tempDir(), "nope");
+    const gone = { code: 1, out: "", err: `president: "${missing}" does not exist` };
+    expect(await cli("add", missing)).toEqual(gone);
+    expect(await cli("validate", missing)).toEqual(gone);
+    expect(await cli("pending", missing)).toEqual({
+      code: 1,
+      out: "",
+      err: `president: "${missing}" is not a folder`,
+    });
   });
 
   // A project inside a registered one (r7 vf7.sh): its own cards, not the outer project's.
@@ -1010,6 +1055,19 @@ describe("president CLI", () => {
     const result = await cli("validate", join(demo, "decisions", "0002-api-errors.md"));
     expect(result.code).toBe(1);
     expect(result.err).toMatch(/links to .*, outside the project; president doesn't follow it/);
+  });
+
+  // Nor when the card went away while its project was read (R8-6).
+  it("says a card file was not found when its project's cards don't have it", async () => {
+    const demo = await copyDemoProject();
+    loading.drop = "0002-api-errors.md";
+    const result = await cli("validate", join(demo, "decisions", "0002-api-errors.md"));
+    expect(result.code).toBe(1);
+    expect(
+      result.err.endsWith(
+        `\nbroken  0002-api-errors.md\n          - not found in ${join(demo, "decisions")}`,
+      ),
+    ).toBe(true);
   });
 
   it("treats . and .. as paths when removing", async () => {
