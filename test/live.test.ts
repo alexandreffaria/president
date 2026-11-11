@@ -53,7 +53,6 @@ function writeCard(dir: string, n: number): Promise<void> {
   return writeFile(join(dir, `${id}-x.md`), cardText({ id: `"${id}"` }));
 }
 
-/** A watcher on a registry with the demo project; `setup` can change the registry first. */
 /** Keeps writing fresh cards into `dir` until the watcher sees one (a "cards" event can be late). */
 async function untilNewCardSeen(
   fileEvents: { event: string; path: string }[],
@@ -67,6 +66,7 @@ async function untilNewCardSeen(
   );
 }
 
+/** A watcher on a registry with the demo project; `setup` can change the registry first. */
 async function watched(setup?: (registry: Registry) => Promise<void>) {
   const registry = new Registry(join(await tempDir(), "config"));
   await mkdir(registry.dir, { recursive: true });
