@@ -23,19 +23,22 @@ afterEach(async () => {
 /**
  * Resolves once `predicate` matches an item of `items`. `poke` (if given) runs right away
  * and then every 150 ms until then, for changes a watch that is still attaching could miss.
+ * The default deadline is under vitest's 5 s test timeout, so a miss says what it waited for.
  */
 async function until<T>(
   items: T[],
   predicate: (item: T) => boolean,
   poke?: () => Promise<unknown>,
-  timeoutMs = 10_000,
+  timeoutMs = 4_000,
 ): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   let lastPoke = 0;
   for (;;) {
     const found = items.find(predicate);
     if (found !== undefined) return found;
-    if (Date.now() > deadline) throw new Error("timed out waiting for an event");
+    if (Date.now() > deadline) {
+      throw new Error(`timed out waiting for an event matching ${predicate}`);
+    }
     if (poke && Date.now() - lastPoke >= 150) {
       lastPoke = Date.now();
       await poke();

@@ -95,8 +95,9 @@ export class HubWatcher {
   /** Starts watching; resolves once the initial scan is done. */
   async start(): Promise<void> {
     const ready = new Promise<void>((resolve) => this.#watcher.once("ready", () => resolve()));
-    this.#watcher.add(this.#registry.dir);
+    // The projects' folders first: chokidar's one ready event counts only the adds made before it.
     await this.sync();
+    this.#watcher.add(this.#registry.dir);
     await ready;
   }
 
