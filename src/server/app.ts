@@ -135,7 +135,7 @@ export function createApp(options: AppOptions): Hono {
   api.get("/cards", async (c) => {
     const query = parseBody(ListQuerySchema, c.req.query());
     const registered = await registry.list();
-    // Also catches projects removed from projects.json by hand or by the CLI.
+    // Also catches projects removed by the CLI, or by deleting their file in projects/.
     forgetUnregisteredCards(registered);
     const projects = registered.filter((p) => !query.project || p.name === query.project);
     if (query.project && projects.length === 0) {

@@ -195,6 +195,7 @@ export class Registry {
     if (!PROJECT_NAME_PATTERN.test(name)) {
       throw configError(
         `${file}: "${name}" is not a valid project name (letters, digits, ".", "_" and "-")`,
+        ENTRY_FIX,
       );
     }
     let text: string;
@@ -202,17 +203,17 @@ export class Registry {
       text = await readFile(file, "utf8");
     } catch (error) {
       if (isNotFound(error)) return undefined; // removed while we were listing
-      throw configError(`cannot read ${file}: ${(error as Error).message}`);
+      throw configError(`cannot read ${file}: ${(error as Error).message}`, ENTRY_FIX);
     }
     let data: unknown;
     try {
       data = JSON.parse(text);
     } catch (error) {
-      throw configError(`${file} is not valid JSON: ${(error as Error).message}`);
+      throw configError(`${file} is not valid JSON: ${(error as Error).message}`, ENTRY_FIX);
     }
     const parsed = EntrySchema.safeParse(data);
     if (!parsed.success) {
-      throw configError(`${file} is invalid: ${formatIssues(parsed.error).join("; ")}`);
+      throw configError(`${file} is invalid: ${formatIssues(parsed.error).join("; ")}`, ENTRY_FIX);
     }
     return { name, path: parsed.data.path };
   }
@@ -257,7 +258,10 @@ export class Registry {
       text = await readFile(this.legacyFile, "utf8");
     } catch (error) {
       if (!isNotFound(error)) {
-        throw configError(`cannot read ${this.legacyFile}: ${(error as Error).message}`);
+        throw configError(
+          `cannot read ${this.legacyFile}: ${(error as Error).message}`,
+          LEGACY_FIX,
+        );
       }
       this.#migrated = true;
       return;
@@ -266,11 +270,17 @@ export class Registry {
     try {
       data = JSON.parse(text);
     } catch (error) {
-      throw configError(`${this.legacyFile} is not valid JSON: ${(error as Error).message}`);
+      throw configError(
+        `${this.legacyFile} is not valid JSON: ${(error as Error).message}`,
+        LEGACY_FIX,
+      );
     }
     const parsed = LegacySchema.safeParse(data);
     if (!parsed.success) {
-      throw configError(`${this.legacyFile} is invalid: ${formatIssues(parsed.error).join("; ")}`);
+      throw configError(
+        `${this.legacyFile} is invalid: ${formatIssues(parsed.error).join("; ")}`,
+        LEGACY_FIX,
+      );
     }
     await this.#ensureDir();
     for (const project of parsed.data.projects) await this.#create(project.name, project.path);
@@ -289,12 +299,16 @@ function withoutDuplicates(projects: Project[]): Project[] {
   return projects.filter((p) => !seen.has(p.path) && seen.add(p.path));
 }
 
-/** The registry is broken: every request needs it, so say how to fix it. */
-function configError(message: string): UserError {
-  return new UserError(
-    `${message}. Fix or delete it; the files in that folder list the registered projects.`,
-    { status: 500, code: "invalid_config" },
-  );
+/** For a broken entry file, and for a broken projects.json from before projects/. */
+const ENTRY_FIX = "Fix or delete this file; it registers one project.";
+const LEGACY_FIX = "Fix it; president moves it into projects/ once it can read it.";
+
+/** The registry is broken: every request needs it, so say how to fix it (`fix`). */
+function configError(message: string, fix = ""): UserError {
+  return new UserError(`${message}.${fix ? ` ${fix}` : ""}`, {
+    status: 500,
+    code: "invalid_config",
+  });
 }
 
 async function realDirectory(path: string): Promise<string> {

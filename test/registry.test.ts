@@ -104,14 +104,16 @@ describe("Registry", () => {
     expect((await reg.list()).map((p) => p.name).sort()).toEqual(["p0", "p1", "p2", "p3"]);
   });
 
-  it("explains a corrupt entry instead of overwriting it", async () => {
+  it("explains a corrupt entry instead of overwriting it (R6-13)", async () => {
     const reg = await registry();
     await mkdir(reg.dir, { recursive: true });
     const file = join(reg.dir, "x.json");
     await writeFile(file, "{ not json");
     await expect(reg.list()).rejects.toThrow(/x\.json is not valid JSON/);
     await writeFile(file, JSON.stringify({ path: "rel" }));
-    await expect(reg.list()).rejects.toThrow(/x\.json is invalid: path: must be an absolute path/);
+    await expect(reg.list()).rejects.toThrow(
+      /x\.json is invalid: path: must be an absolute path\. Fix or delete this file; it registers one project\.$/,
+    );
     await writeFile(join(reg.dir, "-bad.json"), JSON.stringify({ path: "/" }));
     await expect(reg.list()).rejects.toThrow(/"-bad" is not a valid project name/);
     expect(await readFile(file, "utf8")).toBe(JSON.stringify({ path: "rel" }));
@@ -213,12 +215,12 @@ describe("Registry", () => {
     expect(await new Registry(join(reg.dir, "..")).list()).toEqual([expected[1]]);
   });
 
-  it("explains an old projects.json it can't read instead of dropping it", async () => {
+  it("explains an old projects.json it can't read instead of dropping it (R6-13)", async () => {
     const reg = await registry();
     await mkdir(join(reg.dir, ".."), { recursive: true });
     await writeFile(reg.legacyFile, JSON.stringify({ projects: [{ name: "x", path: "rel" }] }));
     await expect(reg.list()).rejects.toThrow(
-      /projects\.json is invalid: projects\[0\]\.path: must be an absolute path/,
+      /projects\.json is invalid: projects\[0\]\.path: must be an absolute path\. Fix it; president moves it into projects\/ once it can read it\.$/,
     );
     expect(await readdir(join(reg.dir, ".."))).toEqual(["projects.json"]);
   });
