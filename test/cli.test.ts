@@ -176,9 +176,9 @@ describe("president CLI", () => {
     const result = await cli("validate", demo);
     expect(result.code).toBe(0);
     expect(result.err).toContain(
-      'warning 0009-deps.md: depends_on "9999" is not a card in this project',
+      'warning 0009-deps.md: depends_on "9999" is not a card in this project (line 14)',
     );
-    expect(result.err).toContain("warning 0009-deps.md: depends_on lists itself");
+    expect(result.err).toContain("warning 0009-deps.md: depends_on lists itself (line 14)");
   });
 
   it("lists pending work and marks cards applied", async () => {

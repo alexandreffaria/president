@@ -404,10 +404,58 @@ describe("validation details", () => {
       'options[0].summary: "..." is a placeholder from the template; write the real text (line 12)',
       'options[0].pros[0]: "..." is a placeholder from the template; write the real text (line 13)',
       'body: the "## Option b" section (line 22) is only "..."; write the real content',
-      'body: the context is only "..."; write the real content',
+      'body: the context (line 18) is only "..."; write the real content',
     ]);
     // An ellipsis inside real text is fine.
     expectCard(cardText({ title: '"Wait... which colour?"' }));
+  });
+});
+
+describe("messages for common YAML slips (R5-14)", () => {
+  const options = `
+  - id: a
+    title: Red
+  - id: b
+    title: Blue`;
+
+  it("says to quote a value with a colon in it, and names the field", () => {
+    expect(expectErrors(cardText({ title: "Copy: what should it say?" }))).toEqual([
+      'YAML error on line 3: title: the value contains ": ", so YAML can\'t read it; put it in quotes: title: "Copy: what should it say?"',
+    ]);
+    const inList = (pros: string) =>
+      expectErrors(
+        cardText({ options: options.replace("title: Red", `title: Red\n    pros: ${pros}`) }),
+      );
+    for (const pros of ["[Shorter: fits on one line]", "\n      - Shorter: fits on one line"]) {
+      expect(inList(pros)).toEqual([
+        expect.stringMatching(
+          /^options\[0\]\.pros\[0\]: expected text, but YAML read a "key: value" pair because the text contains ": "; put the whole text in quotes \(line 1[23]\)$/,
+        ),
+      ]);
+    }
+  });
+
+  it("reports one error for a tab in the indentation", () => {
+    expect(
+      expectErrors(cardText({ options: options.replace("    title: Red", "\t  title: Red") })),
+    ).toEqual(["YAML error on line 11: Tabs are not allowed as indentation; indent with spaces"]);
+  });
+
+  it("says a timestamp needs a timezone", () => {
+    expect(expectErrors(cardText({ created: "2026-11-10T23:54:53" }))).toEqual([
+      "created: a timestamp needs a timezone, e.g. 2026-11-10T23:54:53Z (line 7)",
+    ]);
+    expect(expectErrors(cardText({ created: "next week" }))[0]).toMatch(/expected a date like/);
+  });
+
+  it("gives the line of a second option section, an empty context and a leftover section", () => {
+    const body =
+      "\n## Context\n\n...\n\n## Option a\n\nx\n\n## Option a\n\ny\n\n## Sources\n\n- ...\n";
+    expect(expectErrors(cardText({}, body))).toEqual([
+      'body: there are two "## Option a" sections (the second on line 24)',
+      'body: the context (line 16) is only "..."; write the real content',
+      'body: the "## Sources" section (line 28) is only "..."; write the real content or remove the section',
+    ]);
   });
 });
 
@@ -417,12 +465,30 @@ describe("skills/decision-cards/SKILL.md", async () => {
     "utf8",
   );
 
+  const template = /^````markdown\n([\s\S]*?)\n````$/m.exec(skill)?.[1] ?? "";
+
   it("has a template that validate refuses until the placeholders are replaced", () => {
-    const template = /^````markdown\n([\s\S]*?)\n````$/m.exec(skill)?.[1];
-    expect(template).toBeDefined();
+    expect(template).not.toBe("");
     const errors = expectErrors(`${template}\n`, "0012-empty-state-copy.md");
     expect(errors.every((e) => /placeholder|only "\.\.\."/.test(e))).toBe(true);
     expect(errors.length).toBeGreaterThanOrEqual(3);
+  });
+
+  // An agent that replaces only the `...` must not leave the template's instructions in the
+  // card (R5-13): every value and section meant for the agent's own text is a placeholder.
+  it("has no instructions written as values in its template", () => {
+    const filled = template.replaceAll("...", "Real text");
+    const card = expectCard(`${filled}\n`, "0012-empty-state-copy.md");
+    const { recommendation, options } = card.frontmatter;
+    expect(recommendation?.why).toBe("Real text");
+    for (const option of options) {
+      expect([option.summary, ...option.pros, ...option.cons]).toEqual(Array(3).fill("Real text"));
+    }
+    const sectionTexts = template
+      .split(/^## .*$/m)
+      .slice(1)
+      .map((text) => text.trim());
+    expect(sectionTexts).toEqual(["...", "...", "...", "- ..."]);
   });
 
   it("has an open card example that is valid", () => {

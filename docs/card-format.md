@@ -76,8 +76,8 @@ to use it as a name. When president writes a card it changes only the fields who
 changed; everything else (comments, quoting, folded text, line endings, the body) stays exactly as
 it was.
 
-`validate` rejects the template's placeholders: a value or an option section that is just `...`
-(or `[...]`) means the card isn't finished.
+`validate` rejects the template's placeholders: a value or a body section that is just `...`
+(or `[...]`, or `- ...`) means the card isn't finished.
 
 ### Kinds
 

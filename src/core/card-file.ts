@@ -27,6 +27,8 @@ export interface ParsedCard {
   raw: RawFrontmatter;
   body: string;
   sections: BodySections;
+  /** The file line of each top-level frontmatter field, for messages about it. */
+  fieldLines: Record<string, number>;
 }
 
 export interface CardProblem {
@@ -146,19 +148,7 @@ function parseNamedCard(
   // stderr on every read; such keys are reported as a card error below instead.
   const doc = parseDocument(split.yaml, { lineCounter, logLevel: "error" });
   const fileLine = (offset: number) => lineCounter.linePos(offset).line + split.yamlStartLine - 1;
-  if (doc.errors.length > 0) {
-    return fail(
-      doc.errors.map((error) => {
-        const line = error.linePos?.[0]?.line;
-        const where = line === undefined ? "" : ` on line ${line + split.yamlStartLine - 1}`;
-        const message = (error.message.split("\n")[0] ?? error.message).replace(
-          / at line \d+, column \d+:?$/,
-          "",
-        );
-        return `YAML error${where}: ${message}`;
-      }),
-    );
-  }
+  if (doc.errors.length > 0) return fail(yamlErrors(doc.errors, split));
   if (isMap(doc.contents)) {
     // Only names: a list, mapping, number, true/false or null as a key isn't a field of
     // the card, and the writer can't place an edit next to one.
@@ -216,7 +206,9 @@ function parseNamedCard(
         `body: "## Option ${section.id}" (line ${bodyLine(section.line)}) does not match any option id in the frontmatter`,
       );
     } else if (seenSections.has(section.id)) {
-      errors.push(`body: there are two "## Option ${section.id}" sections`);
+      errors.push(
+        `body: there are two "## Option ${section.id}" sections (the second on line ${bodyLine(section.line)})`,
+      );
     }
     seenSections.add(section.id);
     if (isPlaceholder(section.markdown)) {
@@ -226,8 +218,23 @@ function parseNamedCard(
     }
   }
   if (isPlaceholder(sections.context.replace(/^##[ \t]+Context[ \t]*\n/i, ""))) {
-    errors.push('body: the context is only "..."; write the real content');
+    const heading = split.body.split("\n").findIndex((line) => /^##[ \t]+Context\b/i.test(line));
+    const where = heading === -1 ? "" : ` (line ${bodyLine(heading + 1)})`;
+    errors.push(`body: the context${where} is only "..."; write the real content`);
   }
+  // Other sections from the template (## Sources) left as "...".
+  const bodyLines = split.body.split("\n");
+  bodyLines.forEach((line, i) => {
+    const heading = /^##[ \t]+(.+?)[ \t]*$/.exec(line)?.[1];
+    if (!heading || /^(context|option)\b/i.test(heading)) return;
+    const next = bodyLines.findIndex((l, j) => j > i && /^##[ \t]/.test(l));
+    const content = bodyLines.slice(i + 1, next === -1 ? undefined : next).join("\n");
+    if (isPlaceholder(content.replace(/^\s*[-*][ \t]+/, ""))) {
+      errors.push(
+        `body: the "## ${heading}" section (line ${bodyLine(i + 1)}) is only "..."; write the real content or remove the section`,
+      );
+    }
+  });
   if (errors.length > 0) return fail(errors);
 
   return {
@@ -239,8 +246,58 @@ function parseNamedCard(
       raw: raw as RawFrontmatter,
       body: split.body,
       sections,
+      fieldLines: fieldLinesOf(doc, fileLine),
     },
   };
+}
+
+/** YAML's own messages for what an unquoted `: ` inside a value does. */
+const COLON_IN_VALUE =
+  /Nested mappings are not allowed in compact mappings|Implicit map keys need to be followed by map values|Implicit keys need to be on a single line/;
+
+/**
+ * YAML syntax errors as lines an agent can act on: the first error of each line only (one
+ * slip often gives several), only the tab errors when a tab is the cause, and for a value
+ * with `: ` in it, the field and the value in quotes.
+ */
+function yamlErrors(
+  errors: { message: string; linePos?: [{ line: number; col: number }, ...unknown[]] }[],
+  split: SplitFile,
+): string[] {
+  const yamlLines = split.yaml.split("\n");
+  const tabs = errors.filter((error) => error.message.startsWith("Tabs are not allowed"));
+  const seen = new Set<number | undefined>();
+  const out: string[] = [];
+  for (const error of tabs.length > 0 ? tabs : errors) {
+    const line = error.linePos?.[0]?.line;
+    if (seen.has(line)) continue;
+    seen.add(line);
+    const where = line === undefined ? "" : ` on line ${line + split.yamlStartLine - 1}`;
+    let message = (error.message.split("\n")[0] ?? error.message).replace(
+      / at line \d+, column \d+:?$/,
+      "",
+    );
+    if (tabs.length > 0) message += "; indent with spaces";
+    const field = /^\s*(?:-\s+)?([A-Za-z_][\w.-]*):[ \t]+(.*?)\s*$/.exec(
+      line === undefined ? "" : (yamlLines[line - 1] ?? ""),
+    );
+    if (COLON_IN_VALUE.test(message) && field?.[2]?.includes(": ")) {
+      const [, key, value] = field;
+      message = `${key}: the value contains ": ", so YAML can't read it; put it in quotes: ${key}: ${JSON.stringify(value)}`;
+    }
+    out.push(`YAML error${where}: ${message}`);
+  }
+  return out;
+}
+
+function fieldLinesOf(doc: Document, fileLine: (offset: number) => number): Record<string, number> {
+  const lines: Record<string, number> = {};
+  if (!isMap(doc.contents)) return lines;
+  for (const pair of doc.contents.items) {
+    const key = pair.key as { value?: unknown; range?: [number, number, number] } | null;
+    if (typeof key?.value === "string" && key.range) lines[key.value] = fileLine(key.range[0]);
+  }
+  return lines;
 }
 
 /** The file line of the YAML node at `path`, or of its closest existing parent. */

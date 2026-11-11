@@ -31,7 +31,7 @@ import {
   parseCardFileName,
 } from "../core/card-file.ts";
 import { updateCardText } from "../core/card-writer.ts";
-import { CARD_ID_PATTERN, sameCardId } from "../core/schema.ts";
+import { CARD_ID_PATTERN, lineSuffix, sameCardId } from "../core/schema.ts";
 import { UserError } from "./errors.ts";
 import { isNotFound, KeyedMutex, writeFileAtomic } from "./fs-utils.ts";
 import { decisionsDirOf, type Project } from "./registry.ts";
@@ -154,14 +154,19 @@ function dependencyWarnings(cards: LoadedCard[], broken: BrokenCardDto[]): CardW
   const ids = [...cards.map((c) => c.id), ...broken.flatMap((b) => (b.id ? [b.id] : []))];
   const warnings: CardWarning[] = [];
   for (const card of cards) {
+    const line = lineSuffix(card.fieldLines.depends_on);
     for (const dep of card.frontmatter.depends_on) {
       if (sameCardId(dep, card.id)) {
-        warnings.push({ fileName: card.fileName, id: card.id, message: "depends_on lists itself" });
+        warnings.push({
+          fileName: card.fileName,
+          id: card.id,
+          message: `depends_on lists itself${line}`,
+        });
       } else if (!ids.some((id) => sameCardId(dep, id))) {
         warnings.push({
           fileName: card.fileName,
           id: card.id,
-          message: `depends_on "${dep}" is not a card in this project`,
+          message: `depends_on "${dep}" is not a card in this project${line}`,
         });
       }
     }

@@ -21,11 +21,31 @@ import {
 export * from "./model.ts";
 
 const DATE_HINT = "expected a date like 2026-11-10 or a timestamp like 2026-11-10T14:03:00Z";
+/** The hint for a value that is not a date or timestamp; names a missing timezone. */
+function dateHint(input: unknown): string {
+  if (
+    typeof input === "string" &&
+    /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(input)
+  ) {
+    return `a timestamp needs a timezone, e.g. ${input.replace(" ", "T")}Z`;
+  }
+  return DATE_HINT;
+}
 const Timestamp = z
-  .string({ error: (issue) => (issue.input === undefined ? "is required" : DATE_HINT) })
-  .refine(isIsoDateOrDateTime, { error: DATE_HINT });
+  .string({ error: (issue) => (issue.input === undefined ? "is required" : dateHint(issue.input)) })
+  .refine(isIsoDateOrDateTime, { error: (issue) => dateHint(issue.input) });
 
-const NonEmpty = z.string().trim().min(1, { error: "must not be empty" });
+/**
+ * Text where YAML found a mapping: an unquoted value with `: ` in it, such as
+ * `- Shorter: fits on one line`, reads as `{ Shorter: "fits on one line" }`.
+ */
+function quoteHint(issue: { input?: unknown }): string | undefined {
+  const { input } = issue;
+  if (input === null || typeof input !== "object" || Array.isArray(input)) return undefined;
+  return 'expected text, but YAML read a "key: value" pair because the text contains ": "; put the whole text in quotes';
+}
+const Text = z.string({ error: quoteHint });
+const NonEmpty = z.string({ error: quoteHint }).trim().min(1, { error: "must not be empty" });
 
 /**
  * YAML reads an unquoted `0007` as the number 7, so ids may arrive as numbers.
@@ -43,9 +63,9 @@ export const OptionSchema = z.looseObject({
     error: 'option ids are short lowercase slugs such as "a", "b" or "result-types"',
   }),
   title: NonEmpty,
-  summary: z.string().optional(),
-  pros: z.array(z.string()).default([]),
-  cons: z.array(z.string()).default([]),
+  summary: Text.optional(),
+  pros: z.array(Text).default([]),
+  cons: z.array(Text).default([]),
 });
 
 export const RecommendationSchema = z.looseObject({
@@ -61,7 +81,7 @@ export const FeedbackSchema = z.looseObject({
 
 export const ResolutionSchema = z.looseObject({
   choice: NonEmpty,
-  note: z.string().optional(),
+  note: Text.optional(),
   resolved_at: Timestamp,
 });
 

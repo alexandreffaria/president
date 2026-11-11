@@ -87,7 +87,8 @@ the part that is the same for every option.
    - `choice`: 2 to 4 options shown one under another.
    - `open`: there is no sensible list of options ("what should the welcome text say?").
 4. Write the frontmatter and the body. Template (every `...` is a placeholder you must replace;
-   `president validate` rejects cards that still have them):
+   `president validate` rejects cards that still have them). The question, ids and titles are
+   an example; replace them too:
 
 ````markdown
 ---
@@ -102,16 +103,15 @@ tags: [copy, onboarding]
 depends_on: []
 recommendation:
   option: action
-  why: >-
-    One sentence or two. Why you would pick it, based on what you know about this project.
+  why: ...
 options:
   - id: promise
     title: Lead with the offline promise
-    summary: One sentence that says what this option is.
+    summary: ...
     pros:
-      - A concrete advantage
+      - ...
     cons:
-      - A concrete cost
+      - ...
   - id: action
     title: Lead with the next action
     summary: ...
@@ -121,12 +121,11 @@ options:
 
 ## Context
 
-What is being decided, why now, and what constrains it. Written for someone who has not read
-the code. Link files and docs you relied on.
+...
 
 ## Option promise: Lead with the offline promise
 
-The concrete example: the actual text, a code snippet, a sketch of the screen.
+...
 
 ## Option action: Lead with the next action
 
@@ -134,8 +133,20 @@ The concrete example: the actual text, a code snippet, a sketch of the screen.
 
 ## Sources
 
-- Where facts came from, with links and short quotes.
+- ...
 ````
+
+   What goes where:
+   - `recommendation.why`: a sentence or two on why you would pick that option, based on what
+     you know about this project.
+   - `summary`: one sentence that says what the option is. `pros` and `cons`: concrete
+     advantages and costs, one per item.
+   - `## Context`: what is being decided, why now, and what constrains it, written for someone
+     who has not read the code. Link the files and docs you relied on.
+   - `## Option <id>: <title>`: the concrete example: the actual text, a code snippet, a sketch
+     of the screen.
+   - `## Sources`: where facts came from, with links and short quotes. Leave the section out if
+     you looked nothing up.
 
    An `open` card needs no options; the human answers in their own words:
 
