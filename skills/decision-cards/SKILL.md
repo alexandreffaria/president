@@ -274,24 +274,37 @@ what the human added since, without any sign. Instead:
    ignores those), for example `decisions/.0012-empty-state-copy.md.new`: the card as you read
    it, with your changes. Keep `status`, `resolution`, `feedback`, `seen_at` and `applied_at`
    exactly as they were.
-3. Replace the card with it:
+3. Replace the card with it, then remove your file:
 
    ```sh
    president update decisions/0012-empty-state-copy.md decisions/.0012-empty-state-copy.md.new
+   rm decisions/.0012-empty-state-copy.md.new
    ```
 
    It checks your version like `president validate`, and replaces the card only if what the
-   human owns is still what you read; then it removes your file. If it refuses because the
-   human changed the card, it prints what they added: read the card again, take that into
-   account too, write your version again from the card as it is now, and run `president update`
-   again. Run the card's `done:` line only after that, so the new entries are shown to you
-   first.
+   human owns is still what you read. It never replaces a decided card (`status: resolved`):
+   the decision is about the card as the human saw it, so don't rewrite it; apply the decision
+   (see **Applying resolved cards**). If it refuses because the human added or took back a
+   note, it prints those entries: read the card again, take them into account too, write your
+   version again from the card as it is now, and run `president update` again. If it refuses
+   because the card's status or decision changed (the human decided, deferred or reopened it,
+   or took a decision back), don't write your version again: run `president pending` and
+   handle the card as it shows it now.
+
+   After a refused `update`, the `done:` line you have is from before the new entries: once
+   your update went through, run `president pending` again and use its new `done:` line.
 
 A new card has no human edits to lose: write its file directly (`decisions/<id>-<slug>.md`).
+
+A card `president validate` reports as broken (a YAML error, a duplicate id) is the one
+exception: president never writes a broken card, so neither the human nor `president update`
+can change it. Fix it by editing the file directly, or rename it for a duplicate id, then
+validate it again.
 
 ## Rules
 
 - Only edit cards to apply the steps above. Never resolve a card yourself, and never change a
   `resolution` the human made.
-- Change existing cards only with `president update` (see **Changing a card**).
+- Change existing cards only with `president update` (see **Changing a card**), except to fix
+  a broken one.
 - Unknown frontmatter fields are kept by president, so you can add your own bookkeeping fields.

@@ -48,9 +48,9 @@ Usage:
       Both take the token \`pending\` printed, and refuse if the human changed the card since.
   president update <card-file> <new-version-file>
       Replace a card with your rewrite of it (new options, recommendation, body), written
-      from the card as you read it. Refuses, and changes nothing, if the human added a note
-      or changed the card since: keep status, resolution, feedback, seen_at and applied_at
-      as they are. On success the new-version file is removed.
+      from the card as you read it. Refuses, and changes nothing, if the card is decided or
+      if the human added a note or changed the card since: keep status, resolution,
+      feedback, seen_at and applied_at as they are. Your file is left for you to remove.
   president demo [path] [--name <name>]
       Copy the sample project into <path> (default: a new temporary folder) and register the
       copy, to try president without touching any of your files.

@@ -200,7 +200,9 @@ the command refuses: run `president pending` again.
 Agents change an existing card only with `president update <card-file> <new-version-file>`: the
 new version is the card as the agent read it, with its changes, and it replaces the card only if
 `status`, `resolution`, `feedback`, `seen_at` and `applied_at` are still the same in both. A note
-the human added in the meantime is then reported instead of being overwritten.
+the human added in the meantime is then reported instead of being overwritten. A decided card
+(`status: resolved`) is never replaced, and the new-version file is left for the agent to remove.
+A broken card can't be updated (president never writes one): fix it by editing the file.
 
 Check a card with `president validate <project>` or `president validate <card-file>`; it prints
 each problem with the field and the file line.

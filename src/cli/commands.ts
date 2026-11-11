@@ -1,7 +1,7 @@
 /**
  * The \`president\` commands (see main.ts for the dispatch and the help text).
  */
-import { cp, mkdtemp, readdir, readFile, realpath, rm, stat, unlink } from "node:fs/promises";
+import { cp, mkdtemp, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { isDeepStrictEqual, parseArgs } from "node:util";
@@ -440,19 +440,29 @@ export async function seen(args: string[], out: Output): Promise<number> {
 /** What the human (and president) own in a card; an agent's rewrite keeps these as they are. */
 const HUMAN_FIELDS = ["status", "resolution", "feedback", "applied_at", "seen_at"] as const;
 
+/** Why `update` refuses a decided card, or one whose status or decision changed. */
+const DONT_REWRITE =
+  "don't rewrite it: run `president pending` and handle the card as it shows it (for a decided card, apply the decision).";
+
 /**
  * `president update <card-file> <new-version>`: replaces a card with an agent's rewrite of
  * it (new options, recommendation, body...), only if what the human owns is the same in the
  * rewrite as in the card now. The rewrite was made from the card as the agent read it, so a
  * note the human added since (or a decision, an undo) shows up as a difference, and the card
- * is left alone instead of losing it.
+ * is left alone instead of losing it. A decided card is never rewritten: the decision is
+ * about the options and text the human saw.
  */
 export async function update(args: string[], out: Output): Promise<number> {
   const { positionals } = parseArgs({ args, allowPositionals: true });
   const usage = "update <card-file> <new-version-file>";
   const [cardFile, newFile, ...extra] = positionals.map((p) => resolve(p));
   if (!cardFile || !newFile || extra.length > 0) throw new UserError(`usage: president ${usage}`);
-  const { card } = await cardAt(cardFile, out);
+  const { project, card } = await cardAt(cardFile, out);
+  if (card.frontmatter.status === "resolved") {
+    throw new UserError(
+      `${card.fileName} was not changed: the human decided it, and the decision is about the card as they saw it, so ${DONT_REWRITE}`,
+    );
+  }
   if (await sameFolder(newFile, card.path)) {
     throw new UserError(
       `give your new version of the card as a separate file (for example ${join(dirname(card.path), `.${card.fileName}.new`)}); usage: president ${usage}`,
@@ -466,13 +476,21 @@ export async function update(args: string[], out: Output): Promise<number> {
   }
   const parsed = parseCard(text, card.fileName);
   if (!parsed.ok) {
-    printProblems([parsed.problem], [], out);
+    // Line numbers are the new file's, so the problems are labeled with it.
+    printProblems([{ fileName: newFile, errors: parsed.problem.errors }], [], out);
     out.error(
       `president: ${card.fileName} was not changed. Fix ${newFile}, then run president update again.`,
     );
     return 1;
   }
-  const changes = humanChanges(card.frontmatter, parsed.card.frontmatter);
+  const mine = parsed.card.frontmatter;
+  const changes = humanChanges(card.frontmatter, mine);
+  if (changes.some((c) => c.startsWith("status:") || c.startsWith("resolution:"))) {
+    throw new UserError(
+      `${card.fileName} was not changed: its status or decision changed since you read it (the human deferred or reopened it, or took back a decision), or your version changes them, so ${DONT_REWRITE}`,
+      { details: changes },
+    );
+  }
   if (changes.length > 0) {
     throw new UserError(
       `${card.fileName} was not changed: what the human owns differs between the card and your version, so the card changed since you read it. Read the card again, make your changes to it as it is now (keep ${HUMAN_FIELDS.join(", ")} exactly as they are), and run president update again:`,
@@ -484,9 +502,15 @@ export async function update(args: string[], out: Output): Promise<number> {
     throw new UserError(`${card.fileName} changed while updating it; run president update again`);
   }
   await writeFileAtomic(card.path, text);
-  await unlink(newFile).catch(() => {});
-  out.log(`Updated ${card.fileName} (and removed ${basename(newFile)}).`);
-  if (parsed.card.frontmatter.needs_new_options) {
+  out.log(`Updated ${card.fileName}. Remove ${newFile} once you no longer need it.`);
+  // The checks `validate` runs across the project (a depends_on that names no card).
+  const { warnings } = await loadProjectCards(project);
+  printProblems(
+    [],
+    warnings.filter((w) => w.fileName === card.fileName),
+    out,
+  );
+  if (mine.needs_new_options) {
     out.error(
       "president: warning: needs_new_options is still set. Remove it once the options are rewritten, or the card stays out of the human's queue.",
     );
@@ -497,12 +521,21 @@ export async function update(args: string[], out: Output): Promise<number> {
 /** How what the human owns differs from the card (`now`) to an agent's rewrite (`mine`). */
 function humanChanges(now: Frontmatter, mine: Frontmatter): string[] {
   const changes: string[] = [];
-  const read = mine.feedback.length;
-  if (now.feedback.length > read && isDeepStrictEqual(now.feedback.slice(0, read), mine.feedback)) {
-    const added = now.feedback.slice(read);
+  const isPrefix = (short: Frontmatter["feedback"], long: Frontmatter["feedback"]) =>
+    isDeepStrictEqual(long.slice(0, short.length), short);
+  const entries = (list: Frontmatter["feedback"]) =>
+    list.map((f) => `${f.type ?? "note"} ${f.at}: ${continued(f.note, "    ")}`);
+  if (now.feedback.length > mine.feedback.length && isPrefix(mine.feedback, now.feedback)) {
+    const added = now.feedback.slice(mine.feedback.length);
     changes.push(
       `feedback: the human added ${added.length} ${added.length === 1 ? "entry" : "entries"} since you read the card:`,
-      ...added.map((f) => `  ${f.type ?? "note"} ${f.at}: ${continued(f.note, "    ")}`),
+      ...entries(added),
+    );
+  } else if (now.feedback.length < mine.feedback.length && isPrefix(now.feedback, mine.feedback)) {
+    const gone = mine.feedback.slice(now.feedback.length);
+    changes.push(
+      `feedback: the human took back ${gone.length} ${gone.length === 1 ? "entry" : "entries"} since you read the card; drop ${gone.length === 1 ? "it" : "them"} from your version, and undo anything you changed for ${gone.length === 1 ? "it" : "them"}:`,
+      ...entries(gone),
     );
   } else if (!isDeepStrictEqual(now.feedback, mine.feedback)) {
     changes.push("feedback: your version's entries are not the card's; copy them unchanged");
@@ -579,9 +612,12 @@ async function cardAt(file: string, out: Output): Promise<{ project: Project; ca
     throw error;
   });
   if (!found.ok) {
-    throw new UserError(`${found.broken.fileName} is broken; fix it first`, {
-      details: found.broken.errors,
-    });
+    throw new UserError(
+      `${found.broken.fileName} is broken. Fix it by editing the file directly (president doesn't write broken cards, so this is the one case to edit a card yourself), then run this again`,
+      {
+        details: found.broken.errors,
+      },
+    );
   }
   if (found.card.fileName !== basename(file)) {
     if (exists) {
