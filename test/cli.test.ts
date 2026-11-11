@@ -880,7 +880,14 @@ describe("president CLI", () => {
     expect(await cli("pending", demo)).toEqual({ code: 0, out: "Nothing pending.", err: note });
     expect((await cli("validate", demo)).err).toBe(note);
     expect((await cli("validate", join(demo, "decisions", "0002-api-errors.md"))).err).toBe(note);
-    await cli("add", demo);
+    // An entry that names a link to the folder (written by hand) is the same project.
+    const link = join(await tempDir(), "trips-link");
+    await symlink(demo, link);
+    await mkdir(join(configHome, "president", "projects"), { recursive: true });
+    await writeFile(
+      join(configHome, "president", "projects", "trips.json"),
+      JSON.stringify({ path: link }),
+    );
     expect((await cli("pending", demo)).err).toBe("");
     // A registry it can't read is said, and the command still runs.
     await writeFile(join(configHome, "president", "projects", "trips.json"), "{");
