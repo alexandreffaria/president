@@ -27,7 +27,7 @@ options:
     cons:
       - Talking about the same card on two machines makes each one replace the other's id, so each machine loses its own conversation and starts over from the summaries
       - If both machines change that line between two Syncs, Sync stops with "changed on both machines" (tested)
-      - A conversation started on one machine and a note added on the other between Syncs can also conflict, because the id line sits next to the notes (tested)
+      - A conversation started on one machine and a note added on the other between Syncs can also conflict when the id line sits next to the notes, as it does when it is added after them (new fields go at the end; tested)
       - The card file changes when a conversation starts, which the open page has to recognise as its own write
   - id: per-machine
     title: One line per machine in the card
