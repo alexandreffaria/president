@@ -1,7 +1,7 @@
 ---
 id: "0005"
 title: What should "Teach me" produce before you decide a card?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-11T13:22:05Z
@@ -57,6 +57,10 @@ options:
     cons:
       - The slowest path to understanding for a newcomer; you do the synthesis
       - Primary sources rarely address your exact decision, so the link to the options is left to you
+resolution:
+  choice: worked
+  resolved_at: 2026-11-11T17:33:54Z
+applied_at: 2026-11-11T18:09:14Z
 ---
 
 ## Context

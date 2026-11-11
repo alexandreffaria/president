@@ -1,7 +1,7 @@
 ---
 id: "0016"
 title: Should the president command be renamed, given an unrelated npm package with that name?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-11T13:22:16Z
@@ -46,6 +46,10 @@ options:
     cons:
       - A plain npx president still goes to the other package (an error today, its code if it ever gains a command); only the documented line is safe
       - Publishing to npm means versioning and releasing, for a tool that so far runs from a git checkout
+resolution:
+  choice: rename
+  resolved_at: 2026-11-11T17:37:40Z
+applied_at: 2026-11-11T18:09:33Z
 ---
 
 ## Context

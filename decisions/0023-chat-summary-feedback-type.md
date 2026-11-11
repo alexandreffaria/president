@@ -1,7 +1,7 @@
 ---
 id: "0023"
 title: Should a conversation summary be marked as its own kind of entry, or saved as a plain note?
-status: open
+status: resolved
 kind: choice
 priority: low
 created: 2026-11-11T15:58:25Z
@@ -46,6 +46,10 @@ options:
       - Two ways of saying what an entry is (its type, and this extra field), which the format has to explain
       - president pending has to be changed to show the mark, or agents won't see it
       - An agent reading the card file directly may miss the extra field
+resolution:
+  choice: chat
+  resolved_at: 2026-11-11T17:39:05Z
+applied_at: 2026-11-11T18:09:41Z
 ---
 
 ## Context

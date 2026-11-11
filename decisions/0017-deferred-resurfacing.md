@@ -1,7 +1,7 @@
 ---
 id: "0017"
 title: Should deferred cards come back to the queue on their own?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-11T13:22:17Z
@@ -53,6 +53,10 @@ options:
     cons:
       - A card waiting on you, not on an agent, never comes back, so it is forgotten as easily as today
       - Needs the hub to know when the card was deferred and when an agent last changed it (two new recorded times), and agents must know that updating a deferred card brings it back
+resolution:
+  choice: snooze
+  resolved_at: 2026-11-11T17:37:52Z
+applied_at: 2026-11-11T18:09:34Z
 ---
 
 ## Context

@@ -1,7 +1,7 @@
 ---
 id: "0020"
 title: Should you be able to talk with the agent about a card you already decided?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-11T15:58:25Z
@@ -46,6 +46,10 @@ options:
     cons:
       - Needs notes on decided cards, which is card 0011's question; it only fits if that card picks "allow" or "amend", and under amend every saved summary makes the agent redo the apply step
       - A summary that really changes the decision can slip in as a note, and the agent must judge whether to redo its work
+resolution:
+  choice: chat-saved
+  resolved_at: 2026-11-11T17:38:39Z
+applied_at: 2026-11-11T18:09:37Z
 ---
 
 ## Context

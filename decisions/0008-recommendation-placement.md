@@ -1,7 +1,7 @@
 ---
 id: "0008"
 title: Where should the agent's recommendation appear on a card?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-11T13:22:08Z
@@ -44,6 +44,10 @@ options:
     cons:
       - The strongest anchoring; the options are read as arguments for or against the pick
       - Makes it easy to approve without reading, which defeats the point of asking you
+resolution:
+  choice: hidden
+  resolved_at: 2026-11-11T17:34:41Z
+applied_at: 2026-11-11T18:09:17Z
 ---
 
 ## Context

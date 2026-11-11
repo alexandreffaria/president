@@ -1,7 +1,7 @@
 ---
 id: "0018"
 title: When you come back to a card on the same machine, should the page show the earlier conversation?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-11T15:58:25Z
@@ -51,6 +51,10 @@ options:
       - After a reload, a closed tab or a hub restart you can't reread what the agent said, even though it is on this machine
       - The agent remembers details you can no longer see, so a reply like "as I said above" points at nothing
       - A conversation you left without saving a summary leaves no visible trace on the card
+resolution:
+  choice: hub-copy
+  resolved_at: 2026-11-11T17:38:04Z
+applied_at: 2026-11-11T18:09:35Z
 ---
 
 ## Context

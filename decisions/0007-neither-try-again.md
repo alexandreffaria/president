@@ -1,7 +1,7 @@
 ---
 id: "0007"
 title: When you reject every option, who should write the new ones, and when?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-11T13:22:07Z
@@ -48,6 +48,10 @@ options:
     cons:
       - Two buttons, and you have to judge which one each time, without seeing whether an agent is about to run in that project
       - Still needs everything option spawn needs (the read-only session of card 0004, the hub writing the options), for the cards where you use it
+resolution:
+  choice: spawn
+  resolved_at: 2026-11-11T17:34:16Z
+applied_at: 2026-11-11T18:09:15Z
 ---
 
 ## Context

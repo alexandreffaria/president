@@ -1,7 +1,7 @@
 ---
 id: "0013"
 title: How should agents pick a new card's id?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-11T13:22:13Z
@@ -43,6 +43,10 @@ options:
     cons:
       - Long ids in file names, depends_on and conversation ("card 20261111k7q2"); the UI would show a shorter form
       - Existing cards keep their numbers, so projects mix two styles
+resolution:
+  choice: dated
+  resolved_at: 2026-11-11T17:36:13Z
+applied_at: 2026-11-11T18:09:30Z
 ---
 
 ## Context

@@ -1,7 +1,7 @@
 ---
 id: "0012"
 title: Should Undo erase an action without a trace, or leave a record in the card's history?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-11T13:22:12Z
@@ -45,6 +45,10 @@ options:
     cons:
       - Typos and misclicks stay in the history forever, and each one shows up in president pending as something to read
       - An undone note still leaves its text in the file and in git, which may be exactly what you wanted gone
+resolution:
+  choice: hybrid
+  resolved_at: 2026-11-11T17:36:01Z
+applied_at: 2026-11-11T18:09:28Z
 ---
 
 ## Context

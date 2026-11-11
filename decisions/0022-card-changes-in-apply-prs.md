@@ -1,7 +1,7 @@
 ---
 id: "0022"
 title: Should an agent's pull request include your answers on the cards it applies?
-status: open
+status: resolved
 kind: choice
 priority: high
 created: 2026-11-11T15:58:25Z
@@ -51,6 +51,10 @@ options:
       - Applying waits for you to press Sync; a decision you didn't sync stays unapplied
       - Like copy, the hub keeps saying "waiting for an agent to apply it" until the pull request is merged and synced, so another agent may apply it again
       - Reopening the card while the pull request is open can still conflict with its "applied" line
+resolution:
+  choice: sync-only
+  resolved_at: 2026-11-11T17:32:30Z
+applied_at: 2026-11-11T18:09:40Z
 ---
 
 ## Context

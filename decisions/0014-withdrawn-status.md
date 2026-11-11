@@ -1,7 +1,7 @@
 ---
 id: "0014"
 title: How should an agent retract a card that is no longer relevant?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-11T13:22:14Z
@@ -61,6 +61,10 @@ options:
     cons:
       - The card keeps a place in your queue until you deal with it
       - A fake "Drop this question" option is a workaround the card format wasn't designed for
+resolution:
+  choice: field
+  resolved_at: 2026-11-11T17:36:30Z
+applied_at: 2026-11-11T18:09:31Z
 ---
 
 ## Context
