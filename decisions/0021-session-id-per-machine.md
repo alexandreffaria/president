@@ -27,6 +27,7 @@ options:
     cons:
       - Talking about the same card on two machines makes each one replace the other's id, so each machine loses its own conversation and starts over from the summaries
       - If both machines change that line between two Syncs, Sync stops with "changed on both machines" (tested)
+      - A conversation started on one machine and a note added on the other between Syncs can also conflict, because the id line sits next to the notes (tested)
       - The card file changes when a conversation starts, which the open page has to recognise as its own write
   - id: per-machine
     title: One line per machine in the card
@@ -36,6 +37,7 @@ options:
       - Everything about a card is still in its file
     cons:
       - If both machines change their lines between two Syncs, Sync still stops with "changed on both machines", because the lines sit next to each other (tested)
+      - A conversation started on one machine and a note added on the other between Syncs can also conflict when the list sits next to the notes, as it does when it is added after them (new fields go at the end)
       - Commits ids that mean nothing on any other machine, and the list keeps machines you no longer use
       - The card file still changes when a conversation starts
   - id: local
@@ -56,8 +58,8 @@ options:
 PR 2 runs a Claude Code session per card. To continue a conversation, the hub needs the
 session's id (`claude --resume <id>`). Card [#0003](0003-conversation-storage.md) (option
 `summary`) decided that the full conversation stays in Claude Code's store **on the machine
-that had it**; only summaries travel with the card. The roadmap that lands with PR #5
-(`docs/roadmap.md`, "Where the conversation lives") stores the id in the card's `session_id`
+that had it**; only summaries travel with the card. The roadmap (`docs/roadmap.md`, merged
+with PR #5, "Where the conversation lives") stores the id in the card's `session_id`
 field, which the format already reserves (`src/core/schema.ts`, `docs/card-format.md`). This card
 asks whether that is the right place, now that cards travel between machines with Sync
 ([#0001](0001-sync-across-machines.md), option `sync`).
@@ -85,9 +87,12 @@ and the second one pulling with `--rebase`, as Sync does):
 | adds `laptop: aaa` to a per-machine list | adds `desktop: bbb` to the same list | conflict |
 | changes its own line in the list | changes its own (neighbouring) line | conflict |
 | adds a note to `feedback` | adds `desktop: bbb` to the list, far from `feedback` | merged cleanly |
+| sets `session_id` for the first time (a new key goes at the end, next to `feedback`) | adds a note to `feedback` | conflict |
+| changes an existing `session_id` that sits after `feedback` | adds a note to `feedback` | conflict |
 
 So a per-machine list stops the machines from taking each other's conversation, but not the
-conflicts. (Two machines each adding a summary to the same card between Syncs also conflicts,
+conflicts, and under both `shared` and `per-machine` starting a conversation on one machine can
+collide with a plain note on the other. (Two machines each adding a summary to the same card between Syncs also conflicts,
 under every option; that is #0001's known cost.)
 
 ## Option shared: One line in the card for all machines
@@ -108,8 +113,9 @@ The machine name would be the computer's hostname, or a name you set once per ma
 
 ## Option local: Outside the card, in the hub's own store
 
-Nothing in the card. On each machine, next to the registry of projects
-(`~/.config/president/`), the hub keeps something like:
+Nothing in the card. On each machine, in president's state folder (`$XDG_STATE_HOME/president/`,
+by default `~/.local/state/president/`, the same folder #0018's `hub-copy` would use), the hub
+keeps something like:
 
 ```json
 { "president/0007": "3f2c9a8e-1b7d-4c55-9e0a-6d2f8b1c4e77" }
@@ -125,9 +131,14 @@ exactly as #0003 describes, and that machine keeps its own entry from then on.
 - Under `shared` and `per-machine`, the id write goes through the hub's card writer and changes
   the card's revision (`revisionOf` in `src/server/cards.ts`); the page must treat it as its
   own write and not show "An agent changed this card" (`src/web/views/CardView.tsx`).
-- Under `local`, the registry lives in `$XDG_CONFIG_HOME/president/` (`src/server/registry.ts`),
-  so the store can sit beside it; `docs/card-format.md` and the `session_id` comment in
+- Under `local`, the store goes in `$XDG_STATE_HOME/president/`, not beside the registry in
+  `$XDG_CONFIG_HOME/president/` (`src/server/registry.ts`): the registry is configuration you
+  set up, while session ids are state the hub keeps between restarts, which is what the XDG
+  spec puts in `$XDG_STATE_HOME`. `docs/card-format.md` and the `session_id` comment in
   `src/core/schema.ts` change to say the field is no longer used.
+- Variant of `local`: the id could also be derived from the project path and card id (a fixed
+  UUID per card passed to `--session-id`), so nothing is stored at all; starting a fresh
+  conversation on the same card would then need a counter.
 
 ## Sources
 
@@ -141,7 +152,11 @@ exactly as #0003 describes, and that machine keeps its own entry from then on.
   conversation (must be a valid UUID)".
 - Scratch test with git 2.56.0: two clones of a bare repository, each commits its version of a
   card, the second runs `git pull --rebase` (results in the table above).
-- Cards #0001, #0003, #0020; `docs/roadmap.md` (lands with PR #5); PR #5 review, finding D-4 and
-  question Q4.
+- XDG Base Directory Specification: `$XDG_CONFIG_HOME` is for "user-specific configuration
+  files" (default `$HOME/.config`); `$XDG_STATE_HOME` is for "state data that should persist
+  between (application) restarts", such as "current state of the application that can be reused
+  on a restart" (default `$HOME/.local/state`). https://specifications.freedesktop.org/basedir/latest/
+- Cards #0001, #0003, #0018, #0020; `docs/roadmap.md` (on main since PR #5); PR #5 review,
+  finding D-4 and question Q4.
 - Code: `src/core/schema.ts` (`session_id`), `src/server/cards.ts` (`revisionOf`),
   `src/server/registry.ts`, `src/web/views/CardView.tsx`.

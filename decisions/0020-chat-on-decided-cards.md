@@ -11,11 +11,13 @@ depends_on: ["0003", "0011"]
 recommendation:
   option: chat-saved
   why: >-
-    Questions about a decision often come after it ("what did the agent change for this?",
-    "should this also cover the README?"), and when they lead somewhere the agent should
-    hear about it. Saving the summary as a note on the decided card is the same thing as
-    #0011's "allow", so pick this if you pick that. If #0011 stays "reopen to add anything",
-    pick chat-unsaved instead.
+    Decide #0011 first; this card follows from it. Questions about a decision often come
+    after it ("why did we pick this?", "does the README use the new name now?"), and when
+    they lead somewhere the agent should hear about it. Saving the summary as a note on the
+    decided card is the same thing as #0011's "allow", so pick this if you pick that. If
+    #0011 picks amend, chat-saved still fits, but every saved summary sends the card back to
+    the agent to re-apply. If #0011 stays "reopen to add anything", pick chat-unsaved
+    instead.
 options:
   - id: open-only
     title: Only on open and deferred cards
@@ -30,7 +32,7 @@ options:
     title: Allowed, but nothing is saved to the card
     summary: You can talk about a decided card, but the conversation ends without a summary and the card file is never changed by it.
     pros:
-      - You can ask "why did we pick this?" or "what did the agent change?" without reopening
+      - You can ask "why did we pick this?" or "does the README use the new name now?" without reopening
       - A decided card stays exactly as the applying agent left it
     cons:
       - Anything you conclude in that conversation never reaches the working agent, unless you reopen and write it down
@@ -42,7 +44,7 @@ options:
       - Afterthoughts from a conversation reach the agent without reopening the decision
       - The conversation area works the same on every card
     cons:
-      - Needs notes on decided cards, which is card 0011's question; it only fits if that card picks "allow"
+      - Needs notes on decided cards, which is card 0011's question; it only fits if that card picks "allow" or "amend", and under amend every saved summary makes the agent redo the apply step
       - A summary that really changes the decision can slip in as a note, and the agent must judge whether to redo its work
 ---
 
@@ -61,13 +63,23 @@ a decided card. Whether you may add a note to a decided card is
 [#0011](0011-notes-on-decided-cards.md), still open. A saved summary is a note in all but name
 (see #0023), so this card depends on #0011.
 
-**Why not decided yet.** The roadmap that lands with PR #5 (`docs/roadmap.md`, "Cross-card
+**What the conversation can answer there.** The session can read the project's files as they
+are now, but not their history ([#0004](0004-chat-session-permissions.md) gives it no git), so
+it can't list what the agent changed. It can answer "why did we pick this?" from the card, and
+"does the README use the new name now?" by reading the README.
+
+**Why not decided yet.** The roadmap (`docs/roadmap.md`, merged with PR #5, "Cross-card
 consequences") says to save summaries only on open or deferred cards until #0011 is decided.
 The review of PR #5 asked the wider question: is the conversation there at all on a decided card,
 and may the hub write to the card for it?
 
-Example: you decided #0016 "rename the command" last week. Today you wonder whether the agent
-also changed the README, and want to ask.
+**How #0011's three answers play out here.** Under `reopen-only`, nothing can be added to a
+decided card, so only `open-only` or `chat-unsaved` fit. Under `allow`, a saved summary is a
+note that the agent reads; the decision and "applied" stay. Under `amend`, a saved summary also
+clears "applied", so the agent redoes the apply step with the summary in mind, every time.
+
+Example: you decided #0016 "rename the command" last week. Today you wonder whether the README
+uses the new name now, and want to ask.
 
 ## Option open-only: Only on open and deferred cards
 
@@ -109,5 +121,6 @@ human" (it already lists notes on cards in any state, `withNotes` in `src/cli/co
 - Code: `src/core/actions.ts` (`ALLOWED_FROM`), `src/web/views/CardView.tsx` (`ActionBar`),
   `src/cli/commands.ts` (`withNotes`), `src/server/cards.ts` (`undoLastAction`),
   `src/core/schema.ts` (`session_id`, "Reserved for the chat panel").
-- Cards #0003, #0011; `docs/roadmap.md` (lands with PR #5); PR #5 review, finding D-4 and
-  question Q3.
+- Cards #0003, #0004 (the session's tools: `Read,Grep,Glob,WebSearch,WebFetch`, no Bash), #0011
+  (options `reopen-only`, `allow`, `amend`); `docs/roadmap.md` (on main since PR #5); PR #5
+  review, finding D-4 and question Q3.

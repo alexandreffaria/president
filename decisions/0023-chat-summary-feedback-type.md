@@ -58,20 +58,23 @@ what **you** see in the card's History, and what **agents** read in `president p
 **Today.** The types are `neither`, `note`, `defer`, `reopen` and `undo` (`FEEDBACK_TYPES` in
 `src/core/model.ts`). History shows each with a label: "Asked for new options", "Note",
 "Deferred", "Reopened", "Decision taken back" (the `LABEL` list in
-`src/web/components/FeedbackHistory.tsx`; an unknown type would show as "Note").
+`src/web/components/FeedbackHistory.tsx`; History would fall back to "Note", but a card with an
+unknown type is broken before it gets there).
 `president pending` prints each new entry as `<type> <time>: <text>` (`src/cli/commands.ts`),
 so it needs no change for a new type. A card with a type president doesn't know fails the
 format check (`FeedbackSchema` in `src/core/schema.ts`) and shows as broken. Extra fields on an
 entry are allowed and kept.
 
 **Why not decided yet.** Card #0003 left it open ("`chat` would be a new feedback type; it could
-also be a plain `note`"), and the roadmap that lands with PR #5 called it an implementation
-choice. The review of PR #5 pointed out that it changes what you see and what agents read, so
-it comes to you.
+also be a plain `note`"). An earlier draft of `docs/roadmap.md` in PR #5 called it an
+implementation choice. The review of PR #5 pointed out that it changes what you see and what
+agents read; the merged roadmap now leaves it open and points to this card. (#0019 mentions a
+variant where a summary written when you decide goes into the decision's "Why?" instead; this
+card is still about the summaries saved when you close a conversation.)
 
-Example: you talked with the agent on #0007 and saved this summary: "I now see that B's extra
-code is one line per call with a helper. Asked the agent to check whether our HTTP client already
-throws on 404."
+Example, on an invented card "#0042 Should failed requests throw or return a result?": you
+talked with its agent and saved this summary: "I now see that B's extra code is one line per
+call with a helper. Asked the agent to check whether our HTTP client already throws on 404."
 
 ## Option chat: A new kind of entry, "Conversation summary"
 
@@ -156,5 +159,5 @@ In the card file:
 - Code: `src/core/model.ts` (`FEEDBACK_TYPES`), `src/core/schema.ts` (`FeedbackSchema`: the type
   must be one of `FEEDBACK_TYPES`, extra fields allowed), `src/web/components/FeedbackHistory.tsx`
   (`LABEL`, falls back to "Note"), `src/cli/commands.ts` (pending prints `type ?? "note"`).
-- Card #0003, option `summary`; `docs/roadmap.md` (lands with PR #5); PR #5 review, finding D-10
+- Card #0003, option `summary`; `docs/roadmap.md` (on main since PR #5); PR #5 review, finding D-10
   and question Q6.
