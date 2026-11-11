@@ -3,7 +3,6 @@
  * reports changes (debounced) so the UI can refresh without a reload.
  */
 import { EventEmitter } from "node:events";
-import type { Stats } from "node:fs";
 import { stat } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { type FSWatcher, watch } from "chokidar";
@@ -78,7 +77,10 @@ export class HubWatcher {
   /** decisions dir -> what the last look found there (see `identity`), null if nothing. */
   #seen = new Map<string, string | null>();
   #poll: NodeJS.Timeout | undefined;
+  /** A poll's look is still running: the next tick is skipped, so looks never pile up. */
+  #polling = false;
   #closed = false;
+  readonly #closing = Promise.withResolvers<void>();
 
   constructor(registry: Registry, bus: EventBus, options: HubWatcherOptions = {}) {
     this.#registry = registry;
@@ -94,6 +96,7 @@ export class HubWatcher {
       ignored: (path) => this.ignores(path),
     });
     this.#watcher.on("all", (event, path) => this.#onChange(event, path));
+    this.#watcher.on("raw", (event, path, details) => this.#onRaw(event, path, details));
     this.#watcher.on("error", (error) => console.error("[watcher]", error));
   }
 
@@ -102,12 +105,14 @@ export class HubWatcher {
     const ready = new Promise<void>((resolve) => this.#watcher.once("ready", () => resolve()));
     // The decisions/ folders first: chokidar's one ready event counts only the adds made before it.
     await this.sync();
+    // Closed meanwhile: an add would reopen chokidar, and its ready event will never come.
+    if (this.#closed) return;
     this.#watcher.add(this.#registry.dir);
-    await ready;
+    await Promise.race([ready, this.#closing.promise]);
     if (this.#closed) return;
     // A watch doesn't see its own folder appear, or another made in its place, so a poll looks
     // for that: two stats per project, and no watches of its own.
-    this.#poll = setInterval(() => void this.#check([...this.#dirs.keys()]), this.#pollMs);
+    this.#poll = setInterval(() => void this.#tick(), this.#pollMs);
     this.#poll.unref();
   }
 
@@ -131,6 +136,7 @@ export class HubWatcher {
 
   async close(): Promise<void> {
     this.#closed = true;
+    this.#closing.resolve();
     clearInterval(this.#poll);
     this.#debouncer.cancelAll();
     await this.#watcher.close();
@@ -158,8 +164,37 @@ export class HubWatcher {
       });
       return;
     }
+    // chokidar can tell decisions/ went (from its cards' events) before the folder's own
+    // event comes, and then stops watching it, so that event may never come (see #onRaw).
+    if (event === "unlinkDir") this.#wentAway(path);
     const project = this.#dirs.get(path) ?? this.#dirs.get(dirname(path));
     if (project) this.#reportCards(project);
+  }
+
+  /** A watched decisions/ that is deleted or moved away raises a raw `rename` naming itself. */
+  #onRaw(event: string, path: string, details: unknown): void {
+    const watched = (details as { watchedPath?: unknown } | undefined)?.watchedPath;
+    if (event !== "rename" || typeof watched !== "string") return;
+    if (path === watched || path === basename(watched)) this.#wentAway(watched);
+  }
+
+  /**
+   * decisions/ `dir` went (deleted or moved away): its next look treats whatever is there as
+   * new, even a folder with the same inode (ext4 reuses it for a folder made again at once).
+   */
+  #wentAway(dir: string): void {
+    if (this.#seen.get(dir)) this.#seen.set(dir, STALE);
+  }
+
+  /** One poll tick, skipped while the last one is still looking (a hung mount, say). */
+  async #tick(): Promise<void> {
+    if (this.#polling) return;
+    this.#polling = true;
+    try {
+      await this.#check([...this.#dirs.keys()]);
+    } finally {
+      this.#polling = false;
+    }
   }
 
   #reportCards(name: string): void {
@@ -192,15 +227,30 @@ export class HubWatcher {
   }
 }
 
+/** What `#seen` holds for a folder that went: no identity equals it. */
+const STALE = "stale";
+
 /**
- * What is at decisions/ `dir`: which folder it and its project folder are, or null if it is
- * not a folder. That changes when either is made again or a drive is mounted above. The
- * birth time is part of it, as a folder made again often gets the old one's inode (ext4).
+ * What is at decisions/ `dir`: which folder it and its project folder are (device and
+ * inode), or null if it is not a folder. That changes when either is made again with a new
+ * inode, or a drive is mounted above. A folder made again often gets the old one's inode
+ * (ext4); its watch's events catch that (see `#wentAway`). No time is part of it: without
+ * statx, Node reports the ctime as the birth time, and that changes with every card written.
+ *
+ * Known limit: where the watch reports nothing when the folder goes (a network drive
+ * changed from another machine), a decisions/ deleted and made again with the same inode
+ * between two looks isn't noticed, and its project gets no live updates until the hub
+ * restarts or the project is registered again.
+ *
+ * The two stats run one after the other, so a hung mount holds one thread, not two.
  */
-function identity(dir: string): Promise<string | null> {
-  const id = (s: Stats) => `${s.dev}:${s.ino}:${s.birthtimeMs}`;
-  return Promise.all([stat(dirname(dir)), stat(dir)]).then(
-    ([root, decisions]) => (decisions.isDirectory() ? `${id(root)} ${id(decisions)}` : null),
-    () => null,
-  );
+export async function identity(dir: string): Promise<string | null> {
+  try {
+    const root = await stat(dirname(dir));
+    const decisions = await stat(dir);
+    if (!decisions.isDirectory()) return null;
+    return `${root.dev}:${root.ino} ${decisions.dev}:${decisions.ino}`;
+  } catch {
+    return null;
+  }
 }

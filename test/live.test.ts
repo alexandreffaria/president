@@ -4,20 +4,67 @@
  * condition (with a generous timeout) and, where a watch may not be attached yet, keep
  * poking the file system until the event shows up.
  */
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import type { Stats } from "node:fs";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { connect, type Socket } from "node:net";
 import { dirname, join } from "node:path";
+import { FSWatcher } from "chokidar";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type ClientOptions, WebSocket } from "ws";
 import type { HubEvent, LiveMessage } from "../src/core/api.ts";
 import { Registry } from "../src/server/registry.ts";
 import { type RunningHub, startHub } from "../src/server/server.ts";
-import { Debouncer, EventBus, HubWatcher } from "../src/server/watcher.ts";
+import { Debouncer, EventBus, HubWatcher, identity } from "../src/server/watcher.ts";
 import { cardText, copyDemoProject, tempDir } from "./helpers.ts";
+
+/** Stats of `paths` wait for `until`; `held` and `released` count those calls. */
+interface Hold {
+  paths: Set<string>;
+  until: Promise<void>;
+  held: number;
+  released: number;
+}
+
+/**
+ * `stat` as the watcher's poll sees it (chokidar's own calls aren't affected). By default it
+ * is the real one. A test can make some folders look as a filesystem without birth times
+ * that reuses inodes shows them (`sameInode`), report the ctime as the birth time as Node
+ * does without statx (`birthIsCtime`), or hold calls for some paths (`hold`). Each test
+ * uses its own folders, so a look still running from an earlier test changes nothing here.
+ */
+const statMock = vi.hoisted(() => ({
+  sameInode: new Set<string>(),
+  birthIsCtime: false,
+  hold: undefined as Hold | undefined,
+}));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const fs = await importOriginal<typeof import("node:fs/promises")>();
+  const stat = async (path: string, ...rest: unknown[]): Promise<Stats> => {
+    const hold = statMock.hold?.paths.has(path) ? statMock.hold : undefined;
+    if (hold) {
+      hold.held += 1;
+      await hold.until;
+    }
+    try {
+      const real = (await fs.stat(path, ...(rest as []))) as Stats;
+      const changes = {
+        ...(statMock.birthIsCtime ? { birthtimeMs: real.ctimeMs } : {}),
+        ...(statMock.sameInode.has(path) ? { ino: 1, birthtimeMs: 0 } : {}),
+      };
+      return Object.assign(Object.create(Object.getPrototypeOf(real)), real, changes);
+    } finally {
+      if (hold) hold.released += 1;
+    }
+  };
+  return { ...fs, stat, default: { ...fs, stat } };
+});
 
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
   await Promise.all(closers.splice(0).map((close) => close()));
+  statMock.sameInode.clear();
+  statMock.birthIsCtime = false;
+  statMock.hold = undefined;
 });
 
 /**
@@ -192,14 +239,192 @@ describe("HubWatcher", () => {
     );
   });
 
-  it("keeps reporting changes after decisions/ is deleted and created again", async () => {
+  // Twice: every time, not only the first, the old watch must be dropped (P2b-3).
+  it("keeps reporting changes after decisions/ is deleted and created again, twice", async () => {
     const { demo, log } = await watched();
     const dir = join(demo, "decisions");
-    await rm(dir, { recursive: true });
-    // At once: the watcher may not have seen the old folder go.
-    await mkdir(dir);
-    await untilNewCardSeen(log, "demo", dir);
+    for (let round = 0; round < 2; round++) {
+      log.splice(0);
+      await rm(dir, { recursive: true });
+      // At once: the watcher may not have seen the old folder go.
+      await mkdir(dir);
+      await untilNewCardSeen(log, "demo", dir);
+    }
   });
+
+  // Where the folder made again gets the old inode and there is no birth time (ext4 with
+  // small inodes, most FUSE filesystems), only the old watch's raw event tells (P2b-1).
+  // Two signals tell: the folder's raw `rename`, and chokidar's unlinkDir when it notices
+  // first (from the cards' events) and drops the watch before that event comes. Moved away,
+  // the old folder still exists and its watch still works, on it: only a watch dropped first
+  // and made again watches the new folder.
+  const deleted = (dir: string) => rm(dir, { recursive: true });
+  it.each([
+    ["deleted", deleted, false],
+    ["deleted (chokidar's unlinkDir alone telling)", deleted, true],
+    ["moved away", (dir: string) => rename(dir, `${dir}-${Math.random()}`), false],
+  ])(
+    "keeps reporting changes after decisions/ is %s and made again with the same inode, twice",
+    async (_, remove, withoutRaw) => {
+      if (withoutRaw) {
+        const emit = FSWatcher.prototype.emit as (this: FSWatcher, ...args: unknown[]) => boolean;
+        const spy = vi.spyOn(FSWatcher.prototype, "emit");
+        spy.mockImplementation(function (this: FSWatcher, ...args: unknown[]) {
+          return args[0] === "raw" ? false : emit.apply(this, args);
+        } as FSWatcher["emit"]);
+        closers.push(async () => spy.mockRestore());
+      }
+      const { demo, log } = await watched(async (registry) => {
+        const [project] = await registry.list();
+        statMock.sameInode.add(project?.path ?? "");
+        statMock.sameInode.add(join(project?.path ?? "", "decisions"));
+      });
+      const dir = join(demo, "decisions");
+      expect(statMock.sameInode.has(dir)).toBe(true);
+      for (let round = 0; round < 2; round++) {
+        log.splice(0);
+        await remove(dir);
+        await mkdir(dir);
+        await untilNewCardSeen(log, "demo", dir);
+      }
+    },
+  );
+
+  // Without statx, Node gives the ctime as the birth time; a card write changes it, and must
+  // not make the poll take the folder for a new one (P2b-1).
+  it("tells folders apart by something card writes don't change", async () => {
+    statMock.birthIsCtime = true;
+    const demo = await copyDemoProject();
+    const dir = join(demo, "decisions");
+    const before = await identity(dir);
+    expect(before).not.toBeNull();
+    await writeCard(dir, 5);
+    await writeFile(join(demo, "notes.txt"), "x");
+    await rm(join(dir, "0005-x.md"));
+    expect(await identity(dir)).toBe(before);
+    await rm(dir, { recursive: true });
+    expect(await identity(dir)).toBeNull();
+  });
+
+  // A project removed and added back keeps nothing from before: its folder is looked at as
+  // new and watched again (P2b-3).
+  it("watches a project again once it is unregistered and registered at the same path", async () => {
+    const { demo, registry, watcher, log } = await watched();
+    await registry.remove("demo");
+    await watcher.sync();
+    await registry.add({ path: demo, name: "demo" });
+    await watcher.sync();
+    log.splice(0);
+    await untilNewCardSeen(log, "demo", join(demo, "decisions"));
+  });
+
+  /**
+   * Holds the watcher's stats of the projects' folders (each project and its decisions/)
+   * until `release()`, which resolves once every look that was held has finished.
+   */
+  function holdLooks(projects: string[]) {
+    const { promise, resolve } = Promise.withResolvers<void>();
+    const paths = new Set(projects.flatMap((path) => [path, join(path, "decisions")]));
+    const hold: Hold = { paths, until: promise, held: 0, released: 0 };
+    statMock.hold = hold;
+    const release = async () => {
+      resolve();
+      // A look stats a project's decisions/ right after its folder (in the same macrotask),
+      // and its own code runs right after its last stat: seen from here, a look is done once
+      // no held stat is left running.
+      await vi.waitFor(() => expect(hold.released).toBe(hold.held));
+      await new Promise((done) => setImmediate(done));
+    };
+    return { hold, release };
+  }
+
+  // A hung stat (a hung network mount) must not pile up looks, one per tick (P2b-2).
+  it("starts no new look while the last one is still running", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const { demo } = await watched();
+      const { hold, release } = holdLooks([demo]);
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.waitFor(() => expect(hold.held).toBe(1));
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(hold.held).toBe(1);
+      await release();
+      // And the poll goes on once it is done.
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.waitFor(() => expect(hold.held).toBeGreaterThan(2));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // A look that ends after close() must not add a watch, which would reopen chokidar (P2b-3).
+  it("adds no watch from a look that ends after close()", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const { demo, watcher } = await watched();
+      const add = vi.spyOn(FSWatcher.prototype, "add");
+      closers.push(async () => add.mockRestore());
+      const { hold, release } = holdLooks([demo]);
+      // The look will find another folder there.
+      statMock.sameInode.add(join(demo, "decisions"));
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.waitFor(() => expect(hold.held).toBe(1));
+      await watcher.close();
+      await release();
+      expect(hold.released).toBe(2);
+      expect(add).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // close() while start() runs: start() settles, and nothing stays open (P2b-4). "During
+  // its first look" closes while start() is looking at the folders, every time; the others
+  // land wherever the timing puts them.
+  it.each([
+    ["during its first look", "hold"],
+    ["right after it adds the registry folder", "registry"],
+    ["at once", 0],
+    ["after a turn", "turn"],
+    ["after 1 ms", 1],
+    ["after 5 ms", 5],
+    ["after 20 ms", 20],
+  ] as const)(
+    "lets start() settle and leaves no watches when closed during it (%s)",
+    async (_, when) => {
+      const watches = () => process.getActiveResourcesInfo().filter((r) => r === "FSEventWrap");
+      const before = watches().length;
+      const registry = new Registry(join(await tempDir(), "config"));
+      await mkdir(registry.dir, { recursive: true });
+      const projects = [await copyDemoProject("one"), await copyDemoProject("two")];
+      for (const [i, path] of projects.entries()) await registry.add({ path, name: `p${i}` });
+      const held = when === "hold" ? holdLooks(projects) : undefined;
+      const watcher = new HubWatcher(registry, new EventBus(), { pollMs: 100 });
+      const original = FSWatcher.prototype.add;
+      const add = vi.spyOn(FSWatcher.prototype, "add");
+      closers.push(async () => add.mockRestore());
+      // Before chokidar is ready: it then never will be.
+      let closing: Promise<void> | undefined;
+      add.mockImplementation(function (this: FSWatcher, ...args: Parameters<FSWatcher["add"]>) {
+        original.apply(this, args);
+        if (when === "registry" && args[0] === registry.dir) closing ??= watcher.close();
+        return this;
+      });
+      const started = watcher.start();
+      if (held) await vi.waitFor(() => expect(held.hold.held).toBe(2));
+      else if (when === "registry") await vi.waitFor(() => expect(closing).toBeDefined());
+      else if (when === "turn") await new Promise((done) => setImmediate(done));
+      else if (typeof when === "number" && when > 0)
+        await new Promise((done) => setTimeout(done, when));
+      await (closing ?? watcher.close());
+      const adds = add.mock.calls.length;
+      await held?.release();
+      await started;
+      // Nothing is added once closed (that would reopen chokidar), and every watch goes.
+      expect(add.mock.calls.length).toBe(adds);
+      await until([0], () => watches().length === before);
+    },
+  );
 
   // rm -rf removes a folder's entries in readdir order, so decisions/ needn't go last.
   it.each([
