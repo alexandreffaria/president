@@ -55,16 +55,34 @@ when and how to write cards, and how to act on your answers.
 skills from `.claude/skills/`. Any Claude Code session started in a clone of president has the
 skill, with nothing to install. Other projects are unaffected.
 
+On Windows, git checks symlinks out as plain text files unless `core.symlinks=true` is set.
+Without it, `.claude/skills/decision-cards` is a text file containing `../../skills/decision-cards`
+and the skill silently doesn't load. Clone with `git clone -c core.symlinks=true …` (creating
+symlinks also needs Developer Mode or admin rights).
+
 **For other projects**, pick one:
 
-- Per project: link it into that project's `.claude/skills/`, the same way this repo does. Commit
-  the link if everyone working on that project has president checked out at the same relative path;
-  otherwise keep it local.
+- Per project, local only: link it into that project's `.claude/skills/` and don't commit the link.
+  `PRESIDENT` must be an absolute path. A symlink target resolves against the link's own folder
+  (`.claude/skills/`), not your current directory, so a relative `PRESIDENT` gives a dangling link.
 
   ```sh
-  # from the other project's root; PRESIDENT is where you cloned president
+  # from the other project's root
+  PRESIDENT=/absolute/path/to/president   # or: PRESIDENT="$(cd path/to/president && pwd)"
   mkdir -p .claude/skills
   ln -s "$PRESIDENT/skills/decision-cards" .claude/skills/decision-cards
+  test -e .claude/skills/decision-cards/SKILL.md && echo ok || echo dangling
+  ```
+
+- Per project, committed: use a relative target, counted from `.claude/skills/`, the same way this
+  repo does. Only commit it if everyone working on that project has president checked out at the
+  same place relative to it. For president cloned next to the project:
+
+  ```sh
+  # from the other project's root, with president at ../president
+  mkdir -p .claude/skills
+  ln -s ../../../president/skills/decision-cards .claude/skills/decision-cards
+  test -e .claude/skills/decision-cards/SKILL.md && echo ok || echo dangling
   ```
 
 - Globally, for every project on this machine:
@@ -74,6 +92,9 @@ skill, with nothing to install. Other projects are unaffected.
   mkdir -p ~/.claude/skills
   ln -s "$PWD/skills/decision-cards" ~/.claude/skills/decision-cards
   ```
+
+  This takes precedence over the in-repo copy; if you installed it globally before and only want it
+  here, `rm ~/.claude/skills/decision-cards`.
 
 Because these are symlinks, pulling this repo updates the skill everywhere it's linked.
 
