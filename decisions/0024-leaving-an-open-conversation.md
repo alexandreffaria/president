@@ -13,7 +13,7 @@ recommendation:
   why: >-
     Most of the time you leave a card to come back to it (moving through the queue, a
     reload), and nothing is lost in between: the conversation stays on this machine for 30
-    days and a summary can be written from it at any time. A reminder keeps leaving instant
+    days after you last used it, and a summary can be written from it any time in that window. A reminder keeps leaving instant
     and costs nothing until you ask for the summary. Pick ask if you often talk about a card
     once and never return to it, so the summary is written while the conversation is fresh;
     pick auto if you'd rather never think about it and accept an agent run each time.
@@ -28,6 +28,7 @@ options:
       - If you never come back to the card, what you discussed never reaches the agent
       - By the time you write the summary, you may have forgotten what you concluded
       - The reminder is per machine; on another machine the card shows nothing, and a summary can only be written where you talked
+      - After 30 days without use Claude Code deletes the conversation; the card can then only say it is gone, and what you discussed never reaches the agent
   - id: ask
     title: Ask before leaving
     summary: Leaving a card with an unsummarized conversation asks "Summarize before leaving?", with Summarize, Leave without summary, and Stay.
@@ -61,8 +62,8 @@ other way out: you **leave** the card with the conversation still open, by movin
 card or back to the queue, reloading, closing the tab, or restarting the hub. It covers open and
 deferred cards; whether there is a conversation on a decided card at all is #0020.
 
-**Nothing is lost by leaving.** The conversation stays in Claude Code's store on this machine,
-30 days by default, and a summary can be written from it at any time by continuing the same
+**Nothing is lost by leaving, for 30 days.** The conversation stays in Claude Code's store on this machine,
+30 days by default, and until then a summary can be written from it by continuing the same
 session (`claude -p --resume <session-id> ... "summarize what we changed"` is the documented way
 to ask an existing session for a summary). What can be lost is the summary itself: if none is
 ever written, the working agent never hears what you discussed. On another machine the
@@ -96,6 +97,9 @@ Discuss
   Conversation not summarized yet.  [Write summary]
   [Ask a follow-up...                                    ]
 ```
+
+If the conversation has been deleted in the meantime, the card shows "This conversation is no
+longer on this machine" instead of Write summary.
 
 The hub keeps the list of cards with an unsummarized conversation on this machine, outside the
 project (for example in `$XDG_STATE_HOME/president/`, by default `~/.local/state/president/`).
@@ -137,6 +141,8 @@ summary waits in the hub (on this machine, outside the project) until you do.
 - Under `remind` and `ask`, the hub needs to know which cards have a conversation without a
   summary on this machine: a small per-machine list, or the conversation's last message time
   compared with the card's last summary.
+- Under `auto`, a closed tab or a reload reaches the hub only as the page disconnecting, and the
+  two look the same: the hub summarizes on every reload too.
 
 ## Sources
 
@@ -151,6 +157,10 @@ summary waits in the hub (on this machine, outside the project) until you do.
   https://code.claude.com/docs/en/sessions
 - Claude Code docs, the .claude directory: transcripts are deleted after `cleanupPeriodDays`,
   "The default is 30 days". https://code.claude.com/docs/en/claude-directory
+- Claude Code docs, settings reference, `cleanupPeriodDays`: "Set how many days Claude Code keeps
+  session transcripts and other application data before deleting them", "a session you haven't
+  used for longer than the retention period no longer appears in the `/resume` picker", default
+  `30`. https://code.claude.com/docs/en/settings-reference#cleanupperioddays
 - MDN, `beforeunload`, usage notes: browsers "only show a generic browser-specified string in
   the displayed dialog. This cannot be controlled by the webpage code."
   https://developer.mozilla.org/en-US/docs/Web/API/Window/beforeunload_event

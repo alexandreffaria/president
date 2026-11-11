@@ -78,20 +78,20 @@ decided card, so only `open-only` or `chat-unsaved` fit. Under `allow`, a saved 
 note that the agent reads; the decision and "applied" stay. Under `amend`, a saved summary also
 clears "applied", so the agent redoes the apply step with the summary in mind, every time.
 
-Example: you decided #0016 "rename the command" last week. Today you wonder whether the README
-uses the new name now, and want to ask.
+Example, on an invented card "#0043 Rename the command": you decided it last week. Today you
+wonder whether the README uses the new name now, and want to ask.
 
 ## Option open-only: Only on open and deferred cards
 
 ```
-Decided: Rename the command, 5 days ago. An agent has applied it.
+Decided #0043: Rename the command, 5 days ago. An agent has applied it.
 This decision is made.  [Reopen]
 ```
 
 ## Option chat-unsaved: Allowed, but nothing is saved to the card
 
 ```
-Decided: Rename the command, 5 days ago. An agent has applied it.
+Decided #0043: Rename the command, 5 days ago. An agent has applied it.
 Discuss (not saved to the card; reopen to change the decision)
   [Ask about this decision...                      ]
 ```

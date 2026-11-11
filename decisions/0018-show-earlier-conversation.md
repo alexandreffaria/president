@@ -29,7 +29,7 @@ options:
     cons:
       - Gone once Claude Code cleans it up (after 30 days by default); the page then shows only the summaries
       - Adds Claude Code's developer kit (the Agent SDK, still at version 0.x, about 340 MB with the Claude Code copy it installs) to the hub, and it has to be kept up to date with your Claude Code
-      - Each message comes back in Claude Code's raw form, with everything the agent did (files it read, searches), so the page has to pick out the readable messages itself
+      - Each message's content is undocumented (typed `unknown`), so the page relies on the shape Claude Code writes today, which an update can change
   - id: hub-copy
     title: The hub keeps its own copy, outside git
     summary: The hub saves each message it showed you to a file of its own on this machine (outside the project, never committed) and shows that file when you come back.
@@ -40,7 +40,7 @@ options:
     cons:
       - A second copy of every conversation on disk, including any file contents the agent quoted, with its own cleanup to build
       - After Claude Code deletes its copy, the page shows a conversation the agent no longer remembers; your next message starts from the summaries
-      - New storage code in the hub (writing, reading, cleanup, a project or card that is removed)
+      - New storage code in the hub (writing, reading, cleanup, a project or card that is removed, renamed or renumbered)
   - id: summaries
     title: Show only the saved summaries
     summary: Coming back shows the card's History with the summaries you saved; the earlier messages aren't shown, though the agent still remembers them when you continue.
@@ -97,6 +97,9 @@ state folder (`$XDG_STATE_HOME/president/`, by default `~/.local/state/president
 `~/.local/state/president/chats/shop/0042.jsonl`. If Claude Code has already deleted its copy,
 the page adds: "The agent no longer remembers this conversation; your next message starts from
 the summaries."
+
+Continuing the conversation still resumes Claude Code's session, as #0003 decided; this file is
+only for showing it.
 
 ## Option summaries: Show only the saved summaries
 
