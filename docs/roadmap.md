@@ -13,7 +13,7 @@ Status on 2026-11-11: none of this is built.
 | Work | Decided by | Blocked on |
 |---|---|---|
 | [Sync](#sync-0001) | #0001 | nothing; can start now |
-| [PR 2: per-card chat](#pr-2-the-per-card-chat-0003-0004-0006) | #0003, #0004, #0006 | #0002 (placement), #0005 (Teach me), #0018 (showing the earlier conversation), #0019 (deciding while a conversation is open); the Neither button also on #0007; each part marked "Open — see #0020", "#0021" or "#0023" on that card |
+| [PR 2: per-card chat](#pr-2-the-per-card-chat-0003-0004-0006) | #0003, #0004, #0006 | #0002 (placement), #0005 (Teach me), #0018 (showing the earlier conversation), #0019 (deciding while a conversation is open), #0024 (leaving a card with the conversation open); the Neither button also on #0007; each part marked "Open — see #0020", "#0021" or "#0023" on that card |
 
 ## Sync (#0001)
 
@@ -129,8 +129,8 @@ PR 2 replaces the placeholder `src/web/components/CardAssistant.tsx` with a conv
 headless Claude Code session per card (see "Chat engine" in foundations.md), plus *Teach me*,
 *More info / research* and *Neither, try again* buttons. Three cards fix how the session runs,
 where the conversation lives and what it may change; #0002 and #0005 (see
-[Cross-card consequences](#cross-card-consequences)) and the open questions #0018 and #0019
-(below) must be decided before PR 2 can start.
+[Cross-card consequences](#cross-card-consequences)) and the open questions #0018, #0019 and
+#0024 (below) must be decided before PR 2 can start.
 
 ### The session: read and research only (#0004)
 
@@ -253,8 +253,9 @@ from `president pending` and runs `president applied`. For PR 2 this means:
   the summary is offered when you decide; neither card says how that fits Decide's single
   keypress (wait for the summary to be written and edited before recording the decision, decide
   at once and drop the summary, or offer it after the Undo window, which needs #0011 or a timed
-  save), or whether the summary is lost if you leave the card or close the tab without closing
-  the conversation. Whatever is chosen must keep the Undo-window constraint above.
+  save). Whatever is chosen must keep the Undo-window constraint above.
+- **Open — see #0024:** whether the summary is lost if you leave the card or close the tab
+  without closing the conversation (remind you, ask before leaving, or summarize automatically).
 - The working agent didn't hear the conversation. What it learns about it is the summary
   feedback entry (#0003), so the summary should state what the human concluded and asked for,
   not just what was discussed.
@@ -263,8 +264,8 @@ from `president pending` and runs `president applied`. For PR 2 this means:
 
 ## Cross-card consequences
 
-- **PR 2 waits on #0002 and #0005**, both still open (and on the open questions #0018 and
-  #0019, see the #0003 and #0006 sections):
+- **PR 2 waits on #0002 and #0005**, both still open (and on the open questions #0018, #0019
+  and #0024, see the #0003 and #0006 sections):
   [#0002](../decisions/0002-conversation-placement.md) decides where the conversation sits on
   the card page (side panel, below the options, or a focus mode) and
   [#0005](../decisions/0005-teach-me-format.md) what *Teach me* produces. Every option on both
