@@ -46,6 +46,11 @@ Usage:
   president seen <card-file> --token <token>
       Mark the human's feedback on a card as read (sets seen_at), after acting on it.
       Both take the token \`pending\` printed, and refuse if the human changed the card since.
+  president update <card-file> <new-version-file>
+      Replace a card with your rewrite of it (new options, recommendation, body), written
+      from the card as you read it. Refuses, and changes nothing, if the human added a note
+      or changed the card since: keep status, resolution, feedback, seen_at and applied_at
+      as they are. On success the new-version file is removed.
   president demo [path] [--name <name>]
       Copy the sample project into <path> (default: a new temporary folder) and register the
       copy, to try president without touching any of your files.
@@ -88,6 +93,8 @@ export async function run(argv: string[], out: Output = console): Promise<number
         return await (await commands()).applied(rest, out);
       case "seen":
         return await (await commands()).seen(rest, out);
+      case "update":
+        return await (await commands()).update(rest, out);
       case "demo":
         return await (await commands()).demo(rest, out);
       case "serve":

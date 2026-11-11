@@ -1,10 +1,10 @@
 /**
  * The \`president\` commands (see main.ts for the dispatch and the help text).
  */
-import { cp, mkdtemp, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
+import { cp, mkdtemp, readdir, readFile, realpath, rm, stat, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import { parseArgs } from "node:util";
+import { isDeepStrictEqual, parseArgs } from "node:util";
 import type { CardAction } from "../core/actions.ts";
 import { parseCard, parseCardFileName } from "../core/card-file.ts";
 import {
@@ -14,14 +14,17 @@ import {
   needsApplying,
   unseenFeedback,
 } from "../core/pending.ts";
+import type { Frontmatter } from "../core/schema.ts";
 import {
   actOnCard,
   findCard,
   isIgnoredFile,
   type LoadedCard,
   loadProjectCards,
+  revisionOf,
 } from "../server/cards.ts";
 import { UserError } from "../server/errors.ts";
+import { writeFileAtomic } from "../server/fs-utils.ts";
 import { DECISIONS_DIR, type Project, Registry } from "../server/registry.ts";
 
 import { CARD_FORMAT_DOC, DEMO_SOURCE, type Output } from "./main.ts";
@@ -383,6 +386,92 @@ export async function seen(args: string[], out: Output): Promise<number> {
   }
   reportUnread(after, out);
   return 0;
+}
+
+/** What the human (and president) own in a card; an agent's rewrite keeps these as they are. */
+const HUMAN_FIELDS = ["status", "resolution", "feedback", "applied_at", "seen_at"] as const;
+
+/**
+ * `president update <card-file> <new-version>`: replaces a card with an agent's rewrite of
+ * it (new options, recommendation, body...), only if what the human owns is the same in the
+ * rewrite as in the card now. The rewrite was made from the card as the agent read it, so a
+ * note the human added since (or a decision, an undo) shows up as a difference, and the card
+ * is left alone instead of losing it.
+ */
+export async function update(args: string[], out: Output): Promise<number> {
+  const { positionals } = parseArgs({ args, allowPositionals: true });
+  const usage = "update <card-file> <new-version-file>";
+  const [cardFile, newFile, ...extra] = positionals.map((p) => resolve(p));
+  if (!cardFile || !newFile || extra.length > 0) throw new UserError(`usage: president ${usage}`);
+  const { card } = await cardAt(cardFile, out);
+  if (await sameFolder(newFile, card.path)) {
+    throw new UserError(
+      `give your new version of the card as a separate file (for example ${join(dirname(card.path), `.${card.fileName}.new`)}); usage: president ${usage}`,
+    );
+  }
+  let text: string;
+  try {
+    text = await readFile(newFile, "utf8");
+  } catch (error) {
+    throw new UserError(`cannot read ${newFile}: ${(error as Error).message}`);
+  }
+  const parsed = parseCard(text, card.fileName);
+  if (!parsed.ok) {
+    printProblems([parsed.problem], [], out);
+    out.error(
+      `president: ${card.fileName} was not changed. Fix ${newFile}, then run president update again.`,
+    );
+    return 1;
+  }
+  const changes = humanChanges(card.frontmatter, parsed.card.frontmatter);
+  if (changes.length > 0) {
+    throw new UserError(
+      `${card.fileName} was not changed: what the human owns differs between the card and your version, so the card changed since you read it. Read the card again, make your changes to it as it is now (keep ${HUMAN_FIELDS.join(", ")} exactly as they are), and run president update again:`,
+      { details: changes },
+    );
+  }
+  // The card must still be what was compared (the hub may write it at any moment).
+  if (revisionOf(await readFile(card.path, "utf8")) !== card.revision) {
+    throw new UserError(`${card.fileName} changed while updating it; run president update again`);
+  }
+  await writeFileAtomic(card.path, text);
+  await unlink(newFile).catch(() => {});
+  out.log(`Updated ${card.fileName} (and removed ${basename(newFile)}).`);
+  if (parsed.card.frontmatter.needs_new_options) {
+    out.error(
+      "president: warning: needs_new_options is still set. Remove it once the options are rewritten, or the card stays out of the human's queue.",
+    );
+  }
+  return 0;
+}
+
+/** How what the human owns differs from the card (`now`) to an agent's rewrite (`mine`). */
+function humanChanges(now: Frontmatter, mine: Frontmatter): string[] {
+  const changes: string[] = [];
+  const read = mine.feedback.length;
+  if (now.feedback.length > read && isDeepStrictEqual(now.feedback.slice(0, read), mine.feedback)) {
+    const added = now.feedback.slice(read);
+    changes.push(
+      `feedback: the human added ${added.length} ${added.length === 1 ? "entry" : "entries"} since you read the card:`,
+      ...added.map((f) => `  ${f.type ?? "note"} ${f.at}: ${continued(f.note, "    ")}`),
+    );
+  } else if (!isDeepStrictEqual(now.feedback, mine.feedback)) {
+    changes.push("feedback: your version's entries are not the card's; copy them unchanged");
+  }
+  for (const field of HUMAN_FIELDS) {
+    if (field === "feedback" || isDeepStrictEqual(now[field], mine[field])) continue;
+    changes.push(
+      `${field}: the card has ${describe(now[field])}, your version ${describe(mine[field])}`,
+    );
+  }
+  return changes;
+}
+
+function describe(value: unknown): string {
+  if (value === undefined) return "none";
+  if (typeof value === "string") return `"${value}"`;
+  const choice = (value as { choice?: unknown }).choice;
+  return choice === undefined ? JSON.stringify(value) : `a decision ("${String(choice)}")`;
 }
 
 /** Feedback that arrived after the agent ran `pending` stays unread; say so. */

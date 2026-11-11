@@ -209,10 +209,11 @@ When the human rejects all options, president appends their note to `feedback` (
 1. Read **all** the feedback `pending` shows for the card (every entry newer than `seen_at`, not
    only the latest `neither`). It says what was wrong or what they want instead.
 2. Do any research it calls for.
-3. Replace `options` with new ones that answer the feedback (new ids are fine), rewrite the
-   `## Option <id>` sections in the body to match, and update `recommendation`.
-4. Remove `needs_new_options`. Keep `feedback`, `id`, `created` and `status: open` as they are.
-5. Run `president validate decisions/<file>`, then the card's `done:` line from `pending`.
+3. Change the card with `president update` (see **Changing a card** below): replace `options`
+   with new ones that answer the feedback (new ids are fine), rewrite the `## Option <id>`
+   sections in the body to match, update `recommendation`, and remove `needs_new_options`.
+   Keep `feedback`, `id`, `created` and `status: open` as they are.
+4. Once `president update` has replaced the card, run the card's `done:` line from `pending`.
 
 ## New notes from the human
 
@@ -225,14 +226,41 @@ For each:
    why the card is on hold.
 2. Act on them: update the context or the options (and `recommendation`), do the research and
    add sources, or change the code if the note is about work already done. If a note needs an
-   answer, put it in the card's body where the human will read it.
+   answer, put it in the card's body where the human will read it. Change the card only with
+   `president update` (see **Changing a card**).
 3. Run the card's `done:` line from `pending` (`president seen <file> --token <token>`). Don't
    edit or remove `feedback`.
+
+## Changing a card
+
+The human can add a note, decide or undo at any moment, and president writes that into the
+card file. So never overwrite an existing card yourself, not with a write, not with a temp file
+and a rename, not with an editor: a version you made from what you read a minute ago would drop
+what the human added since, without any sign. Instead:
+
+1. Read the card.
+2. Write your whole new version of it to a file next to it whose name starts with `.` (president
+   ignores those), for example `decisions/.0012-empty-state-copy.md.new`: the card as you read
+   it, with your changes. Keep `status`, `resolution`, `feedback`, `seen_at` and `applied_at`
+   exactly as they were.
+3. Replace the card with it:
+
+   ```sh
+   president update decisions/0012-empty-state-copy.md decisions/.0012-empty-state-copy.md.new
+   ```
+
+   It checks your version like `president validate`, and replaces the card only if what the
+   human owns is still what you read; then it removes your file. If it refuses because the
+   human changed the card, it prints what they added: read the card again, take that into
+   account too, write your version again from the card as it is now, and run `president update`
+   again. Run the card's `done:` line only after that, so the new entries are shown to you
+   first.
+
+A new card has no human edits to lose: write its file directly (`decisions/<id>-<slug>.md`).
 
 ## Rules
 
 - Only edit cards to apply the steps above. Never resolve a card yourself, and never change a
   `resolution` the human made.
-- Write files atomically if you can (write a temp file whose name starts with `.`, then rename);
-  president ignores dot-files.
+- Change existing cards only with `president update` (see **Changing a card**).
 - Unknown frontmatter fields are kept by president, so you can add your own bookkeeping fields.

@@ -248,6 +248,90 @@ describe("president CLI", () => {
     expect((await cli("pending", demo)).out).toBe("Nothing pending.");
   });
 
+  describe("update (R5-2)", () => {
+    /** The agent's rewrite: the card as it read it, with new options and no needs_new_options. */
+    const rewrite = (card: string) =>
+      card
+        .replace("id: throw\n    title: Throw typed errors", "id: either\n    title: Return Either")
+        .replace(/^needs_new_options: true\n/m, "")
+        .replace("option: result", "option: either")
+        .replace("## Option throw", "## Option either");
+
+    it("replaces the card with the agent's rewrite when the human changed nothing", async () => {
+      const demo = await copyDemoProject();
+      const file = join(demo, "decisions", "0002-api-errors.md");
+      await human(demo, "0002", { type: "neither", note: "both assume a server" });
+      const shown = (await cli("pending", demo)).out;
+      const mine = join(demo, "decisions", ".0002.new.md");
+      const rewritten = rewrite(await readFile(file, "utf8"));
+      await writeFile(mine, rewritten);
+      expect(await cli("update", file, mine)).toEqual({
+        code: 0,
+        out: "Updated 0002-api-errors.md (and removed .0002.new.md).",
+        err: "",
+      });
+      expect(await readFile(file, "utf8")).toBe(rewritten);
+      expect(await readdir(join(demo, "decisions"))).not.toContain(".0002.new.md");
+      // The done line pending printed still works: the feedback is what it showed.
+      expect((await runDone(shown, file)).code).toBe(0);
+      expect((await cli("pending", demo)).out).toBe("Nothing pending.");
+    });
+
+    it("refuses, and keeps the human's note, when it arrived after the agent read the card", async () => {
+      const demo = await copyDemoProject();
+      const file = join(demo, "decisions", "0002-api-errors.md");
+      await human(demo, "0002", { type: "neither", note: "both assume a server" });
+      const shown = (await cli("pending", demo)).out;
+      const read = await readFile(file, "utf8");
+      await human(demo, "0002", { type: "note", note: "Actually two words is fine too." });
+      const withNote = await readFile(file, "utf8");
+      const mine = join(demo, "decisions", ".0002.new.md");
+      await writeFile(mine, rewrite(read));
+      const refused = await cli("update", file, mine);
+      expect(refused.code).toBe(1);
+      expect(refused.err).toMatch(
+        /^president: 0002-api-errors\.md was not changed: what the human owns differs[^]*Read the card again[^]*\n {2}- feedback: the human added 1 entry since you read the card:\n {2}- {3}note \S+: Actually two words is fine too\./,
+      );
+      expect(await readFile(file, "utf8")).toBe(withNote);
+      expect(await readFile(mine, "utf8")).toBe(rewrite(read));
+      // The note is still unread, and the old done line can't mark it read.
+      expect((await runDone(shown, file)).out).toMatch(/1 more note since/);
+      expect((await cli("pending", demo)).out).toContain("Actually two words is fine too.");
+      // Made again from the card as it is now, the rewrite goes through.
+      await writeFile(mine, rewrite(await readFile(file, "utf8")));
+      expect((await cli("update", file, mine)).code).toBe(0);
+      expect(await readFile(file, "utf8")).toContain("Actually two words is fine too.");
+    });
+
+    it("refuses a version that changes the decision, or one that is broken", async () => {
+      const demo = await copyDemoProject();
+      const file = join(demo, "decisions", "0002-api-errors.md");
+      const before = await readFile(file, "utf8");
+      const mine = join(demo, "decisions", ".0002.new.md");
+      await writeFile(mine, before.replace("status: open", "status: deferred"));
+      expect((await cli("update", file, mine)).err).toMatch(
+        /- status: the card has "open", your version "deferred"/,
+      );
+      await human(demo, "0002", { type: "resolve", choice: "result" });
+      const resolved = await readFile(file, "utf8");
+      await writeFile(mine, before);
+      const err = (await cli("update", file, mine)).err;
+      expect(err).toMatch(/- status: the card has "resolved", your version "open"/);
+      expect(err).toMatch(/- resolution: the card has a decision \("result"\), your version none/);
+      await writeFile(mine, resolved.replace("kind: ab", "kind: maybe"));
+      const broken = await cli("update", file, mine);
+      expect(broken.code).toBe(1);
+      expect(broken.err).toMatch(
+        /broken {2}0002-api-errors\.md\n\s+- kind: Invalid option[^]*was not changed/,
+      );
+      expect(await readFile(file, "utf8")).toBe(resolved);
+      expect((await cli("update", file, file)).err).toMatch(/as a separate file/);
+      expect((await cli("update", file)).err).toMatch(
+        /usage: president update <card-file> <new-version-file>/,
+      );
+    });
+  });
+
   it("lists new notes from the human until an agent marks them seen", async () => {
     const demo = await copyDemoProject();
     const file = join(demo, "decisions", "0002-api-errors.md");

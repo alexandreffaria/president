@@ -167,7 +167,8 @@ What agents do (`president pending` lists all of these, each with the unread fee
   applies. Then run the `done:` line.
 - **`needs_new_options: true`**: read all the unread feedback, replace `options` (and the
   option sections in the body) with new ones, update `recommendation`, then remove
-  `needs_new_options`. Keep `feedback` as it is. Then run the `done:` line
+  `needs_new_options`, all through `president update` (below). Keep `feedback` as it is. Then
+  run the `done:` line
   (`president seen <file> --token <token>`).
 - **Feedback newer than `seen_at`** (notes, a deferral's reason, a reopen): read it and act on it
   (answer in the card, research, adjust the options), then run the `done:` line.
@@ -176,6 +177,11 @@ The token in a `done:` line identifies what `pending` showed: the feedback entri
 and the resolution. `seen` and `applied` mark only that. Feedback the human adds afterwards stays
 unread (and the command says so). If the human changed or undid the decision, or undid a note,
 the command refuses: run `president pending` again.
+
+Agents change an existing card only with `president update <card-file> <new-version-file>`: the
+new version is the card as the agent read it, with its changes, and it replaces the card only if
+`status`, `resolution`, `feedback`, `seen_at` and `applied_at` are still the same in both. A note
+the human added in the meantime is then reported instead of being overwritten.
 
 Check a card with `president validate <project>` or `president validate <card-file>`; it prints
 each problem with the field and the file line.
