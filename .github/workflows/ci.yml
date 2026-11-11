@@ -28,6 +28,10 @@ jobs:
         run: npm run typecheck
       - name: Lint
         run: npm run lint
+      - name: Validate decision cards
+        # president's own cards in decisions/ (only that folder: examples/ and test fixtures
+        # are not checked here). A broken card fails CI.
+        run: node bin/president.js validate .
       - name: Test
         run: npm test
         env:
