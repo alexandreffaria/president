@@ -404,6 +404,21 @@ describe("president CLI", () => {
       );
     });
 
+    it("warns when the agent's version keeps needs_new_options (R7-12)", async () => {
+      const demo = await copyDemoProject();
+      const file = join(demo, "decisions", "0002-api-errors.md");
+      await human(demo, "0002", { type: "neither", note: "both assume a server" });
+      const mine = join(demo, "decisions", ".0002.new.md");
+      await writeFile(
+        mine,
+        (await readFile(file, "utf8")).replace("## Option throw", "## Option throw\n\nMore."),
+      );
+      expect(await cli("update", file, mine)).toMatchObject({
+        code: 0,
+        err: "president: warning: needs_new_options is still set. Remove it once the options are rewritten, or the card stays out of the human's queue.",
+      });
+    });
+
     // A deferral is not a decision: the rewrite is made again from the card as it is (R7-5).
     it("asks for the rewrite again when the human deferred the card meanwhile", async () => {
       const demo = await copyDemoProject();
@@ -655,6 +670,21 @@ describe("president CLI", () => {
     const demo = await copyDemoProject();
     await human(demo, "0004", { type: "reopen", note: "Costs changed." });
     expect((await cli("pending", demo)).out).toContain(reopenHint);
+  });
+
+  // Only a decision taken back by a reopen waits for a new one, and only until it comes (R7-12).
+  it("gives the reopen hint only for a reopened decision that wasn't made again", async () => {
+    const demo = await copyDemoProject();
+    await human(demo, "0002", { type: "defer", note: "Later." });
+    await human(demo, "0002", { type: "reopen", note: "Now is fine." });
+    const undeferred = (await cli("pending", demo)).out;
+    expect(undeferred).toMatch(/reopen \S+: Now is fine\./);
+    expect(undeferred).not.toContain("Reopened, not decided again yet");
+    await human(demo, "0004", { type: "reopen", note: "Costs changed." });
+    await human(demo, "0004", { type: "resolve", choice: "maptiler" });
+    const decidedAgain = (await cli("pending", demo)).out;
+    expect(decidedAgain).toMatch(/Decided again: it was "protomaps"/);
+    expect(decidedAgain).not.toContain("Reopened, not decided again yet");
   });
 
   // The hints are about the entries, not about which came last (R6-12).
@@ -1036,5 +1066,13 @@ describe("president CLI", () => {
         stderr: "president needs Node 24.9 or newer (you have 24.8.0).\n",
       });
     }
+    const node23 = `data:text/javascript,Object.defineProperty(process.versions,"node",{value:"23.11.0"})`;
+    const result = await promisify(execFile)(process.execPath, ["--import", node23, BIN], {
+      timeout: 9000,
+    }).catch((error: { code: number; stderr: string }) => error);
+    expect(result).toMatchObject({
+      code: 1,
+      stderr: "president needs Node 24.9 or newer (you have 23.11.0).\n",
+    });
   });
 });
