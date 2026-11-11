@@ -100,7 +100,10 @@ export function connectLive(handlers: LiveHandlers, options: LiveOptions = {}): 
   };
 
   handlers.onState("connecting");
-  open();
+  // On the next turn, not now: React's StrictMode (in development) mounts, unmounts and
+  // mounts again at once, and a socket opened and closed straight away makes the dev
+  // proxy print an EPIPE stack trace. The throwaway mount's cleanup cancels this timer.
+  retry = setTimeout(open, 0);
   return () => {
     stopped = true;
     clearTimeout(retry);

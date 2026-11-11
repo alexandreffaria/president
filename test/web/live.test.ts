@@ -66,6 +66,8 @@ function connect(options: LiveOptions = {}) {
       options,
     ),
   );
+  // The first socket opens on the next turn (R5-6).
+  vi.advanceTimersByTime(0);
   return tab;
 }
 
@@ -167,6 +169,16 @@ describe("live connection", () => {
     vi.advanceTimersByTime(1000);
     expect(tab.states).toEqual(["connecting", "offline"]);
     expect(FakeWebSocket.all[0]?.closed).toBe(true);
+  });
+
+  it("opens nothing when disconnected in the same turn, as StrictMode's first mount is (R5-6)", () => {
+    const states: LiveState[] = [];
+    const stop = connectLive({ onEvent: () => {}, onState: (s) => states.push(s) });
+    expect(FakeWebSocket.all).toHaveLength(0);
+    stop();
+    vi.advanceTimersByTime(60_000);
+    expect(FakeWebSocket.all).toHaveLength(0);
+    expect(states).toEqual(["connecting"]);
   });
 
   it("stops a pending reconnect when disconnected", () => {
