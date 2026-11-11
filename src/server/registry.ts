@@ -347,20 +347,19 @@ async function ensureDecisionsDir(
   create: boolean | undefined,
 ): Promise<void> {
   const dir = decisionsDirOf(project);
+  if (create) {
+    try {
+      await mkdir(dir);
+    } catch (error) {
+      // Something is there already (a folder, maybe another add's, or not one): checked below.
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw fileError("create", dir, error);
+    }
+  }
   if (await isDecisionsDir(dir)) return;
-  if (!create) {
-    throw new UserError(
-      `"${project.path}" has no ${DECISIONS_DIR}/ folder. Create it, or ask president to (CLI: --create).`,
-      { code: "no_decisions_dir" },
-    );
-  }
-  try {
-    await mkdir(dir);
-  } catch (error) {
-    // Another `add` of the same folder made it first, or a link is there (R9-1).
-    if ((error as NodeJS.ErrnoException).code === "EEXIST" && (await isDecisionsDir(dir))) return;
-    throw fileError("create", dir, error);
-  }
+  throw new UserError(
+    `"${project.path}" has no ${DECISIONS_DIR}/ folder. Create it, or ask president to (CLI: --create).`,
+    { code: "no_decisions_dir" },
+  );
 }
 
 /** True when `dir` is a folder, false when nothing is there; anything else is refused. */

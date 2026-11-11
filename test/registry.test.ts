@@ -76,11 +76,11 @@ describe("Registry", () => {
     expect((await stat(join(dir, "decisions"))).isDirectory()).toBe(true);
   });
 
-  // mkdir's EEXIST is not taken for "made by another add" when it is a link to nothing (R9-1).
+  // A relative target is named as resolved from the folder that holds the link (R9-1, R10-3).
   it("refuses a decisions link to nothing, with or without create", async () => {
     const reg = await registry();
     const dir = await tempDir();
-    await symlink(join(dir, "gone"), join(dir, "decisions"));
+    await symlink("gone", join(dir, "decisions"));
     const refused = `"${join(dir, "decisions")}" is a link to ${join(dir, "gone")}, which doesn't exist`;
     await expect(reg.add({ path: dir })).rejects.toThrow(refused);
     await expect(reg.add({ path: dir, createDecisions: true })).rejects.toThrow(refused);
