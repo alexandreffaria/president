@@ -771,4 +771,21 @@ describe("president CLI", () => {
     });
     expect(stdout).toMatch(/Usage:/);
   });
+
+  // Before 24.9 the server's shouldUpgradeCallback is ignored without a word (R6-14), so
+  // every entry point refuses an older Node: the CLI, and the hub as `npm start` and
+  // `npm run dev` run it.
+  it("refuses to start on Node before 24.9", { timeout: 10_000 }, async () => {
+    const olderNode = `data:text/javascript,Object.defineProperty(process.versions,"node",{value:"24.8.0"})`;
+    const mainTs = join(import.meta.dirname, "..", "src", "server", "main.ts");
+    for (const entry of [BIN, mainTs]) {
+      const result = await promisify(execFile)(process.execPath, ["--import", olderNode, entry], {
+        timeout: 9000,
+      }).catch((error: { code: number; stderr: string }) => error);
+      expect(result).toMatchObject({
+        code: 1,
+        stderr: "president needs Node 24.9 or newer (you have 24.8.0).\n",
+      });
+    }
+  });
 });
