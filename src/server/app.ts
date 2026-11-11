@@ -10,7 +10,8 @@
  *                                            CardDetailDto.writtenByPresident)
  *   POST   /api/cards/:project/:id/actions   { type, ..., revision }  (see core/actions.ts)
  *   POST   /api/cards/:project/:id/undo      { revision }  revision = what the action returned
- *   GET    /api/events                       a WebSocket of live events (see live-socket.ts)
+ *   GET    /api/events                       a WebSocket of live events (the route below;
+ *                                            server.ts serves it, web/live.ts connects)
  *
  * Every card write carries the revision the client saw, so nobody decides on text they
  * didn't see: if the file changed since, the write is refused with 409 "conflict".
