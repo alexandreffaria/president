@@ -11,7 +11,7 @@
 import { createHash } from "node:crypto";
 import { lstat, readdir, readFile, realpath } from "node:fs/promises";
 import { join, sep } from "node:path";
-import { applyAction, type CardAction } from "../core/actions.ts";
+import { applyAction, type CardAction, type CardActionType } from "../core/actions.ts";
 import type {
   BrokenCardDto,
   CardDetailDto,
@@ -280,7 +280,24 @@ interface UndoEntry {
   before: string;
   /** The revision the action produced; undo only works while the file is still at it. */
   after: string;
+  /**
+   * The file president wrote (see fileStamp). The revision alone isn't enough: an agent
+   * that writes those same bytes back (it applies the decision, then reverts its own edit)
+   * has changed the card since, and the undo must be refused.
+   */
+  stamp: string | undefined;
+  action: CardActionType;
   at: number;
+}
+
+/** Which file is at `path`, and when it last changed: any write, even of the same bytes, moves it. */
+async function fileStamp(path: string): Promise<string | undefined> {
+  try {
+    const info = await lstat(path, { bigint: true });
+    return `${info.dev}:${info.ino}:${info.mtimeNs}:${info.ctimeNs}:${info.size}`;
+  } catch {
+    return undefined;
+  }
 }
 const undoJournal = new Map<string, UndoEntry>();
 const UNDO_TTL_MS = 30 * 60 * 1000;
@@ -351,7 +368,13 @@ export async function actOnCard(
       );
     }
     const written = await writeChecked(project, card, text);
-    remember(card.path, { before: original, after: written.revision, at: Date.now() });
+    remember(card.path, {
+      before: original,
+      after: written.revision,
+      stamp: await fileStamp(card.path),
+      action: action.type,
+      at: Date.now(),
+    });
     return written;
   });
 }
@@ -359,8 +382,9 @@ export async function actOnCard(
 /**
  * Puts a card back exactly as it was before the last action taken through this server
  * (byte for byte: no feedback entry, nothing lost). `revision` is the revision that action
- * returned; if anything changed the card since (an agent applied it, another tab acted),
- * the undo is refused with a 409.
+ * returned; if anything wrote the card since (an agent applied it, another tab acted, an
+ * agent wrote the same bytes back), the undo is refused with a 409. Writes are told apart
+ * by the file's identity and change time, not only by its content (see UndoEntry.stamp).
  */
 export async function undoLastAction(
   project: Project,
@@ -369,19 +393,20 @@ export async function undoLastAction(
 ): Promise<LoadedCard> {
   return writeLock.run(`${project.path}\0${id}`, async () => {
     const card = await lockedCard(project, id);
-    if (card.revision !== revision) {
+    const entry = undoJournal.get(card.path);
+    const ours = entry?.after === revision ? entry : undefined;
+    if (card.revision !== revision || (ours && (await fileStamp(card.path)) !== ours.stamp)) {
       throw conflict(
         "the card changed after this action, so it can't be undone; review it and reopen it if needed",
       );
     }
-    const entry = undoJournal.get(card.path);
-    if (!entry || entry.after !== revision || Date.now() - entry.at > UNDO_TTL_MS) {
+    if (!ours || Date.now() - ours.at > UNDO_TTL_MS) {
       throw new UserError(
         "there is nothing to undo on this card any more (president may have restarted)",
         { status: 409, code: "undo_unavailable" },
       );
     }
-    const written = await writeChecked(project, card, entry.before);
+    const written = await writeChecked(project, card, ours.before);
     undoJournal.delete(card.path);
     return written;
   });

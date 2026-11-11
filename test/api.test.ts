@@ -519,6 +519,22 @@ describe("undo", () => {
     expect(await readFile(file, "utf8")).toMatch(/^applied_at: /m);
   });
 
+  it("refuses when an agent wrote the same bytes back after acting on it (R5-10)", async () => {
+    const { post, file, revision } = await resolved();
+    const decided = await readFile(file, "utf8");
+    // The agent applies it (another process: `president applied`), then `git checkout`s its
+    // own applied_at edit: the content is the decision's again, but the card was written since.
+    await writeFile(
+      file,
+      decided.replace(/^status: resolved$/m, "$&\napplied_at: 2026-11-10T12:00:00Z"),
+    );
+    await writeFile(file, decided);
+    const res = await post("/api/cards/demo/0002/undo", { revision });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "conflict" });
+    expect(await readFile(file, "utf8")).toBe(decided);
+  });
+
   it("needs the revision the action returned", async () => {
     const { post, request } = await resolved();
     expect((await post("/api/cards/demo/0002/undo", {})).status).toBe(400);
