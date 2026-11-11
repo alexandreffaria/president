@@ -7,6 +7,7 @@
  */
 import {
   type Document,
+  isAlias,
   isCollection,
   isMap,
   isPair,
@@ -307,17 +308,21 @@ function yamlErrors(
 
 /**
  * The free-text fields, as paths with `*` for a list index. Ids, choices, types and timestamps
- * are left out: they can't contain ` #`, so a comment after them cuts nothing.
+ * are left out: they can't contain ` #`, so a comment after them cuts nothing. So are fields
+ * president doesn't know: it can't tell whether they hold text.
  */
 const FREE_TEXT = new Set(
   [
     ["title"],
+    ["created_by"],
+    ["tags", "*"],
     ["options", "*", "title"],
     ["options", "*", "summary"],
     ["options", "*", "pros", "*"],
     ["options", "*", "cons", "*"],
     ["recommendation", "why"],
     ["feedback", "*", "note"],
+    ["feedback", "*", "previous_resolution", "note"],
     ["resolution", "note"],
   ].map((path) => JSON.stringify(path)),
 );
@@ -332,6 +337,10 @@ function isFreeText(path: readonly PropertyKey[]): boolean {
  * and nothing else would notice. Comments on their own line, and after quoted text, a block
  * header (`>-`), a key whose value starts on the next line, or a value that isn't free text
  * (an id, a choice, a type, a timestamp), cut nothing and stay allowed.
+ *
+ * Text an alias brings into a free-text field (`title: *t`) is checked where it is anchored
+ * (`&t`). An alias is followed only to a single value, never into a list or a mapping, so
+ * this can't loop.
  */
 export function truncatedTexts(
   doc: Document,
@@ -339,7 +348,9 @@ export function truncatedTexts(
   fileLine: (offset: number) => number,
 ): string[] {
   const out: string[] = [];
-  const visit = (node: unknown, path: PropertyKey[]): void => {
+  const visit = (value: unknown, path: PropertyKey[]): void => {
+    const aliased = isAlias(value);
+    const node = aliased && isFreeText(path) ? value.resolve(doc) : value;
     if (isScalar(node)) {
       if (!isFreeText(path)) return;
       const range = node.range;
@@ -348,12 +359,14 @@ export function truncatedTexts(
       const field = path.at(-1);
       const text = yaml.slice(range[0], lineEnd(yaml, range[1])).trimEnd();
       const example =
-        typeof field === "string" && !yaml.slice(range[0], range[1]).includes("\n")
+        !aliased && typeof field === "string" && !yaml.slice(range[0], range[1]).includes("\n")
           ? `: ${field}: ${JSON.stringify(text)}`
           : "";
       out.push(
         `${formatPath(path)}: the text stops at "${String(node.value)}" because " #" starts a YAML comment (line ${fileLine(range[1])}); put the whole text in quotes${example}`,
       );
+    } else if (aliased) {
+      return;
     } else if (isMap(node)) {
       for (const pair of node.items) {
         const key = isScalar(pair.key) ? pair.key.value : undefined;

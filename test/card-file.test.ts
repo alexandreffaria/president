@@ -532,6 +532,32 @@ describe("messages for common YAML slips (R5-14)", () => {
     ).toEqual(["title", "kind"]);
   });
 
+  // The other free text, and text an alias brings into a free-text field (F-3).
+  it("says to quote a cut created_by, tag, earlier resolution's note or aliased text", () => {
+    const errors = expectErrors(
+      cardText({
+        created_by: "claude # opus",
+        tags: "\n  - C # language\n  - ok",
+        x: "&question Write it in C # or Rust?",
+        feedback: `
+  - at: 2026-11-10T00:00:00Z
+    type: reopen
+    note: Reopened.
+    previous_resolution:
+      choice: a # red
+      note: Cost matters # most
+      resolved_at: 2026-11-03T16:20:00Z`,
+        recommendation: "\n  option: a\n  why: *question",
+      }),
+    );
+    expect(errors).toEqual([
+      'created_by: the text stops at "claude" because " #" starts a YAML comment (line 8); put the whole text in quotes: created_by: "claude # opus"',
+      'tags[0]: the text stops at "C" because " #" starts a YAML comment (line 15); put the whole text in quotes',
+      'feedback[0].previous_resolution.note: the text stops at "Cost matters" because " #" starts a YAML comment (line 24); put the whole text in quotes: note: "Cost matters # most"',
+      'recommendation.why: the text stops at "Write it in C" because " #" starts a YAML comment (line 17); put the whole text in quotes',
+    ]);
+  });
+
   it("keeps comments that cut nothing", () => {
     const card = expectCard(
       cardText({
