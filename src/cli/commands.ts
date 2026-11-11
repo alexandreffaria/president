@@ -294,8 +294,10 @@ export async function pending(args: string[], out: Output): Promise<number> {
     }
     // Whatever came after them: a note after an undo or a reopen doesn't make them stale.
     for (const undo of entries.filter((f) => f.type === "undo")) {
+      // A custom answer is its note: the choice alone says nothing (R8-3).
+      const r = c.frontmatter.resolution;
       const now = needsApplying(c.frontmatter)
-        ? `, then apply the current decision, ${describeDecision({ choice: c.frontmatter.resolution?.choice })}, as usual`
+        ? `, then apply the current decision, ${describeDecision(r?.choice === CUSTOM_CHOICE ? r : { choice: r?.choice })}, as usual`
         : "";
       out.log(
         `    The human took back the earlier decision ${describeDecision(undo.previous_resolution)}. If you recorded it in the docs or changed code for it, revert that${now}, then run the done line.`,

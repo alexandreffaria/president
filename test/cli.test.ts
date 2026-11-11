@@ -663,6 +663,18 @@ describe("president CLI", () => {
     );
   });
 
+  // A custom answer is its text: the hint says it, not only "custom" (R8-3).
+  it("names a custom current decision with its text in the undo hint", async () => {
+    const demo = await copyDemoProject();
+    const welcome = { type: "resolve", choice: "custom", note: "Welcome aboard." } as const;
+    const decided = await human(demo, "0003", welcome);
+    await undoLastAction({ name: "demo", path: demo }, "0003", decided.revision);
+    await human(demo, "0003", { type: "resolve", choice: "custom", note: "Plan your first trip." });
+    expect((await cli("pending", demo)).out).toContain(
+      '    The human took back the earlier decision custom ("Welcome aboard."). If you recorded it in the docs or changed code for it, revert that, then apply the current decision, custom ("Plan your first trip."), as usual, then run the done line.',
+    );
+  });
+
   const reopenHint =
     '    Reopened, not decided again yet: don\'t change the docs or code for it now. Run the done line; when the human decides again, pending says "Decided again".';
 
