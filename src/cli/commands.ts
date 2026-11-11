@@ -122,13 +122,25 @@ export async function demo(args: string[], out: Output): Promise<number> {
 
 export async function list(args: string[], out: Output): Promise<number> {
   const { values } = parseArgs({ args, options: { json: { type: "boolean" } } });
-  const projects = await new Registry().list();
+  const projects = await Promise.all(
+    (await new Registry().list()).map(async (p) => {
+      const missing = await missingFolder(p);
+      return missing ? { ...p, missing } : p;
+    }),
+  );
   if (values.json) {
     out.log(JSON.stringify(projects, null, 2));
   } else if (projects.length === 0) {
     out.log("No projects registered. Add one with: president add <path>");
   } else {
-    for (const p of projects) out.log(`${p.name}\t${p.path}`);
+    for (const p of projects) {
+      out.log(`${p.name}\t${p.path}${"missing" in p ? `\t(${p.missing} missing)` : ""}`);
+    }
+    if (projects.some((p) => "missing" in p && p.missing === "folder")) {
+      out.log(
+        "A project is its folder: if one moved, run president remove <name>, then president add <new path>.",
+      );
+    }
   }
   return 0;
 }
@@ -580,6 +592,15 @@ async function cardAt(file: string, out: Output): Promise<{ project: Project; ca
 export async function serve(out: Output): Promise<number> {
   const { runServer } = await import("../server/server.ts");
   return runServer(out);
+}
+
+/** "folder" when the project's folder is gone, "decisions/ folder" when only that is. */
+async function missingFolder(project: Project): Promise<string | undefined> {
+  const isDir = async (path: string) =>
+    (await stat(path).catch(() => undefined))?.isDirectory() ?? false;
+  if (!(await isDir(project.path))) return "folder";
+  if (!(await isDir(join(project.path, DECISIONS_DIR)))) return `${DECISIONS_DIR}/ folder`;
+  return undefined;
 }
 
 async function sameFolder(a: string, b: string): Promise<boolean> {

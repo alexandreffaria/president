@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
@@ -63,6 +63,26 @@ describe("president CLI", () => {
     expect(JSON.parse((await cli("list", "--json")).out)).toEqual([{ name: "demo", path: demo }]);
     expect((await cli("remove", "demo")).code).toBe(0);
     expect((await cli("list")).out).toMatch(/No projects registered/);
+  });
+
+  it("lists a project whose folder or decisions/ is gone as missing (R5-21)", async () => {
+    const kept = await copyDemoProject("a");
+    const noCards = await copyDemoProject("b");
+    const gone = await copyDemoProject("c");
+    for (const dir of [kept, noCards, gone]) await cli("add", dir);
+    await rm(join(noCards, "decisions"), { recursive: true });
+    await rm(gone, { recursive: true });
+    expect((await cli("list")).out.split("\n")).toEqual([
+      `a\t${kept}`,
+      `b\t${noCards}\t(decisions/ folder missing)`,
+      `c\t${gone}\t(folder missing)`,
+      "A project is its folder: if one moved, run president remove <name>, then president add <new path>.",
+    ]);
+    expect(JSON.parse((await cli("list", "--json")).out)).toEqual([
+      { name: "a", path: kept },
+      { name: "b", path: noCards, missing: "decisions/ folder" },
+      { name: "c", path: gone, missing: "folder" },
+    ]);
   });
 
   it("tries the demo on a copy, never on the tracked example", async () => {

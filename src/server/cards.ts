@@ -87,10 +87,16 @@ async function decisionsDir(project: Project): Promise<{ dir: string } | { error
     }
     return { dir };
   } catch (error) {
+    if (!isNotFound(error)) return { error: `cannot read ${dir}: ${(error as Error).message}` };
+    // A project is its folder: one that moved is a new project to president.
+    const folderGone = await lstat(project.path).then(
+      () => false,
+      () => true,
+    );
     return {
-      error: isNotFound(error)
-        ? `${dir} does not exist`
-        : `cannot read ${dir}: ${(error as Error).message}`,
+      error: folderGone
+        ? `the project folder ${project.path} is missing. If it moved, remove this project and add it again from its new place.`
+        : `${dir} does not exist`,
     };
   }
 }

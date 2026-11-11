@@ -3,7 +3,7 @@
  * The whole UI against the real API (in process, on a copy of the demo project), driven
  * with key presses the way a keyboard user would.
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -705,6 +705,14 @@ describe("errors", () => {
     await until(() => text().includes("Couldn't refresh"), "the error banner");
     expect(host.querySelector("[role=alert]")?.textContent).toMatch(/demo\.json is not valid JSON/);
     expect(host.querySelectorAll(".queue-link").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("says on the Projects page when a project's folder is gone (R5-21)", async () => {
+    await io(() => rm(demo, { recursive: true }));
+    await open("/projects", () => text().includes("is missing"), "the missing folder");
+    expect(host.querySelector(".project .notice-warn")?.textContent).toBe(
+      `the project folder ${demo} is missing. If it moved, remove this project and add it again from its new place.`,
+    );
   });
 });
 

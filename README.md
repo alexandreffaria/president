@@ -139,6 +139,11 @@ listed once, under the name that sorts first, and the duplicate file is removed.
 `projects.json` from an earlier version is moved into the folder the first time president runs
 (it is kept as `projects.json.migrated`).
 
+A project is its folder's path. If you move a project, run `president remove <name>` and then
+`president add <new path>`: president doesn't follow the move, and a different repository later
+created at the old path would be taken for the old project. `president list` and the Projects
+page say when a project's folder, or its `decisions/` folder, is missing.
+
 ## Development
 
 ```sh

@@ -1,4 +1,4 @@
-import { chmod, readFile, rename, stat, symlink, utimes, writeFile } from "node:fs/promises";
+import { chmod, readFile, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type {
@@ -61,6 +61,18 @@ describe("projects API", () => {
         counts: { open: 2, deferred: 1, resolved: 1, broken: 0 },
       },
     ]);
+  });
+
+  it("says when a project's folder is missing (R5-21)", async () => {
+    const { request, demo } = await setup();
+    await rm(join(demo, "decisions"), { recursive: true });
+    const errorOf = async () =>
+      (await json<{ projects: ProjectDto[] }>(request("/api/projects"))).projects[0]?.error;
+    expect(await errorOf()).toBe(`${join(demo, "decisions")} does not exist`);
+    await rm(demo, { recursive: true });
+    expect(await errorOf()).toBe(
+      `the project folder ${demo} is missing. If it moved, remove this project and add it again from its new place.`,
+    );
   });
 
   it("adds and removes projects and announces the change", async () => {
