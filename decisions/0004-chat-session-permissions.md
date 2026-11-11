@@ -1,7 +1,7 @@
 ---
 id: "0004"
 title: What should the card's agent session be allowed to do?
-status: open
+status: resolved
 kind: choice
 priority: high
 created: 2026-11-11T13:22:04Z
@@ -57,6 +57,10 @@ options:
       - A browser click starts an agent that can run any command as you, with web content in its context
       - The project's .claude/settings.json allow rules are not even used in -p mode for an untrusted folder, so "like a normal session" really means bypassing prompts
       - Mistakes land in the project's working tree with nobody watching
+resolution:
+  choice: readonly
+  resolved_at: 2026-11-11T15:29:18Z
+applied_at: 2026-11-11T15:41:21Z
 ---
 
 ## Context

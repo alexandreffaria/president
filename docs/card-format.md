@@ -69,7 +69,7 @@ title: How should the API client report errors?
 | `resolution` | when resolved | `{choice, note?, resolved_at}` | The human's answer. `choice` is an option id, or `custom` with the answer in `note`. |
 | `applied_at` | no | timestamp | Set by an agent after it has acted on the resolution (updated the docs): `president applied <file> --token <token>`. Only on resolved cards. |
 | `seen_at` | no | timestamp | The `at` of the newest feedback entry an agent has read. `president seen` and `president applied` set it to the newest entry `president pending` showed. Feedback newer than this is listed by `president pending`. |
-| `session_id` | no | string | Reserved for the per-card chat (a later version). |
+| `session_id` | no | string | Reserved for the per-card chat (a later version): the id of the card's Claude Code session, whose full log stays on the machine that ran it. What travels with the card is a summary in `feedback` (decision #0003, see `docs/roadmap.md`). |
 
 Any other field is allowed and is kept untouched when president updates the card, so agents can
 add their own bookkeeping to an open or deferred card (through `president update`; a decided card

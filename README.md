@@ -10,6 +10,7 @@ queue. You read, pick an option (or reject them all and say why), and move to th
 Agents then apply your decisions to the project's docs and code.
 
 Background: [docs/foundations.md](docs/foundations.md). Card format: [docs/card-format.md](docs/card-format.md).
+Planned work: [docs/roadmap.md](docs/roadmap.md).
 
 ## Setup
 

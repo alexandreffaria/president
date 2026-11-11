@@ -1,7 +1,7 @@
 ---
 id: "0006"
 title: Who should apply a decision to the project's docs and code?
-status: open
+status: resolved
 kind: choice
 priority: high
 created: 2026-11-11T13:22:06Z
@@ -47,6 +47,10 @@ options:
     cons:
       - Two ways to decide, and you have to judge which one each time
       - Still needs the write permissions and the undo handling of option chat for the cards where you use it
+resolution:
+  choice: working
+  resolved_at: 2026-11-11T15:30:38Z
+applied_at: 2026-11-11T15:41:22Z
 ---
 
 ## Context
