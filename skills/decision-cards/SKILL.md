@@ -32,31 +32,37 @@ the part that is the same for every option.
 
 ## The main folder, and card files in git
 
-- Run every `president` command (`pending`, `applied`, `seen`, `update`, `validate`) in the
-  project's **main folder**, the one registered with president (`president list` shows it),
-  never in a git worktree; and never run `president add` from a worktree. A worktree has its
-  own copy of `decisions/`, so there you would miss the human's answers and mark your own copy.
-  If you work in a worktree, `cd` to the main folder for these commands and use card paths there
-  (`pending`, `applied`, `seen` and `update` print a warning when run in a worktree).
+The project's **main folder** is the one registered with president, where the human's answers
+are. A git worktree has its own copy of `decisions/` without them: reading or marking cards
+there misses the human's answers and changes only that copy.
+
+- Below, `<main>` means the main folder's absolute path; replace it. If you work in a worktree,
+  don't `cd` to the main folder: pass its absolute path to every `president` command (they all
+  take one; the `done:` lines are already absolute). Find it with `git worktree list`: the
+  first entry is the main checkout (plus the project's subfolder, if the project is one). The
+  warning president commands print in a worktree also names it. Never register a worktree
+  with `president add`.
 - **Never commit card files in your pull request; Sync carries them.** Your branch and pull
   request hold only the docs and code you changed, never a file under `decisions/`. (Sync is
   the hub's button that commits and pushes the human's card changes; see **Until Sync
-  exists** below.)
+  exists** below.) Stage your files by path, not with `git add -A` or `git commit -a`: changes
+  under `decisions/` in `git status` are the human's and Sync's.
 - Not decided yet: whether that line also covers card changes you make outside an apply (new
-  cards, `president update` rewrites). That question is the human's (president's
-  `docs/roadmap.md`, "Needs a card" 1); until they answer it, follow the line as written.
+  cards, `president update` rewrites). That question is the human's, asked in a card
+  (president's `docs/roadmap.md`, "Needs a card" 1). Until they answer, read the line
+  literally: write new cards and `update` drafts only in `<main>/decisions/`, by absolute
+  path, pick a new card's id there, and leave them uncommitted.
 
 ## At the start of a session
 
-1. In the project's main folder, make sure the project is registered with the hub (safe to
-   repeat):
+1. Make sure the project's main folder is registered with the hub (safe to repeat):
 
    ```sh
-   president add . --create
+   president add <main> --create
    ```
 
    If a command says the project is not registered, run the `president add` it prints, unless
-   you are in a worktree: then go to the main folder instead.
+   the path in it is a worktree.
 
    The project is named after its folder. If another project already has that name,
    president adds `-2` (`app-2`) and says so. To choose the name yourself, add
@@ -70,7 +76,7 @@ the part that is the same for every option.
 2. See what is waiting for you:
 
    ```sh
-   president pending
+   president pending <main>
    ```
 
    It lists cards that were **resolved but not applied**, cards that **need new options**, and
@@ -82,17 +88,19 @@ the part that is the same for every option.
    handled that card, run that line exactly as printed, in a shell (a path that needs it is
    already in single quotes; don't add or remove any). The token records what `pending`
    showed you, so only that is marked as handled. If the human changed the card in the
-   meantime, the command refuses and says so: run `president pending` again and handle the
-   card as it is now. Never write a token yourself or reuse one from an earlier run.
+   meantime, the command refuses and says so: run `president pending <main>` again and handle
+   the card as it is now. Never write a token yourself or reuse one from an earlier run.
 
 ## Writing a card
 
-1. Pick the id: list `decisions/`, take the highest number and add one, zero-padded to 4 digits
-   (`0001` when there are no cards yet). The file is `decisions/<id>-<short-slug>.md`, e.g.
-   `decisions/0012-empty-state-copy.md`. Another agent may pick the same number at the same
-   moment; `president validate` (step 5) then reports both cards as broken with
-   `id "0012" is also used by ...`. If it does, renumber your card (the newer one) to the next
-   free id: change its `id` and rename the file to match. Leave the other card alone.
+1. Pick the id: list `<main>/decisions/` (not a worktree's copy), take the highest number and
+   add one, zero-padded to 4 digits (`0001` when there are no cards yet). The file is
+   `<main>/decisions/<id>-<short-slug>.md`, e.g. `<main>/decisions/0012-empty-state-copy.md`;
+   write it there, by absolute path, even when you work in a worktree. Another agent may pick
+   the same number at the same moment; `president validate` (step 5) then reports both cards
+   as broken with `id "0012" is also used by ...`. If it does, renumber your card (the newer
+   one) to the next free id: change its `id` and rename the file to match. Leave the other
+   card alone.
 2. Get the current time for `created`; don't guess it or copy the example's:
 
    ```sh
@@ -183,8 +191,8 @@ options:
    The first screen is empty: one short line and a button. What tone do you want?
    ```
 
-5. Check it: `president validate decisions/0012-empty-state-copy.md` must print `ok`. Fix
-   anything it reports (each problem names the field and the line).
+5. Check it: `president validate <main>/decisions/0012-empty-state-copy.md` must print `ok`.
+   Fix anything it reports (each problem names the field and the line).
 
 ### What makes a good card
 
@@ -217,7 +225,7 @@ resolution:
   resolved_at: 2026-11-10T15:20:00Z
 ```
 
-For each one that `president pending` lists (run it in the main folder):
+For each one that `president pending <main>` lists:
 
 1. Read the whole card, including the resolution's `note` and the new notes `pending` shows.
    The note can change or narrow the chosen option; follow it.
@@ -231,14 +239,14 @@ For each one that `president pending` lists (run it in the main folder):
 3. Do the work it implies on the same branch, or note it as a follow-up task if it's large.
    Your pull request holds only these docs and code changes, no card file; since it doesn't
    show the decision, link to the card or quote it.
-4. In the main folder, run the card's `done:` line from `pending`
-   (`president applied <file> --token <token>`; it sets `applied_at` and `seen_at`). Don't
-   change `status` or `resolution` yourself, and leave the card uncommitted: the human's Sync
-   carries their answer and your "applied" to the main branch.
+4. Run the card's `done:` line from `pending` (`president applied <file> --token <token>`;
+   it marks the card in the main folder and sets `applied_at` and `seen_at`). Don't change
+   `status` or `resolution` yourself, and leave the card uncommitted: the human's Sync carries
+   their answer and your "applied" to the main branch.
 
    If it refuses because the card changed and the decision you acted on is gone (the human
    took it back with Undo, or reopened it before you finished), revert the docs entry and the
-   work you did for it, then run `president pending` again.
+   work you did for it, then run `president pending <main>` again.
 
 ### Until Sync exists
 
@@ -295,14 +303,15 @@ what the human added since, without any sign. Instead:
 
 1. Read the card.
 2. Write your whole new version of it to a file next to it whose name starts with `.` (president
-   ignores those), for example `decisions/.0012-empty-state-copy.md.new`: the card as you read
-   it, with your changes. Keep `status`, `resolution`, `feedback`, `seen_at` and `applied_at`
-   exactly as they were.
+   ignores those), for example `<main>/decisions/.0012-empty-state-copy.md.new`: the card as
+   you read it, with your changes. Keep `status`, `resolution`, `feedback`, `seen_at` and
+   `applied_at` exactly as they were.
 3. Replace the card with it, then remove your file:
 
    ```sh
-   president update decisions/0012-empty-state-copy.md decisions/.0012-empty-state-copy.md.new &&
-     rm decisions/.0012-empty-state-copy.md.new
+   president update <main>/decisions/0012-empty-state-copy.md \
+     <main>/decisions/.0012-empty-state-copy.md.new &&
+     rm <main>/decisions/.0012-empty-state-copy.md.new
    ```
 
    It checks your version like `president validate`, and replaces the card only if what the
@@ -313,12 +322,13 @@ what the human added since, without any sign. Instead:
    decision the human made and took back since): read the card again, take that into account
    too, write your version again from the card as it is now, and run `president update`
    again. If it says "its decision changed", don't write your version again: run
-   `president pending` and handle the card as it shows it now.
+   `president pending <main>` and handle the card as it shows it now.
 
    After a refused `update`, the `done:` line you have is from before the new entries: once
-   your update went through, run `president pending` again and use its new `done:` line.
+   your update went through, run `president pending <main>` again and use its new `done:` line.
 
-A new card has no human edits to lose: write its file directly (`decisions/<id>-<slug>.md`).
+A new card has no human edits to lose: write its file directly
+(`<main>/decisions/<id>-<slug>.md`).
 
 A card `president validate` reports as broken (a YAML error, a duplicate id) is the one
 exception: president never writes a broken card, so neither the human nor `president update`
