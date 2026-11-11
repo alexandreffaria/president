@@ -372,6 +372,35 @@ describe("president CLI", () => {
       expect(await readFile(file, "utf8")).toContain("Actually two words is fine too.");
     });
 
+    // The skill tells the two refusals apart by their words, not by what the human did: a
+    // decision made and taken back meanwhile gets the "read it again" one (R8-2).
+    it("says the card changed after a decision made and undone, as the skill expects", async () => {
+      const skill = (
+        await readFile(
+          join(import.meta.dirname, "..", "skills", "decision-cards", "SKILL.md"),
+          "utf8",
+        )
+      ).replace(/\s+/g, " ");
+      const again = 'If it says "the card changed since you read it"';
+      const dontRewrite = `If it says "its decision changed", don't write your version again`;
+      expect(skill).toContain(again);
+      expect(skill).toContain(dontRewrite);
+      const demo = await copyDemoProject();
+      const file = join(demo, "decisions", "0002-api-errors.md");
+      await human(demo, "0002", { type: "neither", note: "both assume a server" });
+      const mine = join(demo, "decisions", ".0002.new.md");
+      await writeFile(mine, rewrite(await readFile(file, "utf8")));
+      const decided = await human(demo, "0002", { type: "resolve", choice: "throw" });
+      await undoLastAction({ name: "demo", path: demo }, "0002", decided.revision);
+      const refused = await cli("update", file, mine);
+      expect(refused.code).toBe(1);
+      expect(refused.err).toContain("the card changed since you read it");
+      expect(refused.err).not.toContain("its decision changed");
+      expect(refused.err).toMatch(/- undo \S+: Took back the decision "throw"\./);
+      await writeFile(mine, rewrite(await readFile(file, "utf8")));
+      expect((await cli("update", file, mine)).code).toBe(0);
+    });
+
     it("refuses a version that changes the status, or one that is broken", async () => {
       const demo = await copyDemoProject();
       const file = join(demo, "decisions", "0002-api-errors.md");
