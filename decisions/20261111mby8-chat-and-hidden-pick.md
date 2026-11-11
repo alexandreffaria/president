@@ -14,10 +14,10 @@ recommendation:
     Hiding the pick on the page while the chat states it a click away undoes what you chose
     in 0008, and Teach me already asks for your prediction first. An instruction carried with
     every message keeps the chat to explaining and comparing until you press r, at no extra
-    cost. Keeping the card from the session (withheld) is stronger but costs the chat its
-    view of other cards, and it still needs the same instruction, since the session would
-    otherwise form and share a pick of its own. Pick free if you find you reveal the pick
-    first anyway.
+    cost. Keeping the card from the session (withheld) is stronger for the card file itself
+    but costs the chat its view of other cards, doesn't cover other files that quote a
+    pick, and still needs the same instruction, since the session would otherwise form and
+    share a pick of its own. Pick free if you find you reveal the pick first anyway.
 options:
   - id: free
     title: Yes, the chat may say anything
@@ -37,16 +37,18 @@ options:
       - Nothing extra to build beyond a line of instructions per message
     cons:
       - It rests on the session following an instruction; it can still slip, and no check catches it
+      - Even facts it gives neutrally can point at one option, as the example below does
       - Questions like "which is safer?" get a comparison, not an answer, until you press r
   - id: withheld
     title: No, and the session can't see the pick at all
     summary: The hub hands the session the card without its recommendation and blocks it from reading the card files; once you press r, the hub tells it the pick in your next message.
     pros:
-      - The card's pick can't slip out before you reveal it; the session doesn't know it
-      - The guarantee comes from what the session can read, not from it following an instruction
+      - The pick can't come from the card file before you reveal it; the session is never shown it there
+      - That rests on what the session can read, not on it following an instruction
     cons:
       - The session can't read any card in decisions/ itself (earlier decisions, depends_on), so the hub has to hand it those too
       - It still needs neutral's instruction; otherwise the session forms a pick of its own and argues for it, which anchors you the same way
+      - The block is best-effort for Grep and Glob (the docs' words), and another project file, such as docs that quote a card, can still show the pick
       - More to build and test (the blocking rule, the reworked card text, reveals mid-conversation)
 ---
 
@@ -91,11 +93,17 @@ pick: B, because ...".
 
 ## Technical detail (for the implementer)
 
-- **Where the instruction goes.** The reveal state has to travel with each message, not in the
-  system prompt: Claude Code records the system prompt "once per conversation and reuse[s] it
-  verbatim on every request and resume ... even when a later launch passes different text"
-  (`--system-prompt-snapshot`, on by default). The hub adds a line such as "The human has not
-  revealed the card's pick" to every message until `r`, then "has revealed it".
+- **Where the instruction goes.** The reveal state can't simply go in the system prompt:
+  Claude Code records the system prompt "once per conversation and reuse[s] it verbatim on
+  every request and resume ... even when a later launch passes different text"
+  (`--system-prompt-snapshot`, on by default). So it travels with each message (or, with
+  `--system-prompt-snapshot off`, "the prompt is rendered fresh every request", in a per-run
+  `--append-system-prompt`). The hub adds a line such as "The human has not revealed the
+  card's pick" to every message until `r`, then "has revealed it".
+- **What "revealed" means.** "Revealed" means revealed on that card as
+  [card 20261111nsaj](20261111nsaj-revealed-pick-duration.md) defines it. Once the chat has
+  named the pick, the conversation's history keeps it, so the line sent stays "revealed" for
+  that conversation, even if the page hides the pick again later.
 - **Blocking reads (withheld).** Add `--disallowedTools "Read(./decisions/**)"` to the run of
   #0004. Deny rules win over everything ("Rules are evaluated in order: deny, then ask, then
   allow"), and Claude Code "makes a best-effort attempt to apply `Read(path)` deny rules to all
@@ -115,7 +123,9 @@ pick: B, because ...".
   card", item 5.
 - `claude --help` (2.1.302), `--system-prompt-snapshot`: "every later request and resume sends
   the record as-is, even when a later launch passes different text, until the conversation is
-  compacted"; `--disallowedTools`: "list of tool names to deny (e.g. \"Bash(git *) Edit\")".
+  compacted"; "off: never record; the prompt is rendered fresh every request (for iterating on
+  prompt text). No effect where system-prompt recording is not yet enabled.";
+  `--disallowedTools`: "list of tool names to deny (e.g. \"Bash(git *) Edit\")".
 - Claude Code docs, permissions: "Rules are evaluated in order: deny, then ask, then allow";
   "To block Claude's file tools from reading a file or directory, add a `Read` deny rule for
   its path, such as `Read(./.env)` or `Read(./secrets/**)`"; "Claude makes a best-effort

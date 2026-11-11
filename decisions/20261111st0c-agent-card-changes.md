@@ -9,20 +9,24 @@ created_by: claude (batch-3 writer)
 tags: [agent-rules, sync, git, workflow]
 depends_on: ["0022", "0001", "0014", "0007"]
 recommendation:
-  option: main-folder
+  option: reviewed-main
   why: >-
-    It gives every card file one road, as you chose for your answers in 0022: cards reach
-    you the moment an agent writes them, and a rewrite is checked against the card you
-    actually have, notes included. What it costs is the review a fresh session does today
-    before you read a batch. Pick split if that review matters more to you than seeing new
-    cards at once, for example for big batches like this one; pick pr only if you want
-    every agent change reviewed, rewrites included.
+    Review has changed most new cards before you saw them: 12 of 17 in batch 1 over four
+    rounds and all 6 in batch 2 over two, including four findings marked blocking (wrong
+    or one-sided facts that tilted the choice) that you would otherwise have decided from.
+    reviewed-main keeps that review and still gives card files one road, as you chose
+    for your answers in 0022: cards reach you as soon as they pass review, without a merge
+    or a pull, and rewrites are checked against the card you actually have, notes included.
+    Its weak spot is that nothing proves the review happened. Pick pr if you want a review
+    record you can read and the merge as proof; pick main-folder only if seeing a card the
+    moment it is written is worth getting errors like those.
 options:
   - id: pr
     title: Everything through a pull request
     summary: New cards and rewrites go on the agent's branch, are reviewed and checked by CI in a pull request, and reach the hub once it is merged and pulled into the main folder.
     pros:
       - A fresh session reviews every card before you see it, and CI checks that it is valid
+      - The review stays on the pull request for you to read, and the merge shows it was done
       - One rule for everything an agent writes, cards included
     cons:
       - You don't see a new card until its pull request is merged and the main folder is pulled; a card written in the middle of a feature waits for the whole feature
@@ -36,9 +40,22 @@ options:
       - A rewrite is checked against the card you have, so a note you just added is never lost
       - Every card file has one road, the same rule 0022 gave your answers, and the skill line "Never commit card files in your pull request" reads literally
     cons:
-      - No review before you read a card; a weak option or a wrong fact reaches you as the agent wrote it
+      - No review before you read a card; in batches 1 and 2, review changed 12 of 17 and 6 of 6 cards before you saw them, over 4 and 2 rounds, and what it caught would have reached you as written
       - CI checks the cards only after they are synced to main (the hub and president pending still flag a broken card at once)
       - Until the Sync button exists, new cards reach git only when someone commits decisions/ in the main folder by hand
+  - id: reviewed-main
+    title: Reviewed in the agent's folder, then into the main folder
+    summary: New cards are reviewed by a fresh session and validated in the agent's worktree, then written into the main folder; rewrites go straight to the main folder with president update.
+    pros:
+      - New cards keep the review that changed most cards in batches 1 and 2
+      - No merge or pull to wait for; a card reaches you as soon as it passes review
+      - No pull conflicts, since no pull request ever carries card files
+      - Rewrites are checked against the card you have, so the guard sees your notes
+    cons:
+      - The review leaves no pull-request record you can read, and nothing proves it happened; an agent in a hurry can skip it and the card looks the same
+      - One more step for agents to remember (review, then copy) before a card counts as written
+      - CI checks the cards only after they are synced to main, as in main-folder
+      - Rewrites (new options after "neither", withdrawing a card) reach you unreviewed, as in main-folder and split
   - id: split
     title: New cards by pull request, rewrites in the main folder
     summary: Brand-new cards go through a reviewed pull request as today; changes to existing cards (new options, withdrawing a card) are made with president update in the main folder.
@@ -73,6 +90,28 @@ this card to narrow it (`docs/roadmap.md`, "A. Agent rules", and "Needs a card",
 flow for new cards: these 13 cards were written on a branch (`cards/batch-3`) and sent as a
 pull request, where CI ran `president validate`. They reach your hub once it is merged and the
 main folder is pulled.
+
+**What review has changed so far.** In both earlier batches a fresh session reviewed the cards
+in the pull request, the writing agent fixed what it found, and each later round reviewed
+those fixes:
+
+- **Batch 1** ([PR #3](https://github.com/alexandreffaria/president/pull/3), cards 0001 to
+  0017): four review rounds. Round 1 had 19 findings (C-1 to C-19), two of them blocking: a
+  wrong main fact on 0016 (what `npx president` does) and a one-sided recommended option on
+  0001. Round 2 had C2-1 to C2-7 (C2-1 blocking: card 0001's Sync sketch would have pushed
+  conflict markers), round 3 had C3-1 to C3-5 and round 4 had C4-1 to C4-5; rounds 3 and 4
+  both had should-fix items on 0001. Review changed 12 of the 17 cards, and one
+  recommendation (0014, from `status` to `field`).
+- **Batch 2** ([PR #6](https://github.com/alexandreffaria/president/pull/6), cards 0018 to
+  0023): two rounds. Round 1 had B-1 to B-15 (B-1 blocking: a git fact on 0022 that was
+  wrong), round 2 had B2-1 to B2-5. Review changed all 6 cards, split a second question out
+  of 0019 into the new card 0024, and changed one recommendation (0018, from `claude-store`
+  to `hub-copy`).
+- **Batch 3** (this one, PR #11): the first round found 7 should-fix items and 5 nits (G-1
+  to G-12). One of them added the `reviewed-main` option to this card.
+
+So under `main-folder`, most cards would have reached you before those fixes. The review
+itself doesn't need a pull request: `reviewed-main` runs it in the agent's own folder.
 
 **Why it matters.**
 
@@ -115,6 +154,18 @@ Later  git pull in the main folder stops: "Your local changes to ... 0031 ... wo
 Later  You press Sync: your note, the new card and the new options go to main in one commit.
 ```
 
+## Option reviewed-main: Reviewed in the agent's folder, then into the main folder
+
+```
+10:00  The agent writes the new card in its worktree and runs president validate there.
+       A fresh session reviews it; the agent fixes what it finds (a missing option, a wrong
+       fact) and has it reviewed again until nothing should-fix is left.
+10:10  As in main-folder: the rewrite of #0031 is made in the main folder, guarded.
+10:20  The agent copies the reviewed card into the main folder's decisions/ and validates
+       it there. It is in your queue now. The feature's pull request has no card files.
+Later  You press Sync: your note, the new card and the new options go to main in one commit.
+```
+
 ## Option split: New cards by pull request, rewrites in the main folder
 
 ```
@@ -125,12 +176,19 @@ Later  You press Sync: your note, the new card and the new options go to main in
 
 ## Technical detail (for the implementer)
 
-- Under `main-folder` and `split`, the skill's rule for rewrites is the one build step A
-  already adds for applying: run `president` commands in the main folder, never in a
-  worktree.
+- Under `main-folder`, `reviewed-main` and `split`, the skill's rule for rewrites is the one
+  build step A already adds for applying: run `president` commands in the main folder, never
+  in a worktree.
 - Under `main-folder`, the skill's "Writing a card" says to write the file in the main
   folder's `decisions/` even when the agent works in a worktree, and to run
   `president validate <file>` there.
+- Under `reviewed-main`, "Writing a card" says: write the card in the worktree's `decisions/`
+  without committing it, run `president validate <file>`, have a fresh session review it (as
+  the reviews of PR #3 and PR #6 did) and fix and re-review until nothing should-fix is left,
+  then copy it into the main folder's `decisions/`, validate it there and delete the worktree
+  copy, so the feature branch never commits it. An optional bookkeeping field (unknown fields
+  are kept), such as `reviewed: 2 rounds`, would show that a review ran, but nothing checks
+  it. 0022's line reads literally, as under `main-folder`.
 - Under `pr` and `split`, the line from 0022 is narrowed to "your answers and `applied`
   marks", and new cards stay in the pull request.
 - Under every option, a card the hub's own run rewrites (0007) is written by the hub in the
@@ -149,4 +207,8 @@ Later  You press Sync: your note, the new card and the new options go to main in
 - Card [0022](0022-card-changes-in-apply-prs.md), context: a plain `git pull` in the main
   folder stops when it brings in a change to a card that has uncommitted changes there
   (scratch test quoted in that card).
-- PR #3 and PR #6 (batches 1 and 2, delivered by pull request and reviewed).
+- PR #3 and PR #6 (batches 1 and 2, delivered by pull request and reviewed): their review and
+  fix comments (`gh pr view 3 --comments`, `gh pr view 6 --comments`) for the finding ids and
+  rounds, and `git diff --stat` from each batch's first card commit (`75f4ae2`, `3b0a520`) to
+  its last (`16ba94c`, `002ba7d`) for the cards changed: 12 of 17 in batch 1; all 6, plus the
+  new 0024, in batch 2.

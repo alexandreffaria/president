@@ -13,11 +13,13 @@ recommendation:
   why: >-
     It is a short, real word that says what the tool does around the product's own name
     (the president presides over decisions), so the docs still read naturally, and it and
-    its punctuation variants are free on npm. Keep president as an alias for a while (see
-    "The alias" below), so an agent that types the old name from habit finds the installed
-    command instead of reaching for npx. Pick decision-cards if you'd rather the command
-    say plainly what it is, and presctl if you like the "...ctl" convention for tools that
-    control a service.
+    its punctuation variants are free on npm. Keep president as an alias until a month
+    after the rename ships, or until your registered projects' own docs stop telling agents
+    to type it, whichever is later (see "The alias" below), so an agent that types the old
+    name from habit finds the installed command instead of reaching for npx. Pick
+    decision-cards if you'd rather the command say plainly what it is, prescards for a
+    shorter name that still says "cards", and presctl if you like the "...ctl" convention
+    for tools that control a service.
 options:
   - id: preside
     title: preside
@@ -46,15 +48,15 @@ options:
     cons:
       - Long (14 characters with a dash) for a command typed in every session and printed in every done line
       - Loses the link to the product's name
-  - id: keep
-    title: Keep president after all
-    summary: Reopen 0016's decision; the command stays president and the docs keep warning against npx president.
+  - id: prescards
+    title: prescards
+    summary: The start of the product's name plus the thing it handles; "prescards pending".
     pros:
-      - No rename; nothing breaks, nothing to relink
-      - Product and command share one name
+      - Says what it handles (cards) and keeps a link to the product's name
+      - Short (9 letters) and very unlikely to clash with anything, on npm or on your machine
     cons:
-      - Brings back the risk 0016 was decided against; if the unrelated president package on npm ever gains a command, a mistaken npx president runs it, without asking when an agent runs it
-      - The protection stays a sentence agents have to read and follow
+      - Not a word; it can be read as "pre-scards" and has to be spelled from memory
+      - '"pres" is a short form you have to know stands for president'
 ---
 
 ## Context
@@ -67,6 +69,10 @@ the note"), and the decision came without a note, so the name is open (`docs/roa
 "F. Rename the command", and "Needs a card", item 13). The `president` package on npm belongs
 to someone else (a library, "Execute commands with privileges!", with no command today).
 
+This card only asks for the new name. Keeping `president` would mean reopening 0016, which
+you decided as `rename` and an agent has already applied. If you've changed your mind about
+renaming at all, reopen 0016.
+
 **Who types it.** Mostly agents: the skill tells them to run `president add`, `president
 pending`, and the `done:` lines `president pending` prints. You type it when installing and
 when starting the hub. A good name is short, unambiguous in prose, and free on npm.
@@ -78,9 +84,10 @@ punctuation is removed, so I checked those spellings too.
 | Name | `npm view` | Punctuation variants checked, all free |
 |---|---|---|
 | `preside` | 404, free | `pre-side`, `pre.side`, `pre_side` |
-| `presctl` | 404, free | `pres-ctl`, `pres_ctl` |
+| `presctl` | 404, free | `pres-ctl`, `pres_ctl`, `pres.ctl` |
 | `decision-cards` | 404, free | `decisioncards`, `decision_cards`, `decision.cards` |
-| `prescards`, `pres-cards`, `decicards`, `president-cli`, `ruling`, `cardhub` | 404, free | (not shortlisted) |
+| `prescards` | 404, free | `pres-cards`, `pres_cards`, `pres.cards` |
+| `decicards`, `president-cli`, `ruling`, `cardhub` | 404, free | (not shortlisted) |
 | `decide`, `decider`, `verdict`, `gavel`, `docket`, `quorum`, `ballot`, `prez`, `pres`, `presi` | taken | |
 
 A name free today can still be taken before the placeholder is published, and npm's
@@ -89,11 +96,16 @@ similarity check runs only when publishing, so the check is repeated right befor
 **The alias.** The roadmap also asks whether `president` stays as a second name for the same
 command for a while. Each option above can have it:
 
-- **With the alias** (recommended): `president` keeps working next to the new name, until a
-  later pull request removes it. Old `done:` lines printed before the rename, and agents typing
-  the old name from habit, still find the installed command, rather than failing and trying
-  `npx president`, the exact mistake the rename guards against. The cost: agents keep seeing
-  and typing `president` longer, and the old name has to be removed in a second step.
+- **With the alias** (recommended): `president` keeps working next to the new name. Old
+  `done:` lines printed before the rename, and agents typing the old name from habit, still
+  find the installed command, rather than failing and trying `npx president`, the exact
+  mistake the rename guards against. The cost: agents keep seeing and typing `president`
+  longer, and the old name has to be removed in a second step.
+  **When it ends, by default:** a pull request removes the alias one month after the rename
+  ships, or once every registered project's own docs and agent instructions (its
+  `CLAUDE.md`, its `docs/`) use the new name, whichever is later. The skill itself changes
+  with the rename, since projects link to the copy in this repo. To end it sooner, later or
+  on another condition, say so in your note.
 - **Without:** the old name stops working the day of the rename; you relink once, and every
   agent must use the new name from then on.
 
@@ -123,11 +135,11 @@ decision-cards pending
 # done: decision-cards seen /home/me/app/decisions/0007-api-errors.md --token 2-0k3j5h2g9fd
 ```
 
-## Option keep: Keep president after all
+## Option prescards: prescards
 
 ```sh
-president pending
-# done: president seen /home/me/app/decisions/0007-api-errors.md --token 2-0k3j5h2g9fd
+prescards pending
+# done: prescards seen /home/me/app/decisions/0007-api-errors.md --token 2-0k3j5h2g9fd
 ```
 
 ## Technical detail (for the implementer)
@@ -139,7 +151,10 @@ president pending
   `docs/card-format.md`. `grep` finds 181 mentions of `president` followed by a subcommand in
   `src`, `bin`, `skills`, `docs`, `README.md` and `test`.
 - The alias is a second `bin` entry (`"president": "bin/president.js"` next to the new one)
-  and a second link in the README's install step.
+  and a second link in the README's install step. The roadmap's F section records its end
+  (the default above, or what your note says), so whoever removes it can check: the month
+  has passed, and a `grep` for `president <command>` in each registered project's
+  `CLAUDE.md` and `docs/` finds nothing.
 - The placeholder package: a `package.json` with the chosen name, a version such as `0.0.0`, a
   README saying what it is, and no `bin`, published with `npm publish` from the human's
   account.

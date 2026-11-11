@@ -7,25 +7,28 @@ priority: normal
 created: 2026-11-11T18:21:18Z
 created_by: claude (batch-3 writer)
 tags: [ux, recommendation, bias]
-depends_on: ["0008"]
+depends_on: ["0008", "20261111mby8"]
 recommendation:
   option: visit
   why: >-
     You chose to hide the pick so you form your own view first, and you come back to a card
     mostly when something changed (new options after "neither", a snooze that ended), which
     is exactly when a fresh look helps; the new options also come with a new pick. One key
-    per return is the cost. Pick browser if you often flip back and forth between cards in
-    one sitting and find pressing r again tedious.
+    per return is the cost. The fresh look is weaker on a card you discussed after
+    revealing, since the conversation still shows what the chat said about the pick; the
+    other options don't hide it there either. Pick browser if you often flip back and forth between cards in one sitting and find
+    pressing r again tedious.
 options:
   - id: visit
     title: Until you leave the card
     summary: The pick shows until you move to another card or the queue; coming back, it is hidden again.
     pros:
-      - Every time you come back you look at the options fresh, which is the point of hiding it
+      - Every time you come back you look at the options fresh, which is the point of hiding it, unless you discussed the card after revealing
       - Nothing to store or keep in step with new options
     cons:
       - Flipping back to a card you just looked at (j then k) means pressing r again
       - You can't tell at a glance whether you already looked at the pick on that card
+      - On a card you discussed after revealing, the conversation panel still shows what the chat said about the pick
   - id: browser
     title: Remembered in this browser
     summary: Once revealed, the pick stays shown on that card in this browser, after reloads and hub restarts, until the card gets a new recommendation.
@@ -33,7 +36,7 @@ options:
       - Reveal once per card, however often you come back
       - Already a pattern in the hub (the project filter is remembered the same way)
     cons:
-      - On another machine or browser it is hidden again
+      - On another machine or browser it is hidden again, though a conversation summary you saved on the card can still name it
       - Coming back days later, the pick is in view before you have re-read the options
   - id: recorded
     title: Recorded in the card
@@ -62,6 +65,15 @@ again, `docs/roadmap.md`, "Neither: new options right away"), or after a reload.
 memory until the page reloads (`src/web/drafts.ts`). The project filter is kept in the
 browser's storage, which survives reloads (`localStorage`, key `president.projectFilter`, in
 `src/web/hub.tsx`). Nothing about a card's display is written to the card.
+
+**The conversation remembers too.** Under [0002](0002-conversation-placement.md) the panel is
+open by default once a card has a conversation, and under
+[0018](0018-show-earlier-conversation.md) it shows the earlier messages from the hub's copy.
+If you reveal the pick and then discuss it, the chat (now free to name it, whatever
+[the card on the chat and the hidden pick](20261111mby8-chat-and-hidden-pick.md) decides)
+may say "you went with B". Hiding the pick on the page again doesn't remove that message.
+This card depends on that one, since how much the chat may say before you reveal changes
+how much hiding on the page protects.
 
 Example: you open #0042, press `r`, see the agent picked option B, move to #0043 with `j`,
 then come back with `k`. Tomorrow you open #0042 again.

@@ -24,7 +24,7 @@ options:
       - One rule for every card; nothing to learn
       - An afterthought that should reach the agent isn't lost because the card happened to be decided
     cons:
-      - A quick look-up on an old decision also leaves a reminder until you write or dismiss a summary
+      - A quick look-up on an old decision also leaves a reminder until you close the conversation, saving its summary or not
       - Decided cards with pending reminders are easy to miss, since decided cards aren't in the queue
   - id: quiet
     title: Leave quietly

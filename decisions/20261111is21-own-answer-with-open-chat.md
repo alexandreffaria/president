@@ -7,15 +7,16 @@ priority: high
 created: 2026-11-11T18:21:24Z
 created_by: claude (batch-3 writer)
 tags: [pr-2, chat, decide, summary]
-depends_on: ["0019", "0010"]
+depends_on: ["0019", "0010", "202611111ky9"]
 recommendation:
   option: wait
   why: >-
     Your own answer is a decision like any other, and 0019's reason applies unchanged; the
     moment you decide is when you know what you concluded, and the summary is all the
     applying agent learns of the conversation. One rule for both ways of deciding is also
-    easier to remember. Pick answer-only if what you type as your own answer usually already
-    says everything the agent needs.
+    easier to remember, and it doesn't rely on a later reminder, which card 202611111ky9
+    may not keep on decided cards. Pick answer-only if what you type as your own answer
+    usually already says everything the agent needs.
 options:
   - id: wait
     title: Yes, it waits for the summary too
@@ -29,13 +30,13 @@ options:
       - Two boxes to fill in a row, your answer and then the summary
   - id: answer-only
     title: No, your answer is enough
-    summary: '"Decide this as my answer" decides at once with what you typed; the conversation is left unsummarized and, like any conversation you leave, reminded about later.'
+    summary: '"Decide this as my answer" decides at once with what you typed; the conversation is left unsummarized and, if card 202611111ky9 keeps reminders on decided cards, reminded about later.'
     pros:
       - Deciding with your own words stays one click
       - You wrote the answer yourself, so it usually already holds what you concluded
     cons:
       - Two ways of deciding a card behave differently
-      - Reasons from the conversation that aren't in your answer reach the agent only if you later write the summary
+      - Reasons from the conversation that aren't in your answer reach the agent only if you later write the summary, and if card 202611111ky9 chooses quiet, nothing reminds you to
 ---
 
 ## Context
@@ -77,8 +78,10 @@ Your answer is the decision's note; the summary is a separate entry, as with Dec
 
 ## Option answer-only: No, your answer is enough
 
-The card is decided at once with your answer. Leaving shows "Your conversation on #0042 isn't
-summarized; it's there when you come back."
+The card is decided at once with your answer. If
+[card 202611111ky9](202611111ky9-leaving-chat-on-decided-card.md) keeps reminders on decided
+cards (`remind`), leaving shows "Your conversation on #0042 isn't summarized; it's there when
+you come back." If it chooses `quiet`, you leave with no notice and nothing reminds you later.
 
 ## Technical detail (for the implementer)
 
@@ -86,7 +89,7 @@ summarized; it's there when you come back."
   the note and the summary as a `chat` entry, in one write, so `undoLastAction`'s
   `ours.action === "resolve"` check covers it (`src/server/cards.ts`).
 - `answer-only`: today's `resolve` with `custom`; the conversation goes on the "not summarized"
-  list.
+  list, unless card 202611111ky9's `quiet` leaves resolved cards off that list.
 
 ## Sources
 

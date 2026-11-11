@@ -14,8 +14,11 @@ recommendation:
     You chose snooze because a list you have to remember to open is where cards get
     forgotten, and cards deferred before snooze are exactly the ones sitting in that list.
     Bringing them back once, marked, lets you snooze each with one key (a week) or decide it,
-    and it is the simplest rule to build. Pick stay if you deferred some cards "for good" and
-    want them left alone until you say so.
+    and it is the simplest rule to build, with nothing new to store. The pile it brings back
+    is small today (the one registered project has no deferred card). Pick hub-dates if you
+    expect many deferred cards by the time snooze ships and want a week's notice before they
+    return; pick stay if you deferred some cards "for good" and want them left alone until
+    you say so.
 options:
   - id: stay
     title: They stay deferred until you bring them back
@@ -36,15 +39,16 @@ options:
       - On the day snooze ships, every old deferral lands in your queue at once
       - A card someone deferred by hand comes straight back, even if they meant it to stay out
   - id: hub-dates
-    title: The hub gives them a week from when it first sees them
-    summary: The first time the hub finds a deferred card without a date, it writes a return date one week later into the card, as if you had pressed d that day.
+    title: They get the default week, counted by the hub
+    summary: The card comes back a week after you deferred it when the card records that day (a deferral with a note), otherwise a week after the hub first sees it; the hub keeps that day in its own per-machine state, and the card file is unchanged.
     pros:
-      - Matches snooze's default literally; every card gets the same week
-      - Nothing comes back on the day snooze ships; old deferrals return a week later, and the page shows the date until then
+      - Every deferred card gets snooze's default week, counted from the deferral itself whenever the card records it
+      - A card with no record of its deferral comes back a week after snooze ships, not on the day, and the page shows its return date until then
+      - The card file is never changed, so nothing new travels with Sync
     cons:
-      - The hub changes card files without you doing anything, which it never does today
-      - Two machines that each see the card first write different dates, and Sync stops with a conflict on that card
-      - The card says you chose that date, when you didn't
+      - On another machine the card can come back on a different day, since each hub counts from when it first saw the card
+      - One more per-machine record to keep
+      - Cards with no record of their deferral still come back together, a week after snooze ships, and a card deferred by hand comes back too
 ---
 
 ## Context
@@ -91,23 +95,34 @@ On the card: "Deferred, with no return date. [Back to queue] [Snooze…]".
 
 Pressing `d` on it snoozes it until a week from now, like any card.
 
-## Option hub-dates: The hub gives them a week from when it first sees them
+## Option hub-dates: They get the default week, counted by the hub
 
-If snooze ships on 18 November, the first hub start after that adds to the card:
+Say snooze ships on 18 November. #0003 was deferred on 8 November with a note, so the card
+records that day: its week ended on 15 November, and it is back in the queue at once, marked
+"back from deferral". An invented #0042, deferred with `d` (no note, so no date in the card),
+is first seen by the hub on 18 November:
 
-```yaml
-defer_until: 2026-11-25T09:00:00Z
+```
+▸ Deferred (1)
+   #0042  Should failed requests throw or return a result?   back on 25 Nov
 ```
 
-and the card is back in the queue on 25 November.
+The card file doesn't change. The hub notes "president, 0042, first seen 18 November" in its
+own state folder on this machine; on your other machine, whose hub first sees #0042 on 20
+November, it comes back on 27 November.
 
 ## Technical detail (for the implementer)
 
 - `stay`: the queue treats a missing `defer_until` as "never"; `back-now`: as "already
   passed". Both are one line in the queue code and never write the card.
-- `hub-dates` is a write the human didn't make. It would need its own action (not Undo-able,
-  since nobody pressed anything), and if two machines write it before syncing, both change the
-  same new line, which stops Sync ("Not synced: 0003 changed on both machines").
+- `hub-dates`: the queue's return date for a deferred card without `defer_until` is the `at`
+  of its last `defer` feedback entry plus 7 days when there is one and no `reopen` entry came
+  after it, otherwise "first seen" plus 7 days. "First seen" is kept per machine in
+  president's state folder (`$XDG_STATE_HOME/president/`, like 0021's session store), keyed
+  by project and card id, and written the first time the hub reads the card deferred without
+  a date. The card is never written, so there is no new action and nothing for Undo or Sync.
+  Once you press `d` or Back to queue, the card's own state takes over and the record can be
+  dropped.
 - Under every option, `d` on such a card sets a real `defer_until` (`ALLOWED_FROM.defer` gains
   `deferred`, as the roadmap's Snooze section already requires).
 
@@ -120,6 +135,9 @@ and the card is back in the queue on 25 November.
   `ALLOWED_FROM.defer` is `["open"]`), `src/web/views/CardView.tsx` (`d` sends no note; the
   "Deferred. It stays out of the queue until reopened." notice), `src/web/views/QueueView.tsx`
   (the "Deferred (n)" list), `src/core/queue.ts` (`buildQueue` keeps only open cards).
-- `examples/demo-project/decisions/0003-first-run-copy.md`; the registry on this machine
+- Card [0021](0021-session-id-per-machine.md), option `local` (the hub's per-machine store in
+  `$XDG_STATE_HOME/president/`), which `hub-dates` would reuse.
+- `examples/demo-project/decisions/0003-first-run-copy.md` (its `defer` entry has
+  `at: 2026-11-08T21:15:00Z`); the registry on this machine
   (`~/.config/president/projects/`), checked 2026-11-11: one project, president, with no
   deferred card.

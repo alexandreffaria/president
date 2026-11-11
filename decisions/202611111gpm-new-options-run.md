@@ -9,14 +9,16 @@ created_by: claude (batch-3 writer)
 tags: [pr-2, chat, neither]
 depends_on: ["0007", "0004", "0021", "0018", "0024"]
 recommendation:
-  option: separate
+  option: shown-no-reminder
   why: >-
-    The run is a job with one result, the new options, and you already see those on the
-    card; making it a conversation would add a reminder to summarize every time you say
-    "neither", for a summary that repeats your own note. A separate run can still start
-    from the card's earlier conversation, as 0007 promised, without adding to it. Pick
-    in-conversation if you expect to question new options often ("why did you drop the
-    server option?") and want the agent that wrote them to answer.
+    The run's result, the new options, is already on the card, so a reminder to summarize
+    it would mostly repeat your note; that reminder was the main cost of making the run a
+    conversation. shown-no-reminder drops it and keeps the rest of in-conversation, so you
+    see how the agent got to the new options, and "why did you drop the server option?"
+    goes to the agent that wrote them. The cost is a run that returns both a message and
+    options, and a stored conversation on each card you say "neither" to. Pick separate if
+    you rarely question new options and want "neither" to leave nothing stored; pick
+    in-conversation if you want every run summarized for the working agent.
 options:
   - id: separate
     title: A separate job, not a conversation
@@ -36,6 +38,16 @@ options:
     cons:
       - Every "neither" starts or extends a conversation, with its stored copy and a "not summarized" reminder, for a summary that mostly repeats your note
       - The reply has to be both a readable message and options the hub can check, which makes the run more fragile
+  - id: shown-no-reminder
+    title: A turn in the conversation, without the reminder
+    summary: The run is a turn in the card's conversation (stored, shown in the panel, follow-ups reach the agent that wrote the options), but it doesn't mark the conversation as not summarized, since its result is already on the card.
+    pros:
+      - The reasoning behind the new options is on the page, and follow-up questions go to the agent that wrote them
+      - No "not summarized" reminder for each "neither"; the new options on the card are the outcome
+    cons:
+      - The reply still has to be both a readable message and options the hub can check, which makes the run more fragile
+      - The run's reasoning reaches the working agent only through the options, unless you go on to discuss them; then only your later messages make the conversation "not summarized"
+      - Every "neither" starts or extends a stored conversation on this machine, even on a card you never chatted on
 ---
 
 ## Context
@@ -58,7 +70,7 @@ at 21:00" (`docs/roadmap.md`, "Neither: new options right away").
 3. What the page says when the run fails or returns options the checks refuse, and whether it
    retries.
 
-The options answer 1 and 2 together. For 3, both do the same, since nothing is written when a
+The options answer 1 and 2 together. For 3, all three do the same, since nothing is written when a
 run fails and the card keeps waiting for the project's agent as today:
 
 ```
@@ -97,6 +109,21 @@ Discuss
   Not summarized yet.  [Write summary]
 ```
 
+## Option shown-no-reminder: A turn in the conversation, without the reminder
+
+```
+Discuss
+  you, 14:02     Is IndexedDB available in the app's webview?
+  agent, 14:02   Yes ...
+  you, 21:00     Neither: Both assume a server. Compare on-device storage only.
+  agent, 21:02   Here are three on-device options: IndexedDB, SQLite (OPFS), plain files...
+                 (the options are now on the card)
+```
+
+The run adds no "Not summarized yet" line of its own (if the 14:02 exchange was never
+summarized, its reminder stays as it was). If you then ask "Why did you drop the server
+option?", that question and its answer make the conversation "not summarized" as usual.
+
 ## Technical detail (for the implementer)
 
 - `separate`: when the card has a session on this machine, run with `--resume <id>
@@ -107,6 +134,10 @@ Discuss
 - `in-conversation`: resume the card's session (or start one with `--session-id`, adding a
   store entry), save both messages in the hub's copy, and mark the conversation as not
   summarized. The reply must carry the options in the structured output and a readable message.
+- `shown-no-reminder`: as `in-conversation`, but the run doesn't add the conversation to the
+  "not summarized" list; a conversation already on it (from earlier messages) stays there.
+  The readable message and the options can come back in one `--json-schema` output (a
+  message field next to the options).
 - Both: on failure, write nothing (the card stays `needs_new_options: true` for the working
   agent) and show the reason; Try again starts the run again with the same note.
 
