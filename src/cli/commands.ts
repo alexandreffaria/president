@@ -439,7 +439,7 @@ export async function seen(args: string[], out: Output): Promise<number> {
 /** What the human (and president) own in a card; an agent's rewrite keeps these as they are. */
 const HUMAN_FIELDS = ["status", "resolution", "feedback", "applied_at", "seen_at"] as const;
 
-/** Why `update` refuses a decided card, or one whose status or decision changed. */
+/** Why `update` refuses a decided card, or one whose decision changed. */
 const DONT_REWRITE =
   "don't rewrite it: run `president pending` and handle the card as it shows it (for a decided card, apply the decision).";
 
@@ -484,9 +484,10 @@ export async function update(args: string[], out: Output): Promise<number> {
   }
   const mine = parsed.card.frontmatter;
   const changes = humanChanges(card.frontmatter, mine);
-  if (changes.some((c) => c.startsWith("status:") || c.startsWith("resolution:"))) {
+  // A deferral or a reopen alone is like a note: the rewrite can be made again (R7-5).
+  if (changes.some((c) => c.startsWith("resolution:"))) {
     throw new UserError(
-      `${card.fileName} was not changed: its status or decision changed since you read it (the human deferred or reopened it, or took back a decision), or your version changes them, so ${DONT_REWRITE}`,
+      `${card.fileName} was not changed: its decision changed since you read it (the human took back a decision), or your version changes it, so ${DONT_REWRITE}`,
       { details: changes },
     );
   }

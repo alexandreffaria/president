@@ -351,8 +351,23 @@ describe("president CLI", () => {
       await writeFile(mine, before.replace("status: open", "status: deferred"));
       expect((await cli("update", file, mine)).err).toBe(
         [
-          "president: 0002-api-errors.md was not changed: its status or decision changed since you read it (the human deferred or reopened it, or took back a decision), or your version changes them, so don't rewrite it: run `president pending` and handle the card as it shows it (for a decided card, apply the decision).",
+          "president: 0002-api-errors.md was not changed: what the human owns differs between the card and your version, so the card changed since you read it. Read the card again, make your changes to it as it is now (keep status, resolution, feedback, applied_at, seen_at exactly as they are), and run president update again:",
           '  - status: the card has "open", your version "deferred"',
+        ].join("\n"),
+      );
+      // A decision is never the agent's to write.
+      await writeFile(
+        mine,
+        before.replace(
+          "status: open\n",
+          "status: resolved\nresolution:\n  choice: result\n  resolved_at: 2026-11-10T10:00:00Z\n",
+        ),
+      );
+      expect((await cli("update", file, mine)).err).toBe(
+        [
+          "president: 0002-api-errors.md was not changed: its decision changed since you read it (the human took back a decision), or your version changes it, so don't rewrite it: run `president pending` and handle the card as it shows it (for a decided card, apply the decision).",
+          '  - status: the card has "open", your version "resolved"',
+          '  - resolution: the card has none, your version a decision ("result")',
         ].join("\n"),
       );
       // Problems are labeled with the agent's file: their line numbers are its (R6-7).
@@ -367,6 +382,30 @@ describe("president CLI", () => {
       expect((await cli("update", file)).err).toMatch(
         /usage: president update <card-file> <new-version-file>/,
       );
+    });
+
+    // A deferral is not a decision: the rewrite is made again from the card as it is (R7-5).
+    it("asks for the rewrite again when the human deferred the card meanwhile", async () => {
+      const demo = await copyDemoProject();
+      const file = join(demo, "decisions", "0002-api-errors.md");
+      await human(demo, "0002", { type: "neither", note: "Show me something lighter." });
+      const rewrite = (text: string) =>
+        text
+          .replace("needs_new_options: true\n", "")
+          .replace("title: Return a result object", "title: Return a tiny tuple");
+      const mine = join(demo, "decisions", ".0002.new.md");
+      await writeFile(mine, rewrite(await readFile(file, "utf8")));
+      await human(demo, "0002", { type: "defer", note: "Later." });
+      const deferred = await readFile(file, "utf8");
+      const refused = await cli("update", file, mine);
+      expect(refused.code).toBe(1);
+      expect(refused.err).toMatch(
+        /^president: 0002-api-errors\.md was not changed: what the human owns differs[\s\S]*Read the card again[\s\S]*\n {2}- status: the card has "deferred", your version "open"$/,
+      );
+      expect(await readFile(file, "utf8")).toBe(deferred);
+      await writeFile(mine, rewrite(deferred));
+      expect((await cli("update", file, mine)).code).toBe(0);
+      expect(await readFile(file, "utf8")).toContain("title: Return a tiny tuple");
     });
 
     // The decision is about the options and text the human saw (R6-1).

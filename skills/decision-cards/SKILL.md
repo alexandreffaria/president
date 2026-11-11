@@ -280,12 +280,12 @@ what the human added since, without any sign. Instead:
    It checks your version like `president validate`, and replaces the card only if what the
    human owns is still what you read. It never replaces a decided card (`status: resolved`):
    the decision is about the card as the human saw it, so don't rewrite it; apply the decision
-   (see **Applying resolved cards**). If it refuses because the human added or took back a
-   note, it prints those entries: read the card again, take them into account too, write your
-   version again from the card as it is now, and run `president update` again. If it refuses
-   because the card's status or decision changed (the human decided, deferred or reopened it,
-   or took a decision back), don't write your version again: run `president pending` and
-   handle the card as it shows it now.
+   (see **Applying resolved cards**). If it refuses because the card changed since you read
+   it (the human added or took back a note, deferred or reopened it), it prints what changed:
+   read the card again, take that into account too, write your version again from the card
+   as it is now, and run `president update` again. If it refuses because the human took a
+   decision back, don't write your version again: run `president pending` and handle the
+   card as it shows it now.
 
    After a refused `update`, the `done:` line you have is from before the new entries: once
    your update went through, run `president pending` again and use its new `done:` line.
