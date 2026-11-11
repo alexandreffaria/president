@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import { chmod, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { basename, join } from "node:path";
@@ -11,6 +12,24 @@ import type { Project } from "../src/server/registry.ts";
 import { cardText, copyDemoProject, tempDir } from "./helpers.ts";
 
 const BIN = join(import.meta.dirname, "..", "bin", "president.js");
+
+/** Runs once, when `parseCard` is given `text`: a moment in the middle of an update. */
+const parsing = vi.hoisted(() => ({ text: "", during: undefined as (() => void) | undefined }));
+
+vi.mock("../src/core/card-file.ts", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../src/core/card-file.ts")>();
+  return {
+    ...real,
+    parseCard: (text: string, fileName: string) => {
+      const during = parsing.during;
+      if (during && text === parsing.text) {
+        parsing.during = undefined;
+        during();
+      }
+      return real.parseCard(text, fileName);
+    },
+  };
+});
 
 async function cli(...args: string[]) {
   const stdout: string[] = [];
@@ -442,6 +461,25 @@ describe("president CLI", () => {
     });
 
     // president never writes a broken card, so the agent fixes it by hand (R6-10).
+    // The hub may write the card while the agent's version is checked (R6-15).
+    it("leaves the card alone when the hub writes it during the update", async () => {
+      const demo = await copyDemoProject();
+      const file = join(demo, "decisions", "0002-api-errors.md");
+      const mine = join(demo, "decisions", ".0002.new.md");
+      const before = await readFile(file, "utf8");
+      parsing.text = before.replace("## Option throw", "## Option throw\n\nRewritten.");
+      await writeFile(mine, parsing.text);
+      const human = `${before}\nThe human's edit.\n`;
+      parsing.during = () => writeFileSync(file, human);
+      expect(await cli("update", file, mine)).toEqual({
+        code: 1,
+        out: "",
+        err: "president: 0002-api-errors.md changed while updating it; run president update again",
+      });
+      expect(parsing.during).toBeUndefined();
+      expect(await readFile(file, "utf8")).toBe(human);
+    });
+
     it("says to fix a broken card by editing it directly", async () => {
       const demo = await copyDemoProject();
       const file = join(demo, "decisions", "0002-api-errors.md");
