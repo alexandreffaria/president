@@ -54,7 +54,7 @@ title: How should the API client report errors?
 | Field | Required | Type | Meaning |
 |---|---|---|---|
 | `id` | yes | string | Same as the file name prefix. Quote it (`"0007"`): unquoted `0007` is read as the number 7 (still accepted, and matched by value). A quoted id must match exactly: `"07"` is not `0007`. |
-| `title` | yes | string | The question, phrased as a question. Quote it if it contains `: ` or starts with a special character. |
+| `title` | yes | string | The question, phrased as a question. Quote it if it contains `: ` or ` #`, or starts with a special character. |
 | `status` | yes | `open` \| `deferred` \| `resolved` | Agents create cards as `open`. |
 | `kind` | yes | `choice` \| `ab` \| `open` | See [kinds](#kinds). |
 | `priority` | no (default `normal`) | `high` \| `normal` \| `low` | High priority cards come first in the queue. |
@@ -295,9 +295,21 @@ resolution:
 
 ## YAML pitfalls
 
-- Quote strings that contain `: ` (colon and space) or start with `[`, `{`, `*`, `&`, `!`, `|`, `>`,
-  `'`, `"`, `%` or `@`.
+- Quote strings that contain `: ` (colon and space) or ` #` (space and hash), or start with
+  `[`, `{`, `*`, `&`, `!`, `|`, `>`, `'`, `"`, `%` or `@`.
 - Quote ids: `id: "0007"`, `depends_on: ["0003"]`.
+- ` #` starts a comment, so in `title: Write it in C # or Rust?` the title is just "Write it
+  in C". In the free-text fields (`title`, `created_by`, `tags`, the options' `title`,
+  `summary`, `pros` and `cons`, `recommendation.why`, `feedback[].note`,
+  `feedback[].previous_resolution.note` and `resolution.note`), `validate` reports unquoted
+  text followed by a comment on the same line, with the line, as an error: quote the text
+  (`title: "Write it in C # or Rust?"`). Text an alias (`*name`) brings into one of them is
+  checked where it is anchored. Fields president doesn't know are not checked, since it can't
+  tell whether they hold text. Comments on their own line are fine anywhere, and so
+  is a comment after quoted text, after a `>-` or `|`, after a key whose value starts on the
+  next line (`pros:   # see below`), or after a value that isn't free text, such as an id, a
+  choice, a type or a timestamp (`- id: result   # the slug`). When president writes the card,
+  it keeps every comment outside the fields it changes (see [frontmatter fields](#frontmatter-fields)).
 - For long text use a folded block: `why: >-` followed by indented lines.
 - Dates need a timezone when they include a time: `2026-11-10T14:03:00Z`. Don't invent them:
   `date -u +%Y-%m-%dT%H:%M:%SZ` prints the current time in this format.

@@ -4,7 +4,7 @@ import { chmod, mkdir, readdir, readFile, rename, rm, symlink, writeFile } from 
 import { createServer } from "node:net";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CARD_FORMAT_DOC, DEMO_SOURCE, run } from "../src/cli/main.ts";
 import type { CardAction } from "../src/core/actions.ts";
 import { MAX_CARD_BYTES } from "../src/core/card-file.ts";
@@ -79,6 +79,14 @@ async function human(demo: string, id: string, action: CardAction) {
   if (!found.ok) throw new Error("broken");
   return actOnCard(project, id, action, { revision: found.card.revision });
 }
+
+// The CLI loads its commands, and `serve` the server, on first use. Loading means vite
+// transforming them and what they import: on a busy machine that took over 5 s, which the
+// test that happened to come first paid for out of its 5 s. Done here, outside any test.
+beforeAll(async () => {
+  await import("../src/cli/commands.ts");
+  await import("../src/server/server.ts");
+}, 60_000);
 
 let configHome: string;
 beforeEach(async () => {

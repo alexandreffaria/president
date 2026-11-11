@@ -186,8 +186,9 @@ options:
   use `depends_on`.
 - `priority: high` only when work is blocked on it.
 
-YAML pitfalls: quote ids (`id: "0012"`, `depends_on: ["0003"]`); quote strings containing `: `;
-use `>-` for long text; timestamps need a timezone (`Z`).
+YAML pitfalls: quote ids (`id: "0012"`, `depends_on: ["0003"]`); quote any text containing ` #`
+or `: ` (unquoted, ` #` starts a comment and cuts the text off); use `>-` for long text;
+timestamps need a timezone (`Z`).
 
 ## Applying resolved cards
 

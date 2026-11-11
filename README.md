@@ -63,7 +63,8 @@ symlinks also needs Developer Mode or admin rights).
 
 **For other projects**, pick one:
 
-- Per project, local only: link it into that project's `.claude/skills/` and don't commit the link.
+- Per project, local only: link it into that project's `.claude/skills/` and don't commit the link
+  (the snippet lists it in the project's `.git/info/exclude`, so git doesn't offer to).
   `PRESIDENT` must be an absolute path. A symlink target resolves against the link's own folder
   (`.claude/skills/`), not your current directory, so a relative `PRESIDENT` gives a dangling link.
 
@@ -71,7 +72,11 @@ symlinks also needs Developer Mode or admin rights).
   # from the other project's root
   PRESIDENT=/absolute/path/to/president   # or: PRESIDENT="$(cd path/to/president && pwd)"
   mkdir -p .claude/skills
-  ln -s "$PRESIDENT/skills/decision-cards" .claude/skills/decision-cards
+  ln -sfn "$PRESIDENT/skills/decision-cards" .claude/skills/decision-cards
+  EXCLUDE="$(git rev-parse --git-path info/exclude)"   # .git/info/exclude
+  mkdir -p "$(dirname "$EXCLUDE")"
+  grep -qxF .claude/skills/decision-cards "$EXCLUDE" 2>/dev/null ||
+    echo .claude/skills/decision-cards >> "$EXCLUDE"
   test -e .claude/skills/decision-cards/SKILL.md && echo ok || echo dangling
   ```
 
@@ -82,7 +87,7 @@ symlinks also needs Developer Mode or admin rights).
   ```sh
   # from the other project's root, with president at ../president
   mkdir -p .claude/skills
-  ln -s ../../../president/skills/decision-cards .claude/skills/decision-cards
+  ln -sfn ../../../president/skills/decision-cards .claude/skills/decision-cards
   test -e .claude/skills/decision-cards/SKILL.md && echo ok || echo dangling
   ```
 
@@ -91,7 +96,7 @@ symlinks also needs Developer Mode or admin rights).
   ```sh
   # from the president repo root
   mkdir -p ~/.claude/skills
-  ln -s "$PWD/skills/decision-cards" ~/.claude/skills/decision-cards
+  ln -sfn "$PWD/skills/decision-cards" ~/.claude/skills/decision-cards
   ```
 
   This takes precedence over the in-repo copy; if you installed it globally before and only want it

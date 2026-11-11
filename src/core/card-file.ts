@@ -5,7 +5,17 @@
  * result is either a card or a list of problems phrased so the agent can fix the file.
  * Writing lives in card-writer.ts.
  */
-import { type Document, isCollection, isMap, isScalar, LineCounter, parseDocument } from "yaml";
+import {
+  type Document,
+  isAlias,
+  isCollection,
+  isMap,
+  isPair,
+  isScalar,
+  isSeq,
+  LineCounter,
+  parseDocument,
+} from "yaml";
 import {
   CARD_FILENAME_PATTERN,
   type Frontmatter,
@@ -178,15 +188,19 @@ function parseNamedCard(
     return fail(["the frontmatter must be a YAML mapping (key: value pairs)"]);
   }
 
+  const truncated = truncatedTexts(doc, split.yaml, fileLine);
   const result = FrontmatterSchema.safeParse(raw, {
     error: (issue) => (issue.input === undefined ? "is required" : undefined),
   });
   if (!result.success) {
-    return fail(formatIssues(result.error, (path) => lineOf(doc, path, fileLine)));
+    return fail([
+      ...truncated,
+      ...formatIssues(result.error, (path) => lineOf(doc, path, fileLine)),
+    ]);
   }
   const frontmatter = result.data;
 
-  const errors: string[] = [];
+  const errors: string[] = [...truncated];
   if (!sameCardId(frontmatter.id, name.id)) {
     errors.push(
       `id: "${frontmatter.id}" does not match the file name, which starts with "${name.id}"`,
@@ -290,6 +304,87 @@ function yamlErrors(
     out.push(`YAML error${where}: ${message}`);
   }
   return out;
+}
+
+/**
+ * The free-text fields, as paths with `*` for a list index. Ids, choices, types and timestamps
+ * are left out: they can't contain ` #`, so a comment after them cuts nothing. So are fields
+ * president doesn't know: it can't tell whether they hold text.
+ */
+const FREE_TEXT = new Set(
+  [
+    ["title"],
+    ["created_by"],
+    ["tags", "*"],
+    ["options", "*", "title"],
+    ["options", "*", "summary"],
+    ["options", "*", "pros", "*"],
+    ["options", "*", "cons", "*"],
+    ["recommendation", "why"],
+    ["feedback", "*", "note"],
+    ["feedback", "*", "previous_resolution", "note"],
+    ["resolution", "note"],
+  ].map((path) => JSON.stringify(path)),
+);
+
+function isFreeText(path: readonly PropertyKey[]): boolean {
+  return FREE_TEXT.has(JSON.stringify(path.map((key) => (typeof key === "number" ? "*" : key))));
+}
+
+/**
+ * Plain (unquoted) free text followed by a comment on the same line: in
+ * `title: Use C # for it`, YAML reads ` # for it` as a comment and the title as "Use C",
+ * and nothing else would notice. Comments on their own line, and after quoted text, a block
+ * header (`>-`), a key whose value starts on the next line, or a value that isn't free text
+ * (an id, a choice, a type, a timestamp), cut nothing and stay allowed.
+ *
+ * Text an alias brings into a free-text field (`title: *t`) is checked where it is anchored
+ * (`&t`). An alias is followed only to a single value, never into a list or a mapping, so
+ * this can't loop.
+ */
+export function truncatedTexts(
+  doc: Document,
+  yaml: string,
+  fileLine: (offset: number) => number,
+): string[] {
+  const out: string[] = [];
+  const visit = (value: unknown, path: PropertyKey[]): void => {
+    const aliased = isAlias(value);
+    const node = aliased && isFreeText(path) ? value.resolve(doc) : value;
+    if (isScalar(node)) {
+      if (!isFreeText(path)) return;
+      const range = node.range;
+      if (node.type !== "PLAIN" || !range || range[0] === range[1]) return;
+      if (!/^[ \t]+#/.test(yaml.slice(range[1]))) return;
+      const field = path.at(-1);
+      const text = yaml.slice(range[0], lineEnd(yaml, range[1])).trimEnd();
+      const example =
+        !aliased && typeof field === "string" && !yaml.slice(range[0], range[1]).includes("\n")
+          ? `: ${field}: ${JSON.stringify(text)}`
+          : "";
+      out.push(
+        `${formatPath(path)}: the text stops at "${String(node.value)}" because " #" starts a YAML comment (line ${fileLine(range[1])}); put the whole text in quotes${example}`,
+      );
+    } else if (aliased) {
+      return;
+    } else if (isMap(node)) {
+      for (const pair of node.items) {
+        const key = isScalar(pair.key) ? pair.key.value : undefined;
+        visit(pair.value, [...path, typeof key === "string" ? key : String(key)]);
+      }
+    } else if (isSeq(node)) {
+      node.items.forEach((item, i) => {
+        visit(isPair(item) ? item.value : item, [...path, i]);
+      });
+    }
+  };
+  visit(doc.contents, []);
+  return out;
+}
+
+function lineEnd(text: string, offset: number): number {
+  const end = text.indexOf("\n", offset);
+  return end === -1 ? text.length : end;
 }
 
 function fieldLinesOf(doc: Document, fileLine: (offset: number) => number): Record<string, number> {
