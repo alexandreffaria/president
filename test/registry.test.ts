@@ -1,6 +1,7 @@
-import { mkdir, readFile, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { createFileExclusive, STALE_TEMP_MS } from "../src/server/fs-utils.ts";
 import { defaultConfigDir, Registry, suggestName } from "../src/server/registry.ts";
 import { copyDemoProject, tempDir } from "./helpers.ts";
 
@@ -19,14 +20,15 @@ describe("defaultConfigDir", () => {
 });
 
 describe("Registry", () => {
-  it("starts empty and stores projects as JSON", async () => {
+  it("starts empty and stores each project in its own file", async () => {
     const reg = await registry();
     expect(await reg.list()).toEqual([]);
     const demo = await copyDemoProject();
     const { project, alreadyRegistered } = await reg.add({ path: demo });
     expect(project).toEqual({ name: "demo", path: demo });
     expect(alreadyRegistered).toBe(false);
-    expect(JSON.parse(await readFile(reg.file, "utf8"))).toEqual({ projects: [project] });
+    expect(await readdir(reg.dir)).toEqual(["demo.json"]);
+    expect(JSON.parse(await readFile(join(reg.dir, "demo.json"), "utf8"))).toEqual({ path: demo });
   });
 
   it("is idempotent for the same folder, even through a symlink", async () => {
@@ -95,20 +97,130 @@ describe("Registry", () => {
     expect((await stat(join(demo, "decisions", "0001-offline-storage.md"))).isFile()).toBe(true);
   });
 
-  it("serializes concurrent adds", async () => {
+  it("registers every one of many concurrent adds", async () => {
     const reg = await registry();
     const dirs = await Promise.all([1, 2, 3, 4].map(() => copyDemoProject()));
     await Promise.all(dirs.map((path, i) => reg.add({ path, name: `p${i}` })));
     expect((await reg.list()).map((p) => p.name).sort()).toEqual(["p0", "p1", "p2", "p3"]);
   });
 
-  it("explains a corrupt registry instead of overwriting it", async () => {
+  it("explains a corrupt entry instead of overwriting it", async () => {
     const reg = await registry();
-    await mkdir(join(reg.file, ".."), { recursive: true });
-    await writeFile(reg.file, "{ not json");
-    await expect(reg.list()).rejects.toThrow(/is not valid JSON/);
-    await writeFile(reg.file, JSON.stringify({ projects: [{ name: "x", path: "rel" }] }));
-    await expect(reg.list()).rejects.toThrow(/projects\[0\]\.path: must be an absolute path/);
+    await mkdir(reg.dir, { recursive: true });
+    const file = join(reg.dir, "x.json");
+    await writeFile(file, "{ not json");
+    await expect(reg.list()).rejects.toThrow(/x\.json is not valid JSON/);
+    await writeFile(file, JSON.stringify({ path: "rel" }));
+    await expect(reg.list()).rejects.toThrow(/x\.json is invalid: path: must be an absolute path/);
+    await writeFile(join(reg.dir, "-bad.json"), JSON.stringify({ path: "/" }));
+    await expect(reg.list()).rejects.toThrow(/"-bad" is not a valid project name/);
+    expect(await readFile(file, "utf8")).toBe(JSON.stringify({ path: "rel" }));
+  });
+
+  it("ignores temp files and removes ones left by a crash", async () => {
+    const reg = await registry();
+    await mkdir(reg.dir, { recursive: true });
+    const fresh = join(reg.dir, ".app.json.123.abcd.tmp");
+    const stale = join(reg.dir, ".web.json.456.ef01.tmp");
+    await writeFile(fresh, "{");
+    await writeFile(stale, "{");
+    const old = new Date(Date.now() - STALE_TEMP_MS - 1000);
+    await utimes(stale, old, old);
+    expect(await reg.list()).toEqual([]);
+    await reg.add({ path: await copyDemoProject() });
+    expect((await readdir(reg.dir)).sort()).toEqual([".app.json.123.abcd.tmp", "demo.json"]);
+  });
+
+  it("orders projects by name, -2 before -10", async () => {
+    const reg = await registry();
+    for (let i = 0; i < 11; i++) await reg.add({ path: await copyDemoProject("app") });
+    const names = (await reg.list()).map((p) => p.name);
+    expect(names).toEqual(["app", ...Array.from({ length: 10 }, (_, i) => `app-${i + 2}`)]);
+  });
+
+  it("names the same folder once when it is added under two names at once", async () => {
+    const reg = await registry();
+    const demo = await copyDemoProject();
+    // What two racing `add`s can leave before either sees the other.
+    await mkdir(reg.dir, { recursive: true });
+    await writeFile(join(reg.dir, "zeta.json"), JSON.stringify({ path: demo }));
+    await writeFile(join(reg.dir, "alpha.json"), JSON.stringify({ path: demo }));
+    expect(await reg.list()).toEqual([{ name: "alpha", path: demo }]);
+    expect(await reg.add({ path: demo })).toEqual({
+      project: { name: "alpha", path: demo },
+      alreadyRegistered: true,
+    });
+    // remove takes every file of the folder, under either name.
+    await reg.remove("zeta");
+    expect(await readdir(reg.dir)).toEqual([]);
+  });
+
+  it("settles adds of one folder that race: one entry, the others give way", async () => {
+    const reg = await registry();
+    const demo = await copyDemoProject();
+    const again = () => new Registry(join(reg.dir, ".."));
+    // The usual case, every agent of a project at once: all of them agree on the name.
+    const same = await Promise.all(Array.from({ length: 6 }, () => again().add({ path: demo })));
+    expect(new Set(same.map((r) => r.project.name))).toEqual(new Set(["demo"]));
+    expect(same.filter((r) => !r.alreadyRegistered)).toHaveLength(1);
+    expect(await readdir(reg.dir)).toEqual(["demo.json"]);
+    // With different names given at once, the folder still ends up registered once, under
+    // the name that sorts first (an add that ran before it existed may have printed its own).
+    await reg.remove("demo");
+    await Promise.all(["c", "a", "b"].map((name) => again().add({ path: demo, name })));
+    const listed = await reg.list();
+    expect(listed).toEqual([{ name: expect.stringMatching(/^[abc]$/), path: demo }]);
+    expect(await readdir(reg.dir)).toEqual([`${listed[0]?.name}.json`]);
+  });
+
+  it("creates an entry exclusively, whole or not at all", async () => {
+    const dir = await tempDir();
+    const file = join(dir, "app.json");
+    const created = await Promise.all(
+      Array.from({ length: 20 }, (_, i) => createFileExclusive(file, `{"n":${i}}`)),
+    );
+    expect(created.filter(Boolean)).toHaveLength(1);
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ n: created.indexOf(true) });
+    expect(await readdir(dir)).toEqual(["app.json"]);
+  });
+
+  it("moves an old projects.json into one file per project, once", async () => {
+    const reg = await registry();
+    const [a, b] = [await copyDemoProject("a"), await copyDemoProject("b")];
+    await mkdir(join(reg.dir, ".."), { recursive: true });
+    await writeFile(
+      reg.legacyFile,
+      JSON.stringify({
+        projects: [
+          { name: "first", path: a },
+          { name: "second", path: b },
+        ],
+      }),
+    );
+    // Two processes that start at once both migrate; neither loses or doubles a project.
+    const [one, two] = await Promise.all([reg.list(), new Registry(join(reg.dir, "..")).list()]);
+    const expected = [
+      { name: "first", path: a },
+      { name: "second", path: b },
+    ];
+    expect(one).toEqual(expected);
+    expect(two).toEqual(expected);
+    expect((await readdir(join(reg.dir, ".."))).sort()).toEqual([
+      "projects",
+      "projects.json.migrated",
+    ]);
+    await reg.remove("first");
+    expect(await new Registry(join(reg.dir, "..")).list()).toEqual([expected[1]]);
+  });
+
+  it("explains an old projects.json it can't read instead of dropping it", async () => {
+    const reg = await registry();
+    await mkdir(join(reg.dir, ".."), { recursive: true });
+    await writeFile(reg.legacyFile, JSON.stringify({ projects: [{ name: "x", path: "rel" }] }));
+    await expect(reg.list()).rejects.toThrow(
+      /projects\.json is invalid: projects\[0\]\.path: must be an absolute path/,
+    );
+    expect(await readdir(join(reg.dir, ".."))).toEqual(["projects.json"]);
   });
 });
 

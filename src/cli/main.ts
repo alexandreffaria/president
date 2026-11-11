@@ -54,7 +54,8 @@ Usage:
 
 Environment:
   PRESIDENT_PORT     port for \`serve\` (default 4747)
-  XDG_CONFIG_HOME    the registry lives in $XDG_CONFIG_HOME/president/projects.json
+  XDG_CONFIG_HOME    the registry lives in $XDG_CONFIG_HOME/president/projects/ (one file
+                     per project)
 
 Card format: ${CARD_FORMAT_DOC}
 `;

@@ -289,12 +289,12 @@ describe("cards API", () => {
 
   it("explains an invalid registry file instead of a bare 500", async () => {
     const { request, registry } = await setup();
-    await writeFile(registry.file, JSON.stringify({ projects: [{ name: "bad name", path: "/" }] }));
+    await writeFile(join(registry.dir, "demo.json"), JSON.stringify({ path: "relative" }));
     const res = await request("/api/cards");
     expect(res.status).toBe(500);
     expect(await res.json()).toMatchObject({
       code: "invalid_config",
-      error: expect.stringMatching(/projects\.json is invalid: projects\[0\]\.name/),
+      error: expect.stringMatching(/demo\.json is invalid: path: must be an absolute path/),
     });
   });
 

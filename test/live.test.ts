@@ -51,7 +51,7 @@ function writeCard(dir: string, n: number): Promise<void> {
 
 async function watched() {
   const registry = new Registry(join(await tempDir(), "config"));
-  await mkdir(join(registry.file, ".."), { recursive: true });
+  await mkdir(registry.dir, { recursive: true });
   const demo = await copyDemoProject();
   await registry.add({ path: demo, name: "demo" });
   const bus = new EventBus();
@@ -104,8 +104,10 @@ describe("HubWatcher", () => {
   it("ignores everything but the registry, decisions/ and card files", async () => {
     const { demo, registry, watcher } = await watched();
     const dir = join(demo, "decisions");
-    expect(watcher.ignores(registry.file)).toBe(false);
-    expect(watcher.ignores(join(registry.file, "..", "other.json"))).toBe(true);
+    expect(watcher.ignores(registry.dir)).toBe(false);
+    expect(watcher.ignores(join(registry.dir, "other.json"))).toBe(false);
+    expect(watcher.ignores(join(registry.dir, ".other.json.123.ab.tmp"))).toBe(true);
+    expect(watcher.ignores(join(registry.dir, "notes.txt"))).toBe(true);
     expect(watcher.ignores(demo)).toBe(false);
     expect(watcher.ignores(dir)).toBe(false);
     expect(watcher.ignores(join(demo, "README.md"))).toBe(true);
@@ -138,7 +140,7 @@ describe("HubWatcher", () => {
     const { registry, events } = await watched();
     const other = await copyDemoProject();
     // A second Registry instance stands in for the CLI.
-    await new Registry(join(registry.file, "..")).add({ path: other, name: "other" });
+    await new Registry(join(registry.dir, "..")).add({ path: other, name: "other" });
     await until(events, (e) => e.type === "projects");
     let n = 10;
     await until(

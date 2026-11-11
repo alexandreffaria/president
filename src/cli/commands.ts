@@ -83,7 +83,7 @@ export async function demo(args: string[], out: Output): Promise<number> {
   let project: Project;
   try {
     await cp(DEMO_SOURCE, target, { recursive: true });
-    // The registry picks a free name ("demo", "demo-2"...) under its lock.
+    // The registry picks a free name ("demo", "demo-2"...) by creating its file exclusively.
     ({ project } = await new Registry().add({
       path: target,
       name: values.name,

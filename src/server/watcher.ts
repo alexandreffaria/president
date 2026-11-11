@@ -1,5 +1,5 @@
 /**
- * Watches every registered project's decisions/ folder and the registry file, and
+ * Watches every registered project's decisions/ folder and the registry folder, and
  * reports changes (debounced) so the UI can refresh without a reload.
  */
 import { EventEmitter } from "node:events";
@@ -7,7 +7,7 @@ import { basename, dirname } from "node:path";
 import { type FSWatcher, watch } from "chokidar";
 import type { HubEvent } from "../core/api.ts";
 import { isIgnoredFile } from "./cards.ts";
-import { DECISIONS_DIR, decisionsDirOf, type Registry } from "./registry.ts";
+import { DECISIONS_DIR, decisionsDirOf, isEntryFileName, type Registry } from "./registry.ts";
 
 export class EventBus {
   readonly #emitter = new EventEmitter();
@@ -95,7 +95,7 @@ export class HubWatcher {
   /** Starts watching; resolves once the initial scan is done. */
   async start(): Promise<void> {
     const ready = new Promise<void>((resolve) => this.#watcher.once("ready", () => resolve()));
-    this.#watcher.add(dirname(this.#registry.file));
+    this.#watcher.add(this.#registry.dir);
     await this.sync();
     await ready;
   }
@@ -130,14 +130,14 @@ export class HubWatcher {
     await this.#watcher.close();
   }
 
-  /** True for paths whose changes don't matter (anything but projects.json, decisions/ and cards). */
+  /** True for paths whose changes don't matter (anything but registry entries, decisions/ and cards). */
   ignores(path: string): boolean {
-    if (path === this.#registry.file || this.#dirs.has(path) || this.#roots.has(path)) {
+    if (path === this.#registry.dir || this.#dirs.has(path) || this.#roots.has(path)) {
       return false;
     }
     const parent = dirname(path);
-    // In the config folder only projects.json matters.
-    if (parent === dirname(this.#registry.file)) return true;
+    // In the registry folder only the projects' files matter (not temp files).
+    if (parent === this.#registry.dir) return !isEntryFileName(basename(path));
     // In a project folder only decisions/ matters.
     if (this.#roots.has(parent)) return basename(path) !== DECISIONS_DIR;
     // In decisions/ only card files matter.
@@ -147,7 +147,7 @@ export class HubWatcher {
 
   #onChange(event: string, path: string): void {
     this.#onFileEvent?.(event, path);
-    if (path === this.#registry.file) {
+    if (path === this.#registry.dir || dirname(path) === this.#registry.dir) {
       this.#debouncer.run("projects", async () => {
         await this.sync();
         this.#bus.emit({ type: "projects" });

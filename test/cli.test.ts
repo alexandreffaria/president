@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CARD_FORMAT_DOC, DEMO_SOURCE, run } from "../src/cli/main.ts";
 import type { CardAction } from "../src/core/actions.ts";
 import { actOnCard, findCard } from "../src/server/cards.ts";
+import type { Project } from "../src/server/registry.ts";
 import { cardText, copyDemoProject, tempDir } from "./helpers.ts";
 
 const BIN = join(import.meta.dirname, "..", "bin", "president.js");
@@ -87,7 +88,7 @@ describe("president CLI", () => {
     expect(tracked.err).toMatch(/warning: this is president's own sample folder.*president demo/);
   });
 
-  it("names demos under the registry lock when several start at once (R4-9)", async () => {
+  it("names demos that start at once each their own way (R4-9)", async () => {
     const scratch = await tempDir();
     const dirs = ["d0", "d1", "d2", "d3"].map((d) => join(scratch, d));
     const results = await Promise.all(dirs.map((dir) => cli("demo", dir)));
@@ -422,14 +423,11 @@ describe("president CLI", () => {
   });
 
   it("explains an invalid registry instead of crashing", async () => {
-    await mkdir(join(configHome, "president"), { recursive: true });
-    await writeFile(
-      join(configHome, "president", "projects.json"),
-      JSON.stringify({ projects: [{ name: "bad name", path: "/tmp" }] }),
-    );
+    await mkdir(join(configHome, "president", "projects"), { recursive: true });
+    await writeFile(join(configHome, "president", "projects", "bad name.json"), "{}");
     const result = await cli("list");
     expect(result.code).toBe(1);
-    expect(result.err).toMatch(/^president: .*projects\.json is invalid: projects\[0\]\.name/);
+    expect(result.err).toMatch(/^president: .*"bad name" is not a valid project name/);
   });
 
   it.skipIf(process.getuid?.() === 0)("explains a folder it may not create", async () => {
@@ -468,30 +466,55 @@ describe("president CLI", () => {
   });
 
   // Agents that start together each run `president add . --create`: every one of them must
-  // end up registered, under its own name (R3-2, R3-13). Separate processes, so this starts
-  // Node several times (see the timeout note below).
-  it("registers every project when many `add`s run at once", { timeout: 20_000 }, async () => {
+  // end up registered, under its own name (R3-2, R3-13), with no lock (R5-3): each name is
+  // claimed by creating its file exclusively. Separate processes, so this starts Node many
+  // times (see the timeout note below).
+  it("registers every project when many `add`s and `demo`s run at once", {
+    timeout: 30_000,
+  }, async () => {
+    const run = (...args: string[]) =>
+      promisify(execFile)(process.execPath, [BIN, ...args], { timeout: 28_000 });
     const folders = await Promise.all(
-      Array.from({ length: 10 }, async () => {
+      Array.from({ length: 12 }, async () => {
         const dir = join(await tempDir(), "app");
         await mkdir(dir);
         return dir;
       }),
     );
-    const results = await Promise.all(
-      folders.map((dir) =>
-        promisify(execFile)(process.execPath, [BIN, "add", dir, "--create"], { timeout: 18_000 }),
-      ),
+    const shared = await copyDemoProject("shared");
+    const scratch = await tempDir();
+    const demos = Array.from({ length: 6 }, (_, i) => join(scratch, `d${i}`));
+    const results = await Promise.all([
+      ...folders.map((dir) => run("add", dir, "--create")),
+      // Several agents of one project at once register it once.
+      ...Array.from({ length: 4 }, () => run("add", shared)),
+      ...demos.map((dir) => run("demo", dir)),
+    ]);
+    for (const { stdout } of results.slice(0, 12))
+      expect(stdout).toMatch(/^Registered app(-\d+)? /);
+    for (const { stdout } of results.slice(12, 16)) {
+      expect(stdout).toMatch(/^(Registered|Already registered:) shared /);
+    }
+    const listed = JSON.parse((await cli("list", "--json")).out) as Project[];
+    expect(listed.map((p) => p.path).sort()).toEqual([...folders, shared, ...demos].sort());
+    expect(listed.map((p) => p.name)).toEqual([
+      "app",
+      ...Array.from({ length: 11 }, (_, i) => `app-${i + 2}`),
+      "demo",
+      ...Array.from({ length: 5 }, (_, i) => `demo-${i + 2}`),
+      "shared",
+    ]);
+    // Each demo printed the name it got.
+    const demoNames = results
+      .slice(16)
+      .map((r) => /registered it as "([^"]+)"/.exec(r.stdout)?.[1]);
+    expect(demoNames.sort()).toEqual(
+      listed
+        .filter((p) => p.name.startsWith("demo"))
+        .map((p) => p.name)
+        .sort(),
     );
-    for (const { stdout } of results) expect(stdout).toMatch(/^Registered app(-\d+)? /);
-    const listed = JSON.parse((await cli("list", "--json")).out) as {
-      name: string;
-      path: string;
-    }[];
-    expect(listed.map((p) => p.path).sort()).toEqual([...folders].sort());
-    expect(listed.map((p) => p.name).sort()).toEqual(
-      ["app", ...Array.from({ length: 9 }, (_, i) => `app-${i + 2}`)].sort(),
-    );
+    expect(await readdir(join(configHome, "president", "projects"))).toHaveLength(listed.length);
   });
 
   // Like the test above, this starts a process. Its time is Node's own start-up, which doesn't

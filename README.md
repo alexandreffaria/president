@@ -127,10 +127,14 @@ president serve                                   start the hub (same as npm sta
 ```
 
 A project is named after its folder unless `--name` says otherwise; when that name is taken, `add`
-uses `<name>-2`, `<name>-3`... and says so. The registry is
-`$XDG_CONFIG_HOME/president/projects.json` (default `~/.config/president/projects.json`). Each
-change to it holds `projects.json.lock`, so agents that run `president add` at the same time all
-get registered.
+uses `<name>-2`, `<name>-3`... and says so. The registry is a folder with one file per project,
+`$XDG_CONFIG_HOME/president/projects/<name>.json` (default `~/.config/president/projects/`),
+holding the project's path. There is no lock: `add` creates its file exclusively (a temp file
+hard-linked into place), so agents that run `president add` at the same time all get
+registered, each under its own name. If two `add`s of the same folder race, the folder is still
+listed once, under the name that sorts first, and the duplicate file is removed. A
+`projects.json` from an earlier version is moved into the folder the first time president runs
+(it is kept as `projects.json.migrated`).
 
 ## Development
 

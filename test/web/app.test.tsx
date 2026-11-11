@@ -66,7 +66,7 @@ const socket = () => FakeWebSocket.instances.at(-1);
 let root: Root;
 let host: HTMLElement;
 let demo: string;
-let registryFile: string;
+let registryEntry: string;
 let posts: string[];
 /** Requests the UI started that haven't finished; awaited before the stubs go away. */
 const inFlight = new Set<Promise<Response>>();
@@ -92,7 +92,7 @@ async function setUp() {
   const registry = new Registry(join(await tempDir(), "config"));
   demo = await copyDemoProject();
   await registry.add({ path: demo, name: "demo" });
-  registryFile = registry.file;
+  registryEntry = join(registry.dir, "demo.json");
   const app = createApp({ registry, bus: new EventBus(), staticDir: undefined });
   posts = [];
   vi.stubGlobal("fetch", async (input: string, init: RequestInit = {}) => {
@@ -662,12 +662,10 @@ describe("queue keyboard", () => {
 describe("errors", () => {
   it("says so when a refresh fails, while keeping the cards on screen", async () => {
     await open("/", () => host.querySelectorAll(".queue-link").length >= 2, "the queue");
-    await io(() => writeFile(registryFile, "{ not json"));
+    await io(() => writeFile(registryEntry, "{ not json"));
     socket()?.emit({ type: "projects" } satisfies HubEvent);
     await until(() => text().includes("Couldn't refresh"), "the error banner");
-    expect(host.querySelector("[role=alert]")?.textContent).toMatch(
-      /projects\.json is not valid JSON/,
-    );
+    expect(host.querySelector("[role=alert]")?.textContent).toMatch(/demo\.json is not valid JSON/);
     expect(host.querySelectorAll(".queue-link").length).toBeGreaterThanOrEqual(2);
   });
 });

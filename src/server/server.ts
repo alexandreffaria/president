@@ -43,9 +43,9 @@ export async function startHub(
   const registry = options.registry ?? new Registry();
   const port = options.port ?? portFromEnv();
   try {
-    await mkdir(dirname(registry.file), { recursive: true });
+    await mkdir(registry.dir, { recursive: true });
   } catch (error) {
-    throw fileError("create", dirname(registry.file), error);
+    throw fileError("create", registry.dir, error);
   }
   const bus = new EventBus();
   const watcher = new HubWatcher(registry, bus);

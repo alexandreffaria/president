@@ -1,36 +1,52 @@
 /**
  * The hub registry: which project folders president shows cards from.
  *
- * Stored at $XDG_CONFIG_HOME/president/projects.json (default ~/.config/president/projects.json)
- * as { "projects": [{ "name": "...", "path": "/abs/path" }] }. The CLI and the server both
- * read and write it. Writes are atomic, and each change (read, modify, write) holds
- * projects.json.lock, so agents that run `president add` at the same time don't lose each
- * other's projects.
+ * One file per project, $XDG_CONFIG_HOME/president/projects/<name>.json (default
+ * ~/.config/president/projects/), holding { "path": "/abs/path" }. The file name is the
+ * project's name. The CLI and the server both read and write it, with no lock:
+ *
+ * - Registering creates the file exclusively (a temp file hard-linked into place, which fails
+ *   if the name exists and never shows a half-written file). So two agents that run
+ *   `president add` at once can't take the same name: the second link fails and that one
+ *   tries the next suffix (`app-2`, ...). Nothing is read, changed and written back, so no
+ *   registration can be lost.
+ * - Removing deletes the file; listing reads the folder.
+ * - The one race left is harmless: two `add`s of the same folder at the same moment can both
+ *   create a file, under two names. Listing then shows the folder once, under the name that
+ *   sorts first (`app` before `app-2`), and whichever `add` sees the other removes the
+ *   duplicate. `remove` removes every file for the folder.
+ *
+ * A projects.json from before this layout is moved into the folder on first use.
  */
-import { mkdir, readFile, realpath, stat } from "node:fs/promises";
+import { mkdir, readdir, readFile, realpath, rename, stat, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { formatIssues } from "../core/schema.ts";
 import { fileError, UserError } from "./errors.ts";
-import {
-  FileLockTimeout,
-  isNotFound,
-  KeyedMutex,
-  withFileLock,
-  writeFileAtomic,
-} from "./fs-utils.ts";
+import { createFileExclusive, isNotFound, removeStaleTempFiles } from "./fs-utils.ts";
 
 export const DECISIONS_DIR = "decisions";
 export const PROJECT_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const ENTRY_SUFFIX = ".json";
 
-const ProjectSchema = z.looseObject({
-  name: z.string().regex(PROJECT_NAME_PATTERN),
+const EntrySchema = z.looseObject({
   path: z.string().refine(isAbsolute, { error: "must be an absolute path" }),
 });
-const RegistrySchema = z.looseObject({ projects: z.array(ProjectSchema) });
+/** The old single-file registry (projects.json), read once to move it into projects/. */
+const LegacySchema = z.looseObject({
+  projects: z.array(
+    z.looseObject({
+      name: z.string().regex(PROJECT_NAME_PATTERN),
+      path: z.string().refine(isAbsolute, { error: "must be an absolute path" }),
+    }),
+  ),
+});
 
-export type Project = z.infer<typeof ProjectSchema>;
+export interface Project {
+  name: string;
+  path: string;
+}
 
 export function defaultConfigDir(env: NodeJS.ProcessEnv = process.env): string {
   const xdg = env.XDG_CONFIG_HOME;
@@ -42,6 +58,14 @@ export function decisionsDirOf(project: Pick<Project, "path">): string {
   return join(project.path, DECISIONS_DIR);
 }
 
+/** True for a file name in the registry folder that holds a project (not a temp file). */
+export function isEntryFileName(fileName: string): boolean {
+  return !fileName.startsWith(".") && fileName.endsWith(ENTRY_SUFFIX);
+}
+
+/** Orders names so that `app-2` comes before `app-10`. */
+const byName = new Intl.Collator("en", { numeric: true }).compare;
+
 export interface AddProjectInput {
   path: string;
   name?: string | undefined;
@@ -52,32 +76,20 @@ export interface AddProjectInput {
 }
 
 export class Registry {
-  readonly file: string;
-  readonly #lock = new KeyedMutex();
+  /** The folder with one file per project. */
+  readonly dir: string;
+  /** The registry file used before projects/ (moved into it on first use). */
+  readonly legacyFile: string;
+  #migrated = false;
 
   constructor(configDir: string = defaultConfigDir()) {
-    this.file = join(configDir, "projects.json");
+    this.dir = join(configDir, "projects");
+    this.legacyFile = join(configDir, "projects.json");
   }
 
+  /** The registered projects, sorted by name, each folder once. */
   async list(): Promise<Project[]> {
-    let text: string;
-    try {
-      text = await readFile(this.file, "utf8");
-    } catch (error) {
-      if (isNotFound(error)) return [];
-      throw configError(`cannot read ${this.file}: ${(error as Error).message}`);
-    }
-    let data: unknown;
-    try {
-      data = JSON.parse(text);
-    } catch (error) {
-      throw configError(`${this.file} is not valid JSON: ${(error as Error).message}`);
-    }
-    const parsed = RegistrySchema.safeParse(data);
-    if (!parsed.success) {
-      throw configError(`${this.file} is invalid: ${formatIssues(parsed.error).join("; ")}`);
-    }
-    return parsed.data.projects;
+    return withoutDuplicates(await this.#entries());
   }
 
   async get(name: string): Promise<Project | undefined> {
@@ -87,103 +99,202 @@ export class Registry {
   /**
    * Registers a folder. Without a name it is named after the folder (or `defaultName`), with
    * "-2", "-3"... added when another project has that name (`renamedFrom` is then the name
-   * it started from). The free name is picked while holding the registry lock.
+   * it started from).
    */
   async add(
     input: AddProjectInput,
   ): Promise<{ project: Project; alreadyRegistered: boolean; renamedFrom?: string }> {
-    return this.#change(async () => {
-      if (!isAbsolute(input.path)) {
-        throw new UserError(`"${input.path}" is not an absolute path`);
-      }
-      const path = await realDirectory(resolve(input.path));
-      const projects = await this.list();
+    if (!isAbsolute(input.path)) {
+      throw new UserError(`"${input.path}" is not an absolute path`);
+    }
+    const path = await realDirectory(resolve(input.path));
+    const existing = await findByPath(await this.list(), path);
+    if (existing) {
+      await ensureDecisionsDir(existing, input.createDecisions);
+      return { project: existing, alreadyRegistered: true };
+    }
 
-      const existing = await findByPath(projects, path);
-      if (existing) {
-        await ensureDecisionsDir(existing, input.createDecisions);
-        return { project: existing, alreadyRegistered: true };
-      }
+    const given = input.name?.trim();
+    const start = given || input.defaultName || suggestName(path);
+    if (!PROJECT_NAME_PATTERN.test(start)) {
+      throw new UserError(
+        `"${start}" is not a valid project name: use letters, digits, ".", "_" and "-" (max 64)`,
+      );
+    }
+    await ensureDecisionsDir({ path }, input.createDecisions);
+    await this.#ensureDir();
 
-      const taken = new Set(projects.map((p) => p.name));
-      const given = input.name?.trim();
-      let name = given || input.defaultName || suggestName(path);
-      if (!PROJECT_NAME_PATTERN.test(name)) {
-        throw new UserError(
-          `"${name}" is not a valid project name: use letters, digits, ".", "_" and "-" (max 64)`,
-        );
-      }
-      if (given && taken.has(name)) {
+    let name = start;
+    for (let i = 2; !(await this.#create(name, path)); i++) {
+      const taken = await this.#read(name + ENTRY_SUFFIX);
+      // The same folder, added under the same name a moment ago.
+      if (taken?.path === path) return { project: taken, alreadyRegistered: true };
+      if (given) {
         throw new UserError(
           `a project named "${name}" is already registered; choose another name (CLI: --name <name>)`,
           { status: 409 },
         );
       }
-      const folderName = name;
-      for (let i = 2; taken.has(name); i++) name = `${folderName.slice(0, 60)}-${i}`;
+      if (i > 1000) throw new UserError(`too many projects are named "${start}-<n>"`);
+      name = `${start.slice(0, 60)}-${i}`;
+    }
+    await removeStaleTempFiles(this.dir).catch(() => {});
 
-      const project: Project = { name, path };
-      await ensureDecisionsDir(project, input.createDecisions);
-      await this.#save([...projects, project]);
-      return name === folderName
-        ? { project, alreadyRegistered: false }
-        : { project, alreadyRegistered: false, renamedFrom: folderName };
-    });
+    // Another `add` of the same folder may have run at the same moment.
+    const twins = (await this.#entries()).filter((p) => p.path === path);
+    const winner = twins.sort((a, b) => byName(a.name, b.name))[0];
+    if (winner && winner.name !== name) {
+      await this.#delete(name);
+      return { project: winner, alreadyRegistered: true };
+    }
+    for (const twin of twins) if (twin.name !== name) await this.#delete(twin.name);
+
+    const project = { name, path };
+    return name === start
+      ? { project, alreadyRegistered: false }
+      : { project, alreadyRegistered: false, renamedFrom: start };
   }
 
   /** Removes a project by name or by path. Card files are never touched. */
   async remove(nameOrPath: string): Promise<Project> {
-    return this.#change(async () => {
-      const projects = await this.list();
-      let target = projects.find((p) => p.name === nameOrPath);
-      if (!target && isAbsolute(nameOrPath)) {
-        const real = await realpath(nameOrPath).catch(() => resolve(nameOrPath));
-        target = await findByPath(projects, real);
-      }
-      if (!target) {
-        const what = isAbsolute(nameOrPath) ? "at" : "named";
-        throw new UserError(`no project ${what} "${nameOrPath}"`, { status: 404 });
-      }
-      await this.#save(projects.filter((p) => p !== target));
-      return target;
-    });
+    // Every entry, duplicates too, so a name an `add` printed can always be removed.
+    const entries = await this.#entries();
+    let target = entries.find((p) => p.name === nameOrPath);
+    if (!target && isAbsolute(nameOrPath)) {
+      const real = await realpath(nameOrPath).catch(() => resolve(nameOrPath));
+      target = await findByPath(entries, real);
+    }
+    if (!target) {
+      const what = isAbsolute(nameOrPath) ? "at" : "named";
+      throw new UserError(`no project ${what} "${nameOrPath}"`, { status: 404 });
+    }
+    const removed = target;
+    for (const p of entries) if (p.path === removed.path) await this.#delete(p.name);
+    return removed;
+  }
+
+  /** Every entry file, duplicates included, sorted by name. */
+  async #entries(): Promise<Project[]> {
+    await this.#migrate();
+    let names: string[];
+    try {
+      names = (await readdir(this.dir)).filter(isEntryFileName);
+    } catch (error) {
+      if (isNotFound(error)) return [];
+      throw configError(`cannot read ${this.dir}: ${(error as Error).message}`);
+    }
+    const projects = await Promise.all(names.map((fileName) => this.#read(fileName)));
+    return projects
+      .filter((p): p is Project => p !== undefined)
+      .sort((a, b) => byName(a.name, b.name));
+  }
+
+  async #read(fileName: string): Promise<Project | undefined> {
+    const file = join(this.dir, fileName);
+    const name = fileName.slice(0, -ENTRY_SUFFIX.length);
+    if (!PROJECT_NAME_PATTERN.test(name)) {
+      throw configError(
+        `${file}: "${name}" is not a valid project name (letters, digits, ".", "_" and "-")`,
+      );
+    }
+    let text: string;
+    try {
+      text = await readFile(file, "utf8");
+    } catch (error) {
+      if (isNotFound(error)) return undefined; // removed while we were listing
+      throw configError(`cannot read ${file}: ${(error as Error).message}`);
+    }
+    let data: unknown;
+    try {
+      data = JSON.parse(text);
+    } catch (error) {
+      throw configError(`${file} is not valid JSON: ${(error as Error).message}`);
+    }
+    const parsed = EntrySchema.safeParse(data);
+    if (!parsed.success) {
+      throw configError(`${file} is invalid: ${formatIssues(parsed.error).join("; ")}`);
+    }
+    return { name, path: parsed.data.path };
+  }
+
+  /** Creates the entry for `name`; false when that name is taken. */
+  async #create(name: string, path: string): Promise<boolean> {
+    const file = join(this.dir, name + ENTRY_SUFFIX);
+    try {
+      return await createFileExclusive(file, `${JSON.stringify({ path }, null, 2)}\n`);
+    } catch (error) {
+      throw fileError("create", file, error);
+    }
+  }
+
+  async #delete(name: string): Promise<void> {
+    const file = join(this.dir, name + ENTRY_SUFFIX);
+    try {
+      await unlink(file);
+    } catch (error) {
+      if (!isNotFound(error)) throw fileError("delete", file, error);
+    }
+  }
+
+  async #ensureDir(): Promise<void> {
+    try {
+      await mkdir(this.dir, { recursive: true });
+    } catch (error) {
+      throw fileError("create", this.dir, error);
+    }
   }
 
   /**
-   * Runs a read-modify-write of the registry: one at a time in this process, and holding the
-   * lock file against other processes.
+   * Moves projects.json (the registry before projects/) into projects/, once. Each project is
+   * created like a new one (a name that exists is left as it is), and the old file is renamed
+   * to projects.json.migrated only after all of them exist, so a process that runs at the
+   * same time either migrates too or finds them all.
    */
-  #change<T>(task: () => Promise<T>): Promise<T> {
-    return this.#lock.run("registry", async () => {
-      const dir = dirname(this.file);
-      try {
-        await mkdir(dir, { recursive: true });
-        return await withFileLock(`${this.file}.lock`, task);
-      } catch (error) {
-        if (error instanceof FileLockTimeout) {
-          throw new UserError(`cannot change the registry: ${error.message}`, { status: 500 });
-        }
-        if (error instanceof UserError) throw error;
-        throw fileError("change", this.file, error);
-      }
-    });
-  }
-
-  async #save(projects: Project[]): Promise<void> {
+  async #migrate(): Promise<void> {
+    if (this.#migrated) return;
+    let text: string;
     try {
-      await writeFileAtomic(this.file, `${JSON.stringify({ projects }, null, 2)}\n`);
+      text = await readFile(this.legacyFile, "utf8");
     } catch (error) {
-      throw fileError("save", this.file, error);
+      if (!isNotFound(error)) {
+        throw configError(`cannot read ${this.legacyFile}: ${(error as Error).message}`);
+      }
+      this.#migrated = true;
+      return;
     }
+    let data: unknown;
+    try {
+      data = JSON.parse(text);
+    } catch (error) {
+      throw configError(`${this.legacyFile} is not valid JSON: ${(error as Error).message}`);
+    }
+    const parsed = LegacySchema.safeParse(data);
+    if (!parsed.success) {
+      throw configError(`${this.legacyFile} is invalid: ${formatIssues(parsed.error).join("; ")}`);
+    }
+    await this.#ensureDir();
+    for (const project of parsed.data.projects) await this.#create(project.name, project.path);
+    try {
+      await rename(this.legacyFile, `${this.legacyFile}.migrated`);
+    } catch (error) {
+      if (!isNotFound(error)) throw fileError("rename", this.legacyFile, error);
+    }
+    this.#migrated = true;
   }
 }
 
-/** The registry file is broken: every request needs it, so say how to fix it. */
+/** Each folder once, under the name that sorts first. `projects` is sorted by name. */
+function withoutDuplicates(projects: Project[]): Project[] {
+  const seen = new Set<string>();
+  return projects.filter((p) => !seen.has(p.path) && seen.add(p.path));
+}
+
+/** The registry is broken: every request needs it, so say how to fix it. */
 function configError(message: string): UserError {
-  return new UserError(`${message}. Fix or delete the file; it lists the registered projects.`, {
-    status: 500,
-    code: "invalid_config",
-  });
+  return new UserError(
+    `${message}. Fix or delete it; the files in that folder list the registered projects.`,
+    { status: 500, code: "invalid_config" },
+  );
 }
 
 async function realDirectory(path: string): Promise<string> {
@@ -207,7 +318,10 @@ async function findByPath(projects: Project[], path: string): Promise<Project | 
   return undefined;
 }
 
-async function ensureDecisionsDir(project: Project, create: boolean | undefined): Promise<void> {
+async function ensureDecisionsDir(
+  project: Pick<Project, "path">,
+  create: boolean | undefined,
+): Promise<void> {
   const dir = decisionsDirOf(project);
   try {
     if ((await stat(dir)).isDirectory()) return;
@@ -225,6 +339,8 @@ async function ensureDecisionsDir(project: Project, create: boolean | undefined)
   try {
     await mkdir(dir);
   } catch (error) {
+    // Another `add` of the same folder made it first.
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return;
     throw fileError("create", dir, error);
   }
 }
