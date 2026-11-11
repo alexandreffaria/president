@@ -7,6 +7,8 @@
  * every API call hung. Browsers keep WebSockets out of that pool.
  */
 import { mkdir } from "node:fs/promises";
+import type { IncomingMessage } from "node:http";
+import type { Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type ServerType, serve } from "@hono/node-server";
@@ -58,13 +60,29 @@ export async function startHub(
   const stopHeartbeat = heartbeat(sockets, options.heartbeatMs ?? HEARTBEAT_MS);
 
   let server: ServerType;
+  const connections = new Set<Socket>();
   try {
     server = await new Promise<ServerType>((resolve, reject) => {
       const s = serve(
-        { fetch: app.fetch, hostname: HOST, port, websocket: { server: sockets } },
+        {
+          fetch: app.fetch,
+          hostname: HOST,
+          port,
+          websocket: { server: sockets },
+          // Only WebSocket upgrades go to the upgrade handler. Any other (curl --http2 sends
+          // "Upgrade: h2c") is served as a plain request: the handler ignores them, so they
+          // would never get an answer, and they would keep the hub from shutting down.
+          serverOptions: { shouldUpgradeCallback: isWebSocketUpgrade },
+        },
         () => resolve(s),
       );
       s.once("error", reject);
+      // Every connection, to close them all on shutdown. Not an "upgrade" listener: the
+      // WebSocket handler only answers refused handshakes when it is the only one.
+      s.on("connection", (socket: Socket) => {
+        connections.add(socket);
+        socket.once("close", () => connections.delete(socket));
+      });
     });
   } catch (error) {
     stopHeartbeat();
@@ -83,6 +101,9 @@ export async function startHub(
       await new Promise<void>((resolve) => {
         server.close(() => resolve());
         if ("closeAllConnections" in server) server.closeAllConnections();
+        // closeAllConnections() skips sockets handed to the upgrade handler: a handshake
+        // still in progress, or one refused that the client hasn't hung up on.
+        for (const socket of connections) socket.destroy();
       });
     },
   };
@@ -113,6 +134,10 @@ function heartbeat(sockets: WebSocketServer, ms: number): () => void {
   }, ms);
   timer.unref();
   return () => clearInterval(timer);
+}
+
+export function isWebSocketUpgrade(request: IncomingMessage): boolean {
+  return request.headers.upgrade?.toLowerCase() === "websocket";
 }
 
 type Output = { log: (line: string) => void; error: (line: string) => void };

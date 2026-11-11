@@ -5,6 +5,7 @@
  * poking the file system until the event shows up.
  */
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { connect, type Socket } from "node:net";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type ClientOptions, WebSocket } from "ws";
@@ -293,6 +294,56 @@ describe("running hub", () => {
     const { messages } = await socket(running);
     await until(messages, () => messages.filter((m) => m.type === "ping").length >= 2);
     expect(messages[0]).toEqual({ type: "ready" });
+  });
+
+  /** A raw TCP connection that sent the request head `lines`, and what came back. */
+  async function rawRequest(running: RunningHub, lines: string[]) {
+    const { port } = new URL(running.url);
+    // allowHalfOpen: the client doesn't hang up when the hub ends its side.
+    const sock: Socket = connect({ port: Number(port), host: "127.0.0.1", allowHalfOpen: true });
+    sock.on("error", () => {});
+    closers.push(async () => void sock.destroy());
+    let received = "";
+    sock.on("data", (data) => {
+      received += String(data);
+    });
+    await new Promise<void>((done) => sock.once("connect", () => done()));
+    sock.write(`${[...lines, `Host: 127.0.0.1:${port}`].join("\r\n")}\r\n\r\n`);
+    return { received: () => received };
+  }
+
+  const h2c = [
+    "GET /api/health HTTP/1.1",
+    "Connection: Upgrade, HTTP2-Settings",
+    "Upgrade: h2c",
+    "HTTP2-Settings: AAMAAABkAAQAAQAAAAIAAAAA",
+  ];
+
+  it("answers a request that asks for another upgrade (curl --http2) as a plain one (R5-1)", async () => {
+    const { hub: running } = await hub();
+    const { received } = await rawRequest(running, h2c);
+    await until([0], () => received().includes('{"ok":true}'), undefined, 5000);
+    expect(received()).toMatch(/^HTTP\/1\.1 200 /);
+  });
+
+  it("stops promptly while upgrade requests are open (R5-1)", async () => {
+    const { hub: running } = await hub();
+    const other = await rawRequest(running, h2c);
+    // A refused WebSocket handshake from a client that never hangs up: the hub ends its
+    // side, but the socket stays open (half-closed) until it is destroyed.
+    const refused = await rawRequest(running, [
+      "GET /api/events HTTP/1.1",
+      "Connection: Upgrade",
+      "Upgrade: websocket",
+      "Sec-WebSocket-Version: 13",
+      "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+      "Origin: https://evil.example",
+    ]);
+    await until([0], () => refused.received().includes(" 403 "), undefined, 5000);
+    await until([0], () => other.received().includes("200 OK"), undefined, 5000);
+    const started = Date.now();
+    await running.close();
+    expect(Date.now() - started).toBeLessThan(2000);
   });
 
   it("closes its sockets when it stops", async () => {

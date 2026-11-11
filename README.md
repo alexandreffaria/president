@@ -13,7 +13,7 @@ Background: [docs/foundations.md](docs/foundations.md). Card format: [docs/card-
 
 ## Setup
 
-Needs Node 24 or newer.
+Needs Node 24.9 or newer.
 
 ```sh
 git clone git@github.com:alexandreffaria/president.git
