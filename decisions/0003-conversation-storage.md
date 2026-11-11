@@ -1,7 +1,7 @@
 ---
 id: "0003"
 title: Where should a card's conversation with the agent be stored?
-status: open
+status: resolved
 kind: choice
 priority: high
 created: 2026-11-11T13:22:03Z
@@ -57,6 +57,9 @@ options:
     cons:
       - A summary loses detail; on another machine the conversation restarts from the summary, not from where it was
       - Someone has to write the summary (the session, at the end), and you should be able to read and edit it before it is added
+resolution:
+  choice: summary
+  resolved_at: 2026-11-11T15:28:44Z
 ---
 
 ## Context

@@ -1,7 +1,7 @@
 ---
 id: "0001"
 title: Who should commit and push your answers so they reach your other machines?
-status: open
+status: resolved
 kind: choice
 priority: high
 created: 2026-11-11T13:22:01Z
@@ -76,6 +76,9 @@ options:
     cons:
       - Easy to forget, and the failure is silent (the other machine just shows the old card)
       - Each project needs its own commit, from the right folder
+resolution:
+  choice: sync
+  resolved_at: 2026-11-11T15:27:47Z
 ---
 
 ## Context
