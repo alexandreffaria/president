@@ -20,7 +20,7 @@ Each row is one pull request (PR 2 may be split, see its section). The order is 
 
 | # | Work | Decided by | Depends on | Suggested order |
 |---|---|---|---|---|
-| A | [Agent rules: the skill line for #0022](#a-agent-rules-the-skill-line-for-0022) | #0022 | PR #7 (it edits `SKILL.md`); and the [new cards and pull requests](#needs-a-card) card, for the line's exact scope | First: every agent that applies a decision needs it, starting with the next one |
+| A | [Agent rules: the skill line for #0022](#a-agent-rules-the-skill-line-for-0022) | #0022 | PR #7 (it edits `SKILL.md`). It doesn't wait for [Needs a card](#needs-a-card) 1: A ships the card's line as written plus the main-folder rule, and a later pull request narrows them once that card is answered | First: every agent that applies a decision needs it, starting with the next one |
 | B | [Sync](#b-sync-0001) | #0001, #0022 | nothing | Early: until it ships, your answers reach main only by a hand commit (#0022) |
 | C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017 | D's `withdrawn` definition, for the Withdrawn section only | Alongside B; before PR 2, which builds on #0010's Neither panel and #0011's notes on decided cards |
 | D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part) | PR #7 (it edits `card-format.md` and `SKILL.md`) | Before or with C and PR 2; `chat` must exist before PR 2 writes it |
@@ -36,7 +36,9 @@ Card: [0022-card-changes-in-apply-prs.md](../decisions/0022-card-changes-in-appl
 option `sync-only`. An agent that applies decisions:
 
 1. reads the decision with `president pending` **in the project's main folder** (the folder
-   registered with president), as the skill already says;
+   registered with president). The skill today says only "the project root, the folder that
+   contains `decisions/`", which in a worktree is the worktree's copy; A changes it to the main
+   folder;
 2. does the docs and code work on its own branch; its pull request contains **only** the docs
    and code it changed, never a file under `decisions/`. Because the pull request doesn't show
    the decision, it links to the card or quotes it;
@@ -45,9 +47,18 @@ option `sync-only`. An agent that applies decisions:
 4. leaves the human's card changes (the answer and "applied") uncommitted: Sync carries them.
 
 The skill gains the card's line: "Never commit card files in your pull request; Sync carries
-them." Today's skill says nothing about committing; that line is the whole change for #0022.
-Not decided: whether the line also covers **new cards** an agent writes (see
-[Needs a card](#needs-a-card)); read literally, it does.
+them." Today's skill says nothing about committing. A also changes "Run every `president`
+command from the project root" to: run them in the project's main folder (the registered one),
+never in a worktree, and never run `president add` from a worktree. The chosen option reads and
+marks the decision "in the project's main folder", and from a worktree an agent following
+today's line would miss the human's uncommitted answers (`president pending` reads the folder
+it runs in) and mark the worktree's copy applied (`applied`, `seen` and `update` act on the card
+path they are given).
+
+Not decided: whether the line also covers card changes an agent makes outside an apply (new
+cards, `president update` rewrites; see [Needs a card](#needs-a-card) 1); read literally, it
+does. A doesn't wait for that card: it ships the card's line as written plus the main-folder
+rule, and once the card is answered a later pull request narrows them if the answer calls for it.
 
 Known costs the human accepted: main can say "applied" before the docs are merged, and if the
 pull request is dropped, nothing on the card says so.
@@ -195,7 +206,7 @@ Card: [0008-recommendation-placement.md](../decisions/0008-recommendation-placem
 - Not decided: how long "stays shown" lasts (this visit, this browser session, or remembered
   for good), and whether the chat may mention the pick before you reveal it. See
   [Needs a card](#needs-a-card).
-- The human's guide for revisiting: "If you find yourself always revealing it first, switch to
+- The card's guide for revisiting: "If you find yourself always revealing it first, switch to
   `after`."
 
 ### Dependent cards sink (#0009)
@@ -241,11 +252,13 @@ Card: [0011-notes-on-decided-cards.md](../decisions/0011-notes-on-decided-cards.
 - `ALLOWED_FROM.note` in `src/core/actions.ts` gains `resolved`. The note is appended to
   `feedback`; `status`, `resolution` and `applied_at` stay.
 - A resolved card's action bar: "This decision is made. [Note… m] [Reopen]".
-- `president pending` already lists it under "New notes from the human" (`withNotes`); no change
-  there. The agent judges whether the note changes its work.
+- `president pending` already lists it under "New notes from the human" (`withNotes`), or with
+  the card under "Resolved, not yet applied" if it isn't applied yet; no change there. The agent
+  judges whether the note changes its work.
 - Undo of such a note follows #0012: byte for byte, no trace.
-- README (the `m` row and "Notes (`m`) reach agents…") and `docs/card-format.md` (Lifecycle:
-  `note` is drawn only from open) say notes are for open and deferred cards; update them here.
+- `docs/card-format.md` (the Lifecycle diagram, and "Deferred cards can also be … noted
+  directly") says notes are for open and deferred cards; update it here, and add to the README's
+  `m` row that it also works on decided cards.
 
 ### Undo keeps today's rule (#0012)
 
@@ -256,20 +269,42 @@ card byte for byte. That covers a note on a decided card (#0011), a deferral wit
 `defer_until` (#0017) and putting a withdrawn card back (#0014). For a decision saved together
 with a summary, see #0019 in E.
 
+This holds as long as every decision is journaled as `resolve`: #0019's Save and decide must be
+the `resolve` action carrying the summary, or `undoLastAction`'s `ours.action === "resolve"`
+check (`src/server/cards.ts`) must include it. (#0010's "Decide this as my answer" is a
+`resolve` with `custom`, so it is covered.)
+
 ### Snooze (#0017)
 
 Card: [0017-deferred-resurfacing.md](../decisions/0017-deferred-resurfacing.md), option
 `snooze`.
 
-- `d` opens a small menu: **Next week** (the default, so `d` then `⏎` defers for a week),
-  **Tomorrow**, **Next month**, **Pick a date…**
-- Deferring sets `status: deferred` and a new `defer_until` field (a UTC timestamp), plus the
-  optional note as today.
+- `d` defers for a week at once, one key as today (the card's summary, pro and recommendation:
+  "keeps d a single key"). A small menu (**Tomorrow**, **Next week**, **Next month**, **Pick a
+  date…**, as in the card's sketch) offers the other dates. How the menu opens (the Defer
+  button, another key) is an implementation detail, not decided UX: pick one and say which in
+  the pull request. `d` itself must not wait for a second key.
+- Deferring sets `status: deferred` and a new `defer_until` field (a UTC timestamp). (The
+  action still accepts an optional note; the hub sends none today.)
 - The queue shows deferred cards whose `defer_until` has passed among the open ones, sorted as
   usual, marked "back from deferral". **The file isn't rewritten when the date passes**; the
   queue computes it.
 - Cards whose date hasn't passed stay in the collapsed "Deferred" list. **Back to queue** works
   as today.
+- Build requirements that today's code doesn't meet (checked against `main`):
+  - `ALLOWED_FROM.defer` is `["open"]` (`src/core/actions.ts`) and `CardView`'s `d` does
+    nothing unless the card is `open`, so a card back from deferral (still `status: deferred`)
+    can't be snoozed again. `ALLOWED_FROM.defer` gains `deferred`, and `d` works on a card that
+    is back from deferral (it sets a new `defer_until`).
+  - The deferred card's page says "Deferred. It stays out of the queue until reopened."
+    (`CardView.tsx`). It says instead that the card is back from deferral, or, before the date,
+    when it comes back.
+  - Reopen (Back to queue), resolve, and `neither` (which also makes a deferred card `open`)
+    remove `defer_until`.
+  - `defer_until` joins `HUMAN_FIELDS` in `president update` (`src/cli/commands.ts`; the CLI
+    part can go in D), so an agent's rewrite can't drop or change it. Today `update` guards only
+    `status`, `resolution`, `feedback`, `applied_at` and `seen_at`, so a rewrite could silently
+    drop the field and leave the card deferred for good.
 - `defer_until` goes in `docs/card-format.md` (D can document it, or this PR).
 - Not decided: what a deferred card **without** `defer_until` does (deferred before this
   ships, or by a hand edit). See [Needs a card](#needs-a-card).
@@ -280,8 +315,10 @@ Card: [0017-deferred-resurfacing.md](../decisions/0017-deferred-resurfacing.md),
 Card: [0014-withdrawn-status.md](../decisions/0014-withdrawn-status.md), option `field`. The
 format part is in D.
 
-- The queue leaves out open or deferred cards that have a `withdrawn` field and lists them in a
-  collapsed **Withdrawn by agents (n)** section.
+- The queue leaves out open cards that have a `withdrawn` field and lists them in a collapsed
+  **Withdrawn by agents (n)** section. Not decided: whether a withdrawn **deferred** card is
+  listed under Deferred or Withdrawn, and whether it comes back when its `defer_until` passes
+  (#0017). See [Needs a card](#needs-a-card).
 - The card page shows "Withdrawn by the agent: <reason>" above the options, which still work:
   you can decide, note, or reject a withdrawn card as usual.
 - A **Back to queue** button removes the field **and** appends a note to `feedback` (the card's
@@ -439,6 +476,9 @@ answer to **Teach me**:
 The conversation continues after it as usual. *More info / research* is a separate button.
 The card's guide: worked examples lose their edge for someone who already knows the area.
 
+Not decided: what Teach me gives on an `open` card with no options (`docs/card-format.md` lets
+one leave `options` out, so there is nothing to compare). See [Needs a card](#needs-a-card).
+
 ### Where the conversation lives (#0003, #0018, #0021)
 
 Cards: [0003-conversation-storage.md](../decisions/0003-conversation-storage.md) (`summary`),
@@ -549,7 +589,10 @@ option `wait`.
 - The summary is a separate `chat` entry, not text in the decision's "Why?" (the card's variant
   that would prefill "Why?" was not chosen).
 - **Undo** (10 seconds, #0006) restores the card from before that one write, which removes both,
-  adds the `undo` entry for the decision (#0012), and puts the summary back in the box.
+  adds the `undo` entry for the decision (#0012), and puts the summary back in the box. This
+  holds as long as every decision is journaled as `resolve`: Save and decide must be the
+  `resolve` action carrying the summary, or `undoLastAction`'s `ours.action === "resolve"` check
+  must include it.
 - Accepted costs: deciding a discussed card is no longer one keypress, and writing the summary
   is one more agent run.
 - Not decided: whether **Decide this as my answer** in the Neither panel (#0010), which also
@@ -563,7 +606,8 @@ Card: [0020-chat-on-decided-cards.md](../decisions/0020-chat-on-decided-cards.md
 - The conversation area is the same on a resolved card as on an open one. Closing the
   conversation offers the summary box; saving it appends a `chat` entry to the decided card.
   `resolution` and `applied_at` stay (as for #0011's notes), and `president pending` lists it
-  under "New notes from the human" (`withNotes` already lists feedback on cards in any state).
+  under "New notes from the human" (or with the card under "Resolved, not yet applied" if it
+  isn't applied yet: `withNotes` leaves out cards listed there, which show their notes with them).
 - The action that saves a summary must be allowed on `resolved` cards in `src/core/actions.ts`
   (`ALLOWED_FROM`), like #0011's note.
 - **The Undo window:** the hub must not save anything to a card decided less than 10 seconds
@@ -594,10 +638,13 @@ Card: [0007-neither-try-again.md](../decisions/0007-neither-try-again.md), optio
 - With #0010 the panel has two buttons: **Ask for new options** and **Decide this as my
   answer**. (A third, "Ask for new options now", belonged to #0007's `per-card`, not chosen.)
 - Under #0008, the new `recommendation` stays hidden until you reveal it, like any other.
+- Undoing Ask for new options stops the run. The hub writes the run's options only against the
+  card as the run read it (`update`'s feedback guard then refuses after an undo).
 - Not decided: what the page says and does when the run fails or returns options the checks
-  refuse (nothing is written, so the card stays waiting for the working agent, as today), and
-  whether the run's exchange shows in the card's conversation panel. See
-  [Needs a card](#needs-a-card).
+  refuse (nothing is written, so the card stays waiting for the working agent, as today);
+  whether the run's exchange shows in the card's conversation panel; and whether the run counts
+  as a conversation at all (a session-store entry, #0021; the hub's copy, #0018; a "not
+  summarized" reminder, #0024). See [Needs a card](#needs-a-card).
 
 ### The chat never applies decisions (#0006)
 
@@ -659,8 +706,8 @@ Card: [0016-rename-the-cli.md](../decisions/0016-rename-the-cli.md), option `ren
   instead of Write summary. Both texts can't be right, and whether a summary can still be
   written from the hub's copy is not decided. See [Needs a card](#needs-a-card).
 - **Three per-machine stores, one folder.** Session ids (#0021), the hub's copy (#0018) and the
-  "not summarized" list (#0024) all live in `$XDG_STATE_HOME/president/`, keyed by project name
-  and card id, and none travels with Sync.
+  "not summarized" list, if it is kept rather than derived (#0024), all live in
+  `$XDG_STATE_HOME/president/`, keyed by project name and card id, and none travels with Sync.
 - **#0007 `spawn` + #0010 `neither-plus`**: the Neither panel has two buttons, Ask for new
   options (now runs the session) and Decide this as my answer. #0007 works under #0004 as
   written: the session reads and researches, and the hub writes.
@@ -691,12 +738,16 @@ build PR named in brackets fixes each.
 - `docs/card-format.md`, `session_id` "Reserved for the per-card chat": unused under #0021 [E].
 - `docs/card-format.md`, feedback types (`neither | note | defer | reopen | undo`): gains `chat`
   (#0023) [D]; fields: gains `withdrawn` (#0014) [D] and `defer_until` (#0017) [C or D].
-- `docs/card-format.md` Lifecycle and README, notes only on open and deferred cards: #0011
-  allows them on resolved cards [C].
+- `docs/card-format.md` Lifecycle, notes only on open and deferred cards: #0011 allows them on
+  resolved cards [C].
+- README `d` row and the card-format Lifecycle: a deferred card returns only by reopen; under
+  #0017 it also returns when `defer_until` passes [C].
 - README, the `n` row ("an agent writes new ones"): under #0007 the hub starts the card's
   session at once [E].
 - README and the skill, "Use `president`, not `npx president`": #0016 renames the command [F].
 - The skill has no rule about committing card files: #0022 adds one [A].
+- The skill, "Run every `president` command from the project root, the folder that contains
+  `decisions/`": under #0022 that is the main folder, not a worktree [A].
 
 ## Needs a card
 
@@ -705,18 +756,23 @@ building the part it blocks. Grouped by the build PR that needs the answer.
 
 **A (agent rules)**
 
-1. **New cards and pull requests.** #0022 is about the human's answers in apply pull requests,
-   but its skill line, "Never commit card files in your pull request; Sync carries them", also
-   covers new cards. Do agents that write cards (as PR #6 did) still put them in a reviewed pull
-   request (where CI validates them), or write them straight into the main folder for Sync to
-   commit (Sync's step 4 expects such untracked new cards)?
+1. **Card changes outside an apply, and pull requests.** #0022 weighed only the human's answers
+   and `applied_at` in apply pull requests, but its skill line, "Never commit card files in your
+   pull request; Sync carries them", read literally covers every card change an agent makes
+   outside an apply: new cards (as PR #6 did) and `president update` rewrites (new options after
+   "neither" when the hub's run fails, adding or removing `withdrawn`). Do agents still put those
+   in a reviewed pull request (where CI validates them), or write them straight into the main
+   folder for Sync to commit (Sync's step 4 expects such untracked new cards)? Until this is
+   answered, A ships the line as written plus the main-folder rule.
 
 **C (queue and card UX)**
 
 2. **Deferred cards without `defer_until`** (#0017): cards deferred before snooze ships, or by
    hand. Do they stay deferred until Back to queue, or get the default week?
 3. **Withdrawn cards elsewhere** (#0014): what `president pending` and `president validate` say
-   about a withdrawn card, and whether it still sinks the cards that depend on it (#0009).
+   about a withdrawn card; whether it still sinks the cards that depend on it (#0009); and, with
+   #0017, whether a withdrawn deferred card is listed under Deferred or Withdrawn, and whether it
+   comes back to the queue when its `defer_until` passes.
 4. **How long a revealed recommendation stays revealed** (#0008): this visit, this browser, or
    recorded.
 
@@ -734,10 +790,16 @@ building the part it blocks. Grouped by the build PR that needs the answer.
    remind as on open cards, or something else?
 10. **Deciding from the Neither panel with a conversation open** (#0019 with #0010): does
     "Decide this as my answer" also wait for the summary, as Decide does?
-11. **When the new-options run fails** (#0007): what the page says, whether it retries, and
-    whether the run's exchange appears in the card's conversation.
+11. **The new-options run** (#0007): when it fails, what the page says and whether it retries;
+    whether the run's exchange appears in the card's conversation; and whether the run counts as
+    a conversation at all: a session-store entry (#0021), the hub's copy (#0018), and a "not
+    summarized" reminder (#0024).
+12. **Teach me on `open` cards with no options** (#0005): `worked` asks you to predict "which
+    option handles it better" and walks each option through the scenario, but
+    `docs/card-format.md` lets an `open` card leave `options` out, so there is nothing to
+    compare. What does Teach me give there?
 
 **F (rename)**
 
-12. **The new command name** (#0016), and whether `president` stays as an alias for a release.
+13. **The new command name** (#0016), and whether `president` stays as an alias for a release.
     Then the human publishes (or approves publishing) the npm placeholder.
