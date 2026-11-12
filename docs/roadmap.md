@@ -28,13 +28,9 @@ request (row B2); 72fu and 160s are part of E. 160s left one new question, about
 tab; card 20261112dfik answered it (`refuse-undo`, its recommended option, no note), also part
 of E. [Needs a card](#needs-a-card) is empty for now.
 
-<<<<<<< HEAD
-B2 (20261112l9vh) is built in PR #18 (branch `feat/sync-followups`), with three follow-ups
-from PR #12's review: S7-4, S4-6 and S8-1.
-=======
 Later still: A2 (the skill's rule for delivering new cards and rewrites, 20261111st0c) is
-built in PR #17.
->>>>>>> origin/main
+built in PR #17. B2 (20261112l9vh) is built in PR #18 (branch `feat/sync-followups`), with
+three follow-ups from PR #12's review: S7-4, S4-6 and S8-1.
 
 ## Build plan
 
