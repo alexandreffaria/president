@@ -15,7 +15,7 @@ import type {
   SyncStatusResponse,
 } from "../../src/core/api.ts";
 import { App } from "../../src/web/App.tsx";
-import { remoteText, unsyncedText } from "../../src/web/components/Sync.tsx";
+import { remoteText, skippedText, unsyncedText } from "../../src/web/components/Sync.tsx";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 vi.setConfig({ testTimeout: 15_000 });
@@ -96,6 +96,7 @@ afterEach(() => {
   host.remove();
   document.body.innerHTML = "";
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 const text = () => host.textContent ?? "";
@@ -249,6 +250,88 @@ describe("the Sync control", () => {
     await until(() => syncButton().disabled, "the button to be busy");
     await press("s");
     expect(syncPosts).toBe(0);
+  });
+
+  it("counts a skipped project's answers on a line of their own, never on the button (B2)", async () => {
+    expect(skippedText("web", 2)).toBe("web: 2 answers not synced (Sync skips it)");
+    expect(skippedText("web", 1)).toBe("web: 1 answer not synced (Sync skips it)");
+    const skipped = (n: number) =>
+      project({
+        project: "web",
+        unavailable: "it isn't the top folder of a git repository",
+        skippedUnsynced: n,
+      });
+    projects = [
+      project({ unsynced: 1 }),
+      skipped(2),
+      project({ project: "plain", unavailable: "it isn't …", skippedUnsynced: 0 }),
+    ];
+    await render();
+    await until(() => text().includes("web: 2 answers not synced (Sync skips it)"), "the line");
+    expect(host.querySelector("#sync-summary")?.textContent).toBe("1 answer not synced");
+    expect(syncButton().querySelector(".sync-count")?.textContent).toBe("1");
+    expect(host.querySelectorAll(".sync-skipped li")).toHaveLength(1);
+
+    // Sync moved shop's answer; the skipped project's line stays.
+    projects = [project(), skipped(2), projects[2] as ProjectSyncStatus];
+    await syncEvent();
+    await until(() => host.querySelector("#sync-summary") === null, "the summary to go");
+    expect(syncButton().querySelector(".sync-count")).toBeNull();
+    expect(text()).toContain("web: 2 answers not synced (Sync skips it)");
+
+    projects = [project(), skipped(0)];
+    await syncEvent();
+    await until(() => host.querySelector(".sync-skipped") === null, "the line to go");
+  });
+
+  it("shows the summary only where it fits next to the nav, measured (S4-6)", async () => {
+    const observers: (() => void)[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          observers.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    // A narrow bar: with the summary shown, the end group wraps below the nav's line.
+    let narrow = false;
+    const box = (top: number) => ({ top, bottom: top + 30 }) as DOMRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      const shown = !host.querySelector(".sync")?.hasAttribute("data-squeezed");
+      if (this.classList.contains("topbar-end")) return box(narrow && shown ? 40 : 0);
+      return box(0);
+    });
+    const squeezed = () => host.querySelector(".sync")?.hasAttribute("data-squeezed");
+    projects = [project({ unsynced: 2 })];
+    await render();
+    await until(() => text().includes("2 answers not synced"), "the count");
+    expect(squeezed()).toBe(false);
+
+    // The window gets narrower.
+    narrow = true;
+    act(() => {
+      for (const observer of observers) observer();
+    });
+    expect(squeezed()).toBe(true);
+
+    // Wider again.
+    narrow = false;
+    act(() => {
+      for (const observer of observers) observer();
+    });
+    expect(squeezed()).toBe(false);
+
+    // A longer summary no longer fits.
+    narrow = true;
+    projects = [project({ unsynced: 2, remoteChanges: 3 })];
+    await syncEvent();
+    await until(() => text().includes("3 card changes"), "the new count");
+    expect(squeezed()).toBe(true);
   });
 
   it("doesn't take the s key while typing", async () => {

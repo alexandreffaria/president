@@ -1,8 +1,9 @@
 /**
  * Sync (card #0001): the top bar's Sync button (and the `s` key), the "3 answers not
  * synced" and "3 card changes on the remote, press Sync" counts, and the report of the last
- * Sync of each project. The server does the git work (server/sync.ts); every tab shows the
- * same state, refetched when cards change or a Sync starts or ends.
+ * Sync of each project, and a line per project Sync skips that has answers not synced
+ * (20261112l9vh). The server does the git work (server/sync.ts); every tab shows the same
+ * state, refetched when cards change or a Sync starts or ends.
  */
 import {
   createContext,
@@ -10,6 +11,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -51,6 +53,28 @@ export function unsyncedText(n: number): string {
 /** "3 card changes on the remote, press Sync", the roadmap's wording. */
 export function remoteText(n: number): string {
   return `${plural(n, "card change", "card changes")} on the remote, press Sync`;
+}
+
+/** "web: 2 answers not synced (Sync skips it)", the card's wording (20261112l9vh). */
+export function skippedText(project: string, n: number): string {
+  return `${project}: ${unsyncedText(n)} (Sync skips it)`;
+}
+
+/**
+ * Shows the summary only where it fits (S4-6): `data-squeezed` on `.sync` hides it and puts
+ * the count on the button when, with the summary shown, the top bar's end group no longer
+ * fits on the nav's line. Set on the element directly, so measuring never re-renders.
+ */
+function fitSummary(sync: HTMLElement): void {
+  const end = sync.closest(".topbar-end");
+  const nav = sync.closest(".topbar")?.querySelector(".nav");
+  sync.removeAttribute("data-squeezed");
+  if (!end || !nav || !sync.querySelector(".sync-summary")) return;
+  const endBox = end.getBoundingClientRect();
+  // Wrapped: the end group's middle is below the nav's line.
+  if ((endBox.top + endBox.bottom) / 2 > nav.getBoundingClientRect().bottom) {
+    sync.setAttribute("data-squeezed", "");
+  }
 }
 
 function resultItem(result: SyncResultDto): ReportItem {
@@ -186,11 +210,29 @@ export function SyncControl() {
     remote > 0 ? remoteText(remote) : "",
   ].filter(Boolean);
   const pending = unsynced + remote;
+  const summary = parts.join(" · ");
+  const ref = useRef<HTMLDivElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the summary's text changes its width
+  useLayoutEffect(() => {
+    const sync = ref.current;
+    if (sync) fitSummary(sync);
+  }, [summary]);
+  useEffect(() => {
+    const sync = ref.current;
+    const bar = sync?.closest(".topbar");
+    const end = sync?.closest(".topbar-end");
+    if (!sync || !bar || !end || typeof ResizeObserver === "undefined") return;
+    // The bar's width, and the end group's (the connection label changes it).
+    const observer = new ResizeObserver(() => fitSummary(sync));
+    observer.observe(bar);
+    observer.observe(end);
+    return () => observer.disconnect();
+  }, []);
   return (
-    <div className="sync">
+    <div className="sync" ref={ref}>
       {parts.length > 0 && (
         <span className="sync-summary" id="sync-summary">
-          {parts.join(" · ")}
+          {summary}
         </span>
       )}
       <button
@@ -211,6 +253,23 @@ export function SyncControl() {
         <kbd>s</kbd>
       </button>
     </div>
+  );
+}
+
+/**
+ * One line per project Sync skips that has answers not synced: pressing Sync never clears
+ * it, so it stays out of the button's number (20261112l9vh, count-apart).
+ */
+export function SyncSkipped() {
+  const { status } = useSync();
+  const skipped = (status?.projects ?? []).filter((p) => (p.skippedUnsynced ?? 0) > 0);
+  if (skipped.length === 0) return null;
+  return (
+    <ul className="sync-skipped" aria-label="Not synced, Sync skips these">
+      {skipped.map((p) => (
+        <li key={p.project}>{skippedText(p.project, p.skippedUnsynced ?? 0)}</li>
+      ))}
+    </ul>
   );
 }
 

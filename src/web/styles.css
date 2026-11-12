@@ -262,6 +262,33 @@ kbd {
   display: none;
 }
 
+/* Where the summary doesn't fit next to the nav on one line, Sync.tsx sets data-squeezed
+   (S4-6, measured, so no fixed breakpoint): the count moves onto the Sync button. */
+/* Hidden from sight only: screen readers still read (and announce) it. */
+.sync[data-squeezed] .sync-summary {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.sync[data-squeezed] .sync-button .sync-count {
+  display: inline-block;
+}
+
+/* A project Sync skips with answers not synced (20261112l9vh): a line of its own under the
+   bar's first line, which pressing Sync never clears. */
+.sync-skipped {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  text-align: right;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
 .notice.sync-report {
   max-width: 50rem;
   margin: 1rem auto 0;
@@ -1341,25 +1368,6 @@ body:has(.action-bar-open) .toasts {
 @media (max-width: 52rem) {
   .options-ab {
     grid-template-columns: 1fr;
-  }
-}
-
-/* Below this a usual Sync summary ("16 answers not synced · 3 card changes on the remote,
-   press Sync") doesn't fit next to the nav on one line: the count moves onto the Sync button
-   instead (S2-3, S3-7, measured in Chrome). Above it, longer counts wrap the end group onto
-   a second line. */
-@media (max-width: 66rem) {
-  /* Hidden from sight only: screen readers still read (and announce) it. */
-  .sync-summary {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-  }
-
-  .sync-button .sync-count {
-    display: inline-block;
   }
 }
 

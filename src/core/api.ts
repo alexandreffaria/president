@@ -140,8 +140,8 @@ export interface SyncResultDto {
 export interface ProjectSyncStatus {
   project: string;
   /**
-   * Why Sync can't work on this project (not a repository's top folder, or submodules); the
-   * counts are 0 then.
+   * Why Sync can't work on this project (not a repository's top folder, or submodules);
+   * `unsynced` and `remoteChanges` are 0 then.
    */
   unavailable?: string;
   /**
@@ -149,6 +149,13 @@ export interface ProjectSyncStatus {
    * aren't pushed yet ("3 answers not synced").
    */
   unsynced: number;
+  /**
+   * Set when Sync skips the project (`unavailable`): its card changes all the same, counted
+   * like `unsynced` (inside a bigger repository, against that repository's upstream; 0 for a
+   * folder outside git). Shown on a line of its own, never in the Sync button's number
+   * (20261112l9vh, count-apart).
+   */
+  skippedUnsynced?: number;
   /**
    * Cards the remote changed as of the last fetch (`git diff --name-only HEAD...@{u} --
    * decisions/`), for "3 card changes on the remote, press Sync".

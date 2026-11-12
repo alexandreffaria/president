@@ -229,7 +229,7 @@ function formatSeconds(ms: number): string {
   return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)} s`;
 }
 
-/** NUL-separated output (`-z`) as a list, without empty entries. */
+/** NUL-separated output (`-z`) as a list, without empty entries (a path may be " "). */
 export function splitZ(output: string): string[] {
-  return output.split("\0").filter((entry) => entry.trim() !== "");
+  return output.split("\0").filter((entry) => entry !== "");
 }

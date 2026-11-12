@@ -2,15 +2,20 @@
  * The top bar at every width (S-11, S2-3). Its padding is the margin at the screen's edges,
  * so when its contents don't fit on one line the end group (Sync, the connection dot, ?)
  * wraps to its own line instead of running into that margin or scrolling the page sideways.
- * The Sync summary stays on one line, and below 66rem it is hidden (the count moves onto
- * the Sync button); below 48rem the bar takes its compact layout.
+ * The Sync summary stays on one line, and is hidden (the count moves onto the Sync button)
+ * wherever it doesn't fit next to the nav: Sync.tsx measures that and sets data-squeezed,
+ * with no fixed breakpoint (S4-6; test/web/sync.test.tsx tests the measuring). Below 48rem
+ * the bar takes its compact layout.
  *
- * Measured in headless Chrome over CDP with a real hub (16 answers not synced and 3 card
- * changes on the remote, then again with "Connecting" and three-digit counts) at widths
- * from 320 to 1280 px: no sideways scroll at any of them, and the bar is one line (50-56 px)
- * except at about 398 px and below, where it wraps onto two (85 px) and ? ends 12 px from
- * the edge. From 66rem (1056 px) the summary shows: one line with those counts, two lines
- * up to about 1110 px with three-digit counts and "Connecting" (S3-7).
+ * Measured in headless Chrome over CDP (the built UI with a stub API, so "Connecting"
+ * shows) at 27 widths from 320 to 1280 px, in both themes, with "16 answers not synced · 3
+ * card changes on the remote" plus a skipped project's line, with "1 answer not synced",
+ * and with three-digit counts: no sideways scroll and nothing overlapping at any width, ?
+ * 12-20 px from the edge, and wherever the summary shows, the end group stays on the nav's
+ * line. "1 answer not synced" shows from 480 px up; the usual counts at 768 px (where the
+ * brand is hidden) and from about 1080 px; below that the count is on the button. The bar
+ * is one line (50-56 px) except at about 360 px and below, where it wraps onto two (85
+ * px); a skipped project's line adds 24 px.
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -46,9 +51,19 @@ describe("the top bar (S-11, S2-3)", () => {
     expect(rule(".sync-summary")["white-space"]).toBe("nowrap");
   });
 
-  it("hides the summary and shows the count on the button below 66rem", () => {
-    expect(rule(".sync-summary", "66rem")).toMatchObject({ position: "absolute", width: "1px" });
-    expect(rule(".sync-button .sync-count", "66rem").display).toBe("inline-block");
+  it("hides the summary and shows the count on the button where it doesn't fit (S4-6)", () => {
+    expect(rule(".sync[data-squeezed] .sync-summary")).toMatchObject({
+      position: "absolute",
+      width: "1px",
+    });
+    expect(rule(".sync[data-squeezed] .sync-button .sync-count").display).toBe("inline-block");
+    expect(rule(".sync-button .sync-count").display).toBe("none");
+    // Measured, not a fixed breakpoint.
+    expect(css).not.toContain("66rem");
+  });
+
+  it("puts a skipped project's answers on a line of their own (B2)", () => {
+    expect(rule(".sync-skipped")["flex-basis"]).toBe("100%");
   });
 
   it("keeps ? off the screen's edge in its compact layout below 48rem", () => {

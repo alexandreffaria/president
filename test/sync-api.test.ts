@@ -113,6 +113,25 @@ describe("the Sync API", () => {
     expect(events).toContainEqual({ type: "cards", project: "shop" });
   });
 
+  it("reports a skipped project's answers apart from the ones Sync moves (B2)", async () => {
+    const s = await gitSandbox();
+    const web = join(s.laptop, "web");
+    await s.write(web, "decisions/0001-a.md", "status: open\n");
+    const { registry, status } = await setup(s);
+    await registry.add({ path: web, name: "web" });
+    expect((await status()).projects).toEqual([
+      { project: "shop", unsynced: 0, remoteChanges: 0, running: false },
+      {
+        project: "web",
+        unavailable: "it isn't the top folder of a git repository",
+        unsynced: 0,
+        skippedUnsynced: 1,
+        remoteChanges: 0,
+        running: false,
+      },
+    ]);
+  });
+
   it("applies the hub's Host and Origin checks", async () => {
     const s = await cardsSandbox();
     const { request } = await setup(s);
