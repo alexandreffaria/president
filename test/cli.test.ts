@@ -353,6 +353,142 @@ describe("preside CLI", () => {
     expect(result.err).toContain("warning 0009-deps.md: depends_on lists itself (line 14)");
   });
 
+  describe("withdrawn cards (#0014, 202611116ff6)", () => {
+    const withdrawn = '\n  at: 2026-11-14T10:00:00Z\n  reason: "We dropped the map\n    screen."';
+    const writeMapCards = async (demo: string, extra: Record<string, string> = {}) => {
+      const tiles = join(demo, "decisions", "20261111k7q2-map-tiles.md");
+      await writeFile(
+        tiles,
+        cardText({ id: '"20261111k7q2"', title: "Which map tiles?", withdrawn, ...extra }),
+      );
+      await writeFile(
+        join(demo, "decisions", "20261111p3xa-map-pins.md"),
+        cardText({
+          id: '"20261111p3xa"',
+          title: "How should map pins look?",
+          depends_on: '["20261111k7q2"]',
+        }),
+      );
+      return tiles;
+    };
+
+    it("validate says a card is withdrawn and why", async () => {
+      const demo = await copyDemoProject();
+      const tiles = await writeMapCards(demo);
+      const result = await cli("validate", demo);
+      expect(result.code).toBe(0);
+      expect(result.out.split("\n")).toEqual(
+        expect.arrayContaining([
+          "ok      20261111k7q2-map-tiles.md (withdrawn: We dropped the map screen.)",
+          "ok      20261111p3xa-map-pins.md",
+        ]),
+      );
+      expect(result.err).not.toMatch(/broken|warning/);
+      expect((await cli("validate", tiles)).out.split("\n")[0]).toBe(
+        "ok      20261111k7q2-map-tiles.md (withdrawn: We dropped the map screen.)",
+      );
+      // A card outside a decisions/ folder is checked alone, and labelled the same way.
+      const scratch = join(await tempDir(), "20261111k7q2-map-tiles.md");
+      await writeFile(scratch, await readFile(tiles, "utf8"));
+      expect((await cli("validate", scratch)).out.split("\n")[0]).toBe(
+        "ok      20261111k7q2-map-tiles.md (withdrawn: We dropped the map screen.)",
+      );
+    });
+
+    it("pending lists a withdrawn card only when it would anyway, marked, with the reason", async () => {
+      const demo = await copyDemoProject();
+      const before = (await cli("pending", demo)).out;
+      // An extra key in the field isn't passed on by --json (R1-7 of PR #20).
+      const tiles = await writeMapCards(demo, { withdrawn: `${withdrawn}\n  by: agent-7` });
+      // Withdrawn, nothing new from the human: nothing to list.
+      expect((await cli("pending", demo)).out).toBe(before);
+
+      await human(demo, "20261111k7q2", { type: "note", note: "Agreed, drop it." });
+      const listed = (await cli("pending", demo)).out;
+      expect(listed).toContain(
+        `  ${tiles}\n    Which map tiles? (withdrawn) (open)\n    Withdrawn by an agent at 2026-11-14T10:00:00Z: We dropped the map screen.\n    note `,
+      );
+      const json = JSON.parse((await cli("pending", demo, "--json")).out);
+      const entry = json.new_notes.find((c: { id: string }) => c.id === "20261111k7q2");
+      expect(entry).toMatchObject({ status: "open" });
+      expect(entry.withdrawn).toEqual({
+        at: "2026-11-14T10:00:00Z",
+        reason: "We dropped the map screen.",
+      });
+      for (const c of json.new_notes.filter((c: { id: string }) => c.id !== "20261111k7q2")) {
+        expect(c).not.toHaveProperty("withdrawn");
+      }
+      expect((await runDone(listed, tiles)).code).toBe(0);
+
+      // Decided by the human: listed to apply, still marked.
+      await human(demo, "20261111k7q2", {
+        type: "resolve",
+        choice: "custom",
+        note: "Dropped with the map screen",
+      });
+      const toApply = (await cli("pending", demo)).out;
+      expect(toApply).toContain(
+        `  ${tiles}\n    Which map tiles? (withdrawn) -> custom (Dropped with the map screen)\n    Withdrawn by an agent at`,
+      );
+      expect(JSON.parse((await cli("pending", demo, "--json")).out).resolved_not_applied).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "20261111k7q2", withdrawn: expect.any(Object) }),
+        ]),
+      );
+    });
+
+    it("an agent withdraws a card with update, and takes it back the same way", async () => {
+      const demo = await copyDemoProject();
+      const tiles = await writeMapCards(demo, { withdrawn: "" });
+      const original = await readFile(tiles, "utf8");
+      const mine = join(demo, "decisions", ".tiles.new");
+      const retracted = original.replace("\n---\n", `\nwithdrawn:${withdrawn}\n---\n`);
+      await writeFile(mine, retracted);
+      expect((await cli("update", tiles, mine)).code).toBe(0);
+      expect((await cli("validate", tiles)).out).toContain(
+        "(withdrawn: We dropped the map screen.)",
+      );
+      // `status` stays open.
+      expect(await readFile(tiles, "utf8")).toMatch(/^status: open$/m);
+
+      await writeFile(mine, original);
+      expect((await cli("update", tiles, mine)).code).toBe(0);
+      expect((await cli("validate", tiles)).out.split("\n")[0]).toBe(
+        "ok      20261111k7q2-map-tiles.md",
+      );
+    });
+
+    it("update still refuses a withdrawal when the human acted on the card meanwhile", async () => {
+      const demo = await copyDemoProject();
+      const tiles = await writeMapCards(demo, { withdrawn: "" });
+      const original = await readFile(tiles, "utf8");
+      await human(demo, "20261111k7q2", { type: "note", note: "Still want this." });
+      const mine = join(demo, "decisions", ".tiles.new");
+      await writeFile(mine, original.replace("\n---\n", `\nwithdrawn:${withdrawn}\n---\n`));
+      const result = await cli("update", tiles, mine);
+      expect(result.code).toBe(1);
+      expect(result.err).toMatch(/the human added 1 entry since you read the card/);
+      expect(await readFile(tiles, "utf8")).not.toContain("withdrawn:");
+    });
+  });
+
+  it("prints a conversation summary as chat in pending (#0023)", async () => {
+    const demo = await copyDemoProject();
+    const file = join(demo, "decisions", "0002-api-errors.md");
+    const text = await readFile(file, "utf8");
+    await writeFile(
+      file,
+      text.replace(
+        "depends_on: []",
+        "depends_on: []\nfeedback:\n  - at: 2026-11-12T09:14:00Z\n    type: chat\n    note: I now see that B's extra code is one line per call with a helper.",
+      ),
+    );
+    expect((await cli("validate", file)).code).toBe(0);
+    expect((await cli("pending", demo)).out).toContain(
+      "    chat 2026-11-12T09:14:00Z: I now see that B's extra code is one line per call with a helper.",
+    );
+  });
+
   it("lists pending work and marks cards applied", async () => {
     const demo = await copyDemoProject();
     expect((await cli("pending", demo)).out).toBe("Nothing pending.");

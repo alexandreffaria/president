@@ -2,7 +2,9 @@ import type { CardKind, Priority } from "../core/model.ts";
 
 const relative = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
 const absolute = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
-const dateOnly = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
+// A date-only value ("2026-11-11") parses as UTC midnight, so it is formatted in UTC: in the
+// viewer's zone it would show the day before anywhere west of UTC.
+const dateOnly = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeZone: "UTC" });
 
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
   ["year", 365 * 24 * 3600],

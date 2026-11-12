@@ -79,6 +79,17 @@ export const FeedbackSchema = z.looseObject({
   type: z.enum(FEEDBACK_TYPES).optional(),
 });
 
+/**
+ * `withdrawn` (#0014): an agent retracts an open or deferred card by adding this through
+ * `preside update`, and takes the retraction back by removing it the same way. `status`
+ * doesn't change. Allowed on a resolved card too: the human can still decide a withdrawn
+ * card, and the decision keeps the field.
+ */
+export const WithdrawnSchema = z.looseObject({
+  at: Timestamp,
+  reason: NonEmpty,
+});
+
 export const ResolutionSchema = z.looseObject({
   choice: NonEmpty,
   note: Text.optional(),
@@ -109,6 +120,8 @@ export const FrontmatterSchema = z
      * the file isn't rewritten when the date passes.
      */
     defer_until: Timestamp.optional(),
+    /** Set by an agent that retracts the card (#0014); see {@link WithdrawnSchema}. */
+    withdrawn: WithdrawnSchema.optional(),
     /** Reserved for the chat panel (headless Claude Code session per card). */
     session_id: z.string().optional(),
   })
@@ -213,6 +226,7 @@ export type CardOption = z.output<typeof OptionSchema>;
 export type Recommendation = z.output<typeof RecommendationSchema>;
 export type FeedbackEntry = z.output<typeof FeedbackSchema>;
 export type Resolution = z.output<typeof ResolutionSchema>;
+export type Withdrawn = z.output<typeof WithdrawnSchema>;
 /** Validated frontmatter, with defaults filled in. */
 export type Frontmatter = z.output<typeof FrontmatterSchema>;
 /** Frontmatter exactly as it appears in the file (no defaults), used for writing. */
