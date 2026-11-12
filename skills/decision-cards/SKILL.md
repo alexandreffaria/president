@@ -383,10 +383,11 @@ withdrawn:
 - Keep everything else as it is, `status` included.
 - If you change your mind, remove the field with another `preside update`.
 - A decided card can't be withdrawn (`update` refuses it): apply the decision instead.
-- The hub moves the card out of the queue into a "Withdrawn by agents" list, with your
-  reason. The human can still decide it, add a note or put it back, so keep handling what
-  `preside pending` shows for it. Cards that depend on it keep waiting until the human decides
-  it.
+- Once the hub has its "Withdrawn by agents" section, it lists the card there with your
+  reason, and the human can put it back; until then the hub still shows it in the queue, so
+  tell the human you withdrew it and why. Either way the human can still decide it or add a
+  note, so keep handling what `preside pending` shows for it. Cards that depend on it keep
+  waiting until the human decides it.
 - `preside validate` prints `ok      <file> (withdrawn: <reason>)` for it, and `preside pending`
   marks it "(withdrawn)" after its title, with your reason on the next line.
 

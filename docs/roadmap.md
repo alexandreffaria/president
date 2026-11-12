@@ -690,6 +690,8 @@ format part is in D.
   changes: in the queue and in the card page's notice it says the dependency was withdrawn, for
   example "depends on #0042, withdrawn". There is no button to accept a withdrawal (the
   option's stated cost). What `preside pending` and `validate` say is in D.
+- When this ships, drop the "until then the hub still shows it in the queue" clause from the
+  skill's *Withdrawing a card* (added by D in PR #20).
 
 ## D. Card format and CLI
 
@@ -747,9 +749,10 @@ Card: [0013-card-ids.md](../decisions/0013-card-ids.md), option `dated`.
     reason: "The queue was rewritten in #0015; dependencies no longer affect ordering."
   ```
 
-  (Quoted since D: unquoted, ` #0015` starts a YAML comment and cuts the reason, which
-  `validate` reports.) and changes its mind by removing it with another `preside update`. `status` doesn't change.
-  `update`'s guard already refuses the agent's version if you acted on the card meanwhile.
+  The reason is quoted since D: unquoted, ` #0015` starts a YAML comment and cuts the reason,
+  which `validate` reports. The agent changes its mind by removing the field with another
+  `preside update`. `status` doesn't change. `update`'s guard already refuses the agent's
+  version if you acted on the card meanwhile.
 - Document the field in `docs/card-format.md` and the skill (when and how to withdraw).
 - **`preside pending` and `validate` label a withdrawn card**
   ([202611116ff6-withdrawn-cards-elsewhere.md](../decisions/202611116ff6-withdrawn-cards-elsewhere.md),

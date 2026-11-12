@@ -398,7 +398,8 @@ describe("preside CLI", () => {
     it("pending lists a withdrawn card only when it would anyway, marked, with the reason", async () => {
       const demo = await copyDemoProject();
       const before = (await cli("pending", demo)).out;
-      const tiles = await writeMapCards(demo);
+      // An extra key in the field isn't passed on by --json (R1-7 of PR #20).
+      const tiles = await writeMapCards(demo, { withdrawn: `${withdrawn}\n  by: agent-7` });
       // Withdrawn, nothing new from the human: nothing to list.
       expect((await cli("pending", demo)).out).toBe(before);
 
@@ -409,9 +410,10 @@ describe("preside CLI", () => {
       );
       const json = JSON.parse((await cli("pending", demo, "--json")).out);
       const entry = json.new_notes.find((c: { id: string }) => c.id === "20261111k7q2");
-      expect(entry).toMatchObject({
-        status: "open",
-        withdrawn: { at: "2026-11-14T10:00:00Z", reason: "We dropped the map screen." },
+      expect(entry).toMatchObject({ status: "open" });
+      expect(entry.withdrawn).toEqual({
+        at: "2026-11-14T10:00:00Z",
+        reason: "We dropped the map screen.",
       });
       for (const c of json.new_notes.filter((c: { id: string }) => c.id !== "20261111k7q2")) {
         expect(c).not.toHaveProperty("withdrawn");

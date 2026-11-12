@@ -188,6 +188,8 @@ function parseNamedCard(
     return fail(["the frontmatter must be a YAML mapping (key: value pairs)"]);
   }
 
+  const numberIds = unquotedIds(doc, split.yaml, fileLine);
+  if (numberIds.length > 0) return fail(numberIds);
   const truncated = truncatedTexts(doc, split.yaml, fileLine);
   const result = FrontmatterSchema.safeParse(raw, {
     error: (issue) => (issue.input === undefined ? "is required" : undefined),
@@ -343,6 +345,33 @@ function isFreeText(path: readonly PropertyKey[]): boolean {
  * (`&t`). An alias is followed only to a single value, never into a list or a mapping, so
  * this can't loop.
  */
+/**
+ * Unquoted ids that YAML reads as some other number, such as `20261111e123` (a float) or
+ * `20261111e001` (202611110). Digits only, such as `0007` or `202611111234`, are fine.
+ */
+function unquotedIds(doc: Document, yaml: string, fileLine: (offset: number) => number): string[] {
+  if (!isMap(doc.contents)) return [];
+  const out: string[] = [];
+  const check = (node: unknown, path: PropertyKey[], example: (id: string) => string) => {
+    if (!isScalar(node) || node.type !== "PLAIN" || typeof node.value !== "number") return;
+    const range = node.range;
+    if (!range) return;
+    const text = yaml.slice(range[0], range[1]).trim();
+    if (/^\d+$/.test(text)) return;
+    out.push(
+      `${formatPath(path)}: YAML reads ${text} as the number ${String(node.value)} (line ${fileLine(range[0])}); write ids in quotes: ${example(text)}`,
+    );
+  };
+  check(doc.contents.get("id", true), ["id"], (id) => `id: "${id}"`);
+  const deps = doc.contents.get("depends_on", true);
+  if (isSeq(deps)) {
+    deps.items.forEach((item, i) => {
+      check(item, ["depends_on", i], (id) => `depends_on: ["${id}"]`);
+    });
+  }
+  return out;
+}
+
 export function truncatedTexts(
   doc: Document,
   yaml: string,

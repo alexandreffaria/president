@@ -269,12 +269,17 @@ export async function pending(args: string[], out: Output): Promise<number> {
     `preside ${needsApplying(c.frontmatter) ? "applied" : "seen"} ${shellQuote(c.path)} --token ${shellQuote(agentToken(c))}`;
 
   if (values.json) {
+    // Only on a card an agent withdrew (202611116ff6): just `{ at, reason }`, whatever else the
+    // agent put in the field.
+    const withdrawn = (c: LoadedCard) => {
+      const w = withdrawalOf(c.frontmatter);
+      return w ? { withdrawn: { at: w.at, reason: w.reason } } : {};
+    };
     const describe = (c: LoadedCard) => ({
       id: c.id,
       title: c.frontmatter.title,
       status: c.frontmatter.status,
-      // Only on a card an agent withdrew (202611116ff6): `{ at, reason }`.
-      ...(withdrawalOf(c.frontmatter) ? { withdrawn: withdrawalOf(c.frontmatter) } : {}),
+      ...withdrawn(c),
       path: c.path,
       new_notes: unseenFeedback(c.frontmatter),
       token: agentToken(c),

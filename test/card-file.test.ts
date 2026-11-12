@@ -325,6 +325,33 @@ describe("dated ids (#0013)", () => {
     }
   });
 
+  it("asks for quotes when YAML reads an unquoted dated id as another number", () => {
+    expect(expectErrors(cardText({ id: "20261111e123" }), "20261111e123-a.md")).toEqual([
+      expect.stringMatching(
+        /^id: YAML reads 20261111e123 as the number .*; write ids in quotes: id: "20261111e123"$/,
+      ),
+    ]);
+    expect(expectErrors(cardText({ id: "20261111e001" }), "20261111e001-a.md")).toEqual([
+      expect.stringMatching(
+        /^id: YAML reads 20261111e001 as the number 202611110 .*id: "20261111e001"$/,
+      ),
+    ]);
+    expect(
+      expectErrors(
+        cardText({ id: '"20261111k7q2"', depends_on: "[0001, 20261111e002]" }),
+        "20261111k7q2-a.md",
+      ),
+    ).toEqual([
+      expect.stringMatching(
+        /^depends_on\[1\]: YAML reads 20261111e002 .*depends_on: \["20261111e002"\]$/,
+      ),
+    ]);
+    // Digits only read back as the same id.
+    expect(expectCard(cardText({ id: "202611111234" }), "202611111234-a.md").id).toBe(
+      "202611111234",
+    );
+  });
+
   it("gives the short form of a dated id and its date, and nothing for other ids", () => {
     expect(datedCardId("20261111k7q2")).toEqual({ short: "k7q2", date: "2026-11-11" });
     expect(datedCardId("202611116ff6")).toEqual({ short: "6ff6", date: "2026-11-11" });

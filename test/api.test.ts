@@ -193,9 +193,9 @@ describe("cards API", () => {
     const list = await json<CardListResponse>(request("/api/cards"));
     expect(list.cards.map((c) => c.id)).not.toContain("0002");
     expect(list.broken.map((b) => b.fileName)).toEqual(["0002-api-errors.md", "0002-copy.md"]);
-    // Two agents that picked the same id at once are told which of them renumbers (R5-18).
+    // Two agents that picked the same id at once are told which of them takes a new id (R5-18).
     expect(list.broken[1]?.errors).toEqual([
-      'id "0002" is also used by 0002-api-errors.md; give each card its own id. If you wrote one of them, give yours (the newer one) the next free id: change its id and rename its file to match',
+      'id "0002" is also used by 0002-api-errors.md; give each card its own id. If you wrote one of them, give yours (the newer one) a new dated id (the current date plus 4 random characters, see docs/card-format.md): change its id and rename its file to match',
     ]);
   });
 

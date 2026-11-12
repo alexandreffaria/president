@@ -187,7 +187,7 @@ withdrawn:
 ```
 
 - `at` is when (`date -u +%Y-%m-%dT%H:%M:%SZ`), `reason` is one or two sentences for the human.
-  Quote the reason if it contains ` #` or `: `.
+  Always quote the reason: a ` #` (as in `#0015`) or a `: ` would otherwise cut or break it.
 - To take the withdrawal back, the agent removes the field with another `preside update`.
 - `update`'s guard applies as for any rewrite: if the human acted on the card since the agent
   read it, the withdrawal is refused.
