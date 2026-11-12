@@ -221,11 +221,14 @@ export function SyncControl() {
     const sync = ref.current;
     const bar = sync?.closest(".topbar");
     const end = sync?.closest(".topbar-end");
-    if (!sync || !bar || !end || typeof ResizeObserver === "undefined") return;
-    // The bar's width, and the end group's (the connection label changes it).
+    const nav = bar?.querySelector(".nav");
+    if (!sync || !bar || !end || !nav || typeof ResizeObserver === "undefined") return;
+    // The bar's width, the end group's (the connection label changes it) and the nav's (the
+    // Queue count comes and goes; the bar and the end group may keep their size when it goes).
     const observer = new ResizeObserver(() => fitSummary(sync));
     observer.observe(bar);
     observer.observe(end);
+    observer.observe(nav);
     return () => observer.disconnect();
   }, []);
   return (

@@ -194,15 +194,15 @@ section left open were settled the simplest safe way, and the human can change a
   list cut at Sync's output limit skips the project too, so a gitlink is never missed.
   Anywhere else, output cut at that limit stops Sync ("git output too large"). For every list
   Sync reads before its first change (the `git add` of the cards), it refuses before changing
-  anything; the lists it reads after
-  that are bounded by lists already read whole, so they can't realistically be cut. Check 3
-  reads `git diff --name-only HEAD` first and, only when that lists files outside
-  `decisions/`, the whole `git diff --name-only HEAD...@{u}`. So a very large change list on
-  the remote matters only when an agent has uncommitted edits here. If the remote's list is
-  cut, the action says to press Sync again once those edits are committed and pushed, or put
-  away; if check 2's log or the list of files edited here is cut, it says to commit and push
-  that work by hand, or put it away. The pull runs with `LANGUAGE=en`, so git's untracked-file
-  wording is matched in English under a localized git too.
+  anything; the lists it reads after that are bounded by lists already read whole, so they
+  can't realistically be cut. Check 3 reads `git diff --name-only HEAD` first and, only when
+  that lists files outside `decisions/`, the whole `git diff --name-only HEAD...@{u}`. So a
+  very large change list on the remote matters only when an agent has uncommitted edits here.
+  If the remote's list is cut, the action says to press Sync again once those edits are
+  committed and pushed, or put away; if check 2's log or the list of files edited here is cut,
+  it says to commit and push that work by hand, or put it away. The pull runs with
+  `LANGUAGE=en`, so git's untracked-file wording is matched in English under a localized git
+  too.
 - The rebase, merge, detached-HEAD and no-upstream parts of check 1 run **before** the fetch
   (they need no network); the rest after it, as in the card.
 - Sync skips a project with no card changes here or on the remote (after its fetch) without

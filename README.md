@@ -198,14 +198,15 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
    with git submodules (a `.gitmodules` file or a submodule in the index), or whose file
    list is too long to check for them: commit and push `decisions/` there by hand. The top bar
    counts such a project's answers on a line of their own, "web: 2 answers not synced (Sync
-   skips it)", which stays until they are pushed and never adds to the Sync button's number
-   (a folder outside git shows no count). If git prints more than Sync reads (4 MiB)
-   anywhere else, Sync stops with "git output too large". For every list it reads before its
-   first change (the `git add` of the cards), that means it changed nothing; the lists it
-   reads later are bounded by earlier ones, so they can't realistically be cut. A very large
-   change on the online copy matters only when an agent has uncommitted edits here: then Sync
-   can't compare the two, and you press Sync again once those edits are committed and pushed,
-   or put away.
+   skips it)", which stays until they are committed and pushed (until committed, where the
+   repository's branch tracks nothing or HEAD is detached) and never adds to the Sync
+   button's number (a folder outside git shows no count). If git prints more than Sync reads
+   (4 MiB) anywhere else, Sync stops with "git output too large". For every list it reads
+   before its first change (the `git add` of the cards), that means it changed nothing; the
+   lists it reads later are bounded by earlier ones, so they can't realistically be cut. A
+   very large change on the online copy matters only when an agent has uncommitted edits
+   here: then Sync can't compare the two, and you press Sync again once those edits are
+   committed and pushed, or put away.
 
 To try it with sample cards:
 

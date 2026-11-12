@@ -166,6 +166,8 @@ class Repo {
       const { upstream } = await this.branch();
       return (await this.localCardChanges(upstream !== undefined)).length;
     } catch (error) {
+      // Output cut at the limit, or a timeout, gives 0 too, and the line goes. The pathspec
+      // keeps the lists to decisions/, so that would take tens of thousands of changed cards.
       if (error instanceof GitFailed) return 0;
       throw error;
     }

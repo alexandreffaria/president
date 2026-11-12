@@ -286,13 +286,16 @@ describe("the Sync control", () => {
 
   it("shows the summary only where it fits next to the nav, measured (S4-6)", async () => {
     const observers: (() => void)[] = [];
+    const observed: Element[] = [];
     vi.stubGlobal(
       "ResizeObserver",
       class {
         constructor(callback: () => void) {
           observers.push(callback);
         }
-        observe() {}
+        observe(target: Element) {
+          observed.push(target);
+        }
         disconnect() {}
       },
     );
@@ -311,9 +314,19 @@ describe("the Sync control", () => {
     await render();
     await until(() => text().includes("2 answers not synced"), "the count");
     expect(squeezed()).toBe(false);
+    // The bar, the end group and the nav: each can change size alone.
+    for (const selector of [".topbar", ".topbar-end", ".nav"]) {
+      expect(observed).toContain(host.querySelector(selector));
+    }
 
     // The window gets narrower.
     narrow = true;
+    act(() => {
+      for (const observer of observers) observer();
+    });
+    expect(squeezed()).toBe(true);
+    // Measured again with nothing changed, it stays: it measures with the summary shown, not
+    // in the state it is in, so it doesn't switch back and forth.
     act(() => {
       for (const observer of observers) observer();
     });

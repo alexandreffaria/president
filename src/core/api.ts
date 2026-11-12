@@ -151,8 +151,9 @@ export interface ProjectSyncStatus {
   unsynced: number;
   /**
    * Set when Sync skips the project (`unavailable`): its card changes all the same, counted
-   * like `unsynced` (inside a bigger repository, against that repository's upstream; 0 for a
-   * folder outside git). Shown on a line of its own, never in the Sync button's number
+   * like `unsynced` (inside a bigger repository, against that repository's upstream, or only
+   * uncommitted changes where its branch tracks nothing or HEAD is detached; 0 for a folder
+   * outside git). Shown on a line of its own, never in the Sync button's number
    * (20261112l9vh, count-apart).
    */
   skippedUnsynced?: number;
