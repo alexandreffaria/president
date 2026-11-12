@@ -13,6 +13,11 @@ object.
 
 Status on 2026-11-11: none of this is built. Cards #0001 to #0024 are all decided.
 
+Update on 2026-11-12: A is built (PR #10) and B is being built in PR #12. The 13 cards of
+batch 3 (PR #11), which answered every question of the earlier [Needs a card](#needs-a-card)
+list, and the two Sync follow-ups from PR #12's review (PR #13) are decided too, each with its
+recommended option and no note. The new questions they leave are in [Needs a card](#needs-a-card).
+
 ## Build plan
 
 Each row is one pull request (PR 2 may be split, see its section). The order is a suggestion;
@@ -20,12 +25,14 @@ Each row is one pull request (PR 2 may be split, see its section). The order is 
 
 | # | Work | Decided by | Depends on | Suggested order |
 |---|---|---|---|---|
-| A | [Agent rules: the skill line for #0022](#a-agent-rules-the-skill-line-for-0022) | #0022 | PR #7 (it edits `SKILL.md`). It doesn't wait for [Needs a card](#needs-a-card) 1: A ships the card's line as written plus the main-folder rule, and a later pull request narrows them once that card is answered | First: every agent that applies a decision needs it, starting with the next one |
-| B | [Sync](#b-sync-0001) | #0001, #0022 | nothing | Early: until it ships, your answers reach main only by a hand commit (#0022) |
-| C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017 | D's `withdrawn` definition, for the Withdrawn section only | Alongside B; before PR 2, which builds on #0010's Neither panel and #0011's notes on decided cards |
-| D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part) | PR #7 (it edits `card-format.md` and `SKILL.md`) | Before or with C and PR 2; `chat` must exist before PR 2 writes it |
-| E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024 | C (#0010's panel, #0011's notes on decided cards), D (`chat` type); the PR 2 cards in [Needs a card](#needs-a-card) | After C and D |
-| F | [Rename the command](#f-rename-the-command-0016) | #0016 | the [new name](#needs-a-card) card | When the name is chosen, at a moment with no other pull request open, since it touches about 200 lines everywhere; ideally before E, which adds new printed commands |
+| A | [Agent rules: the skill line for #0022](#a-agent-rules-the-skill-line-for-0022) | #0022 | PR #7 (it edits `SKILL.md`) | **Built** in PR #10 |
+| A2 | [Agent rules: how agents deliver new cards and rewrites](#a2-agent-rules-how-agents-deliver-new-cards-and-rewrites-20261111st0c) (agent-facing: the skill) | 20261111st0c | A (built) | **First**, before any agent writes the next card: the skill today tells agents to write new cards straight into the main folder with no review, the reading st0c did not choose |
+| B | [Sync](#b-sync-0001) | #0001, #0022, 2026111209dq, 20261112xp4s | nothing | In PR #12, which also carries [the two follow-up decisions](#decided-while-pr-12-was-open-2026111209dq-20261112xp4s): 09dq is what it already does; xp4s is a small change to add there |
+| C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | Alongside B; before PR 2, which builds on #0010's Neither panel and #0011's notes on decided cards |
+| D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part), 202611116ff6 (`pending` and `validate`) | PR #7 (it edits `card-format.md` and `SKILL.md`) | Before or with C and PR 2; `chat` must exist before PR 2 writes it |
+| E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj | C (#0010's panel, #0011's notes on decided cards), D (`chat` type); [Needs a card](#needs-a-card) 2, for the part it blocks | After C and D |
+| F | [Rename the command to `preside`](#f-rename-the-command-to-preside-0016-20261111dmvt) (agent-facing: the CLI, the skill and every printed command) | #0016, 20261111dmvt | A2 (both edit `SKILL.md`). The npm placeholder is published by the human (an agent prepares it); no card orders it against F, but the name check is repeated right before publishing | At a moment with no other pull request open, since it touches about 200 lines everywhere; ideally before E, which adds new printed commands |
+| F2 | [Remove the `president` alias](#the-president-alias-and-when-it-ends) | 20261111dmvt | F | One month after F ships, or once every registered project's own docs and agent instructions use `preside`, whichever is later |
 
 Nothing here needs Sync to be built first: B is early because of #0022, not because the others
 depend on it.
@@ -57,13 +64,11 @@ path they are given). From a worktree, "in the main folder" means passing the ma
 absolute path to each command, not `cd`-ing there: agent harnesses keep agents in their
 worktree, and a `cd` would also send the agent's own git commands to the main checkout.
 
-Not decided: whether the line also covers card changes an agent makes outside an apply (new
-cards, `president update` rewrites; see [Needs a card](#needs-a-card) 1); read literally, it
-does. A doesn't wait for that card: it ships the card's line as written plus the main-folder
-rule, and once the card is answered a later pull request narrows them if the answer calls for it.
-Read literally, an agent in a worktree writes new cards and `update` drafts in the main
-folder's `decisions/` by absolute path, picks a new card's id there, and leaves them
-uncommitted; the skill says so until the card is answered.
+A shipped (PR #10) with the card's line as written plus the main-folder rule, and with an
+interim reading for card changes outside an apply: write new cards and `update` drafts in the
+main folder's `decisions/` by absolute path and leave them uncommitted. That question is now
+decided by [20261111st0c](../decisions/20261111st0c-agent-card-changes.md), and A2 below changes
+the skill to match.
 
 Known costs the human accepted: main can say "applied" before the docs are merged, and if the
 pull request is dropped, nothing on the card says so.
@@ -76,6 +81,53 @@ inside their pull requests. Because those pull requests never touch `decisions/`
 `git pull` in the main folder keeps working while your answers are uncommitted there, as long
 as nothing pushed changes those same cards (a pull stops when it brings in a change to a file
 you have changed; that was PR 5's problem).
+
+## A2. Agent rules: how agents deliver new cards and rewrites (20261111st0c)
+
+Card: [20261111st0c-agent-card-changes.md](../decisions/20261111st0c-agent-card-changes.md),
+option `reviewed-main`: "New cards are reviewed by a fresh session and validated in the agent's
+worktree, then written into the main folder; rewrites go straight to the main folder with
+president update." An agent-facing pull request: it changes `skills/decision-cards/SKILL.md`
+(`docs/card-format.md` doesn't say where an agent writes a card). No code change is needed:
+`president validate` already works on a file in a worktree and prints no worktree warning.
+
+- **#0022's line reads literally.** "Never commit card files in your pull request; Sync carries
+  them" covers new cards and rewrites too, not only answers and `applied`. No pull request
+  carries a file under `decisions/`, card-writing batches included (this repo's batches 1 to 3
+  came as pull requests #3, #6 and #11; the next one doesn't).
+- **A new card**, as the card's technical detail gives the steps for "Writing a card":
+  1. write the card in the worktree's `decisions/`, without committing it;
+  2. run `president validate <file>` on it there;
+  3. have a fresh session review it (as the reviews of PR #3 and PR #6 did), fix what it finds
+     and have it reviewed again, until nothing should-fix is left;
+  4. copy it into the main folder's `decisions/`, run `president validate` on it there, and
+     delete the worktree copy, so the feature branch never commits it.
+
+  It reaches the human's queue at step 4, as soon as its review is done, with no merge or
+  pull to wait for; Sync (or a hand commit, where there is no Sync) puts it in git.
+- **Rewrites** (`president update`: new options after "neither" when the hub's own run fails,
+  #0007; adding or removing `withdrawn`, #0014) go straight to the main folder, unreviewed, as
+  the skill already says (the `.new` file next to the main folder's card, by absolute path).
+  `update`'s guard then compares the agent's version with the card the human has, notes
+  included.
+- **Replace the skill's "Not decided yet" paragraph** under *The main folder, and card files in
+  git* (and its interim "write new cards ... only in `<main>/decisions/`") with the rule above,
+  and *Writing a card*, step 1 (which today says to write the file in `<main>/decisions/`
+  directly) and step 5, with the four steps. The id is still picked from the main folder's
+  list until D's dated ids (#0013) ship; with dated ids it doesn't depend on any folder.
+- Cards the hub's own run rewrites (#0007) are written by the hub in the main folder; this card
+  is only about cards agents write.
+- The card describes an agent in a worktree. For an agent working in the main folder itself,
+  the same rule (the card reaches the human once it passes review) means the draft must sit
+  where the hub doesn't read it until then (outside `decisions/`, or under a name the hub
+  ignores: `docs/card-format.md` says files starting with `.` or `_` are ignored); which, is
+  the implementer's call (say it in the pull request).
+- Not adopted: the card's optional bookkeeping field (for example `reviewed: 2 rounds`), which
+  "would show that a review ran, but nothing checks it". Adding one is the human's call.
+- Known costs the human accepted: the writing agent runs the review and decides when it is
+  done, and nothing shows whether it ran; two rules (new cards reviewed then copied, rewrites
+  straight in) and more steps per new card; CI checks the cards only after they reach main;
+  rewrites reach the human unreviewed.
 
 ## B. Sync (#0001)
 
@@ -182,14 +234,63 @@ Sync would then refuse whenever an agent has work in progress.
   show git's error. Pressing Sync again retries.
 - After a pull brings in the human's own answers from another machine, an open card currently
   says "An agent changed this card while you had it open" (`src/web/views/CardView.tsx`),
-  because this hub didn't write it. Suggestion, not decided: make the notice say the change
-  came from Sync.
+  because this hub didn't write it. Decided since: when this hub's Sync brought the change in,
+  the notice says so (20261112xp4s, [below](#decided-while-pr-12-was-open-2026111209dq-20261112xp4s)).
 - Sync carries everything under `decisions/`: answers, notes, `applied_at` from agents
   (#0022), conversation summaries (#0003, #0023), `defer_until` (#0017) and `withdrawn` (#0014).
   Session ids, the hub's copy of conversations and the "not summarized" list never travel
   (#0018, #0021, #0024): they live outside the project.
 - Document Sync in the README (Usage) when it ships, and remove `SKILL.md`'s *Until Sync
-  exists* note.
+  exists* note. Under 2026111209dq (below) its rule stays true for a project Sync skips, so
+  keep it for those: their card changes reach git only by a hand commit in the main folder,
+  done when the human asks, never in a pull request.
+
+### Decided while PR 12 was open (2026111209dq, 20261112xp4s)
+
+Both came from PR #12's review and belong to PR #12 (`feat/sync`).
+
+**Which projects Sync works for.** Card
+[2026111209dq-sync-inside-bigger-repo.md](../decisions/2026111209dq-sync-inside-bigger-repo.md),
+option `top-only`: "As built in pull request 12; a project inside a bigger repository is
+skipped, and pressing Sync says why, so its answers move only when someone commits them by
+hand." Nothing more to build: Sync runs only when the project folder is the top folder of its
+repository (or worktree); otherwise pressing Sync shows, greyed out, "Not synced: web is skipped
+because it isn't the top folder of a git repository" (the same sentence for a folder that isn't
+in git at all). Sync never pulls, sets aside or pushes a repository that holds more than the
+project. Accepted cost: a project in a monorepo or a home folder kept in git never gets Sync.
+Not decided: whether the top bar's "answers not synced" count includes a skipped project, which
+it leaves out today (the card: "whichever option you pick, it can count them too"); see
+[Needs a card](#needs-a-card) 1.
+
+**The notice when Sync changes the card you have open.** Card
+[20261112xp4s-notice-after-sync.md](../decisions/20261112xp4s-notice-after-sync.md), option
+`from-sync`. When the change arrived with this hub's Sync, the open card's notice says:
+
+```
+Sync just brought in a newer version of this card from the online copy.
+Read what changed before you act on it.
+  • It is now resolved (was open).
+  • It was decided: "Lead with the next action".
+                                                        [I've read it]
+```
+
+Other changes keep today's wording: an agent on this machine, "An agent changed this card while
+you had it open."; another president tab, "You changed this card in another president tab."
+The pause stays as today: until "I've read it", the hub refuses a decision or note on the old
+text, and a picked option is cleared.
+
+- From the card's technical detail: `SyncService` keeps, per project, the card revisions its
+  last pull brought in (it already reports the `received` cards); the card endpoint adds
+  `changedBySync` to `CardDetailDto` next to `writtenByPresident`, and `CardView` picks the
+  sentence from it (today `setChangedBy(card.writtenByPresident ? "other-tab" : "agent")` on
+  `feat/sync`). The watcher can reload the card mid-pull, before the Sync knows what it brought
+  in, so record the revisions before emitting the `cards` event and pick the sentence again on
+  that reload.
+- Accepted costs: the notice doesn't say whether it was you on the other machine, an agent or
+  a merged pull request (the list of changes is the only clue); a change brought in some other
+  way (`git pull` in a terminal) still says "An agent changed this card".
+- PR #12's roadmap text says this notice "is unchanged" and the suggestion "is not built";
+  update those lines when it is built.
 
 ## C. Queue and card UX
 
@@ -209,9 +310,17 @@ Card: [0008-recommendation-placement.md](../decisions/0008-recommendation-placem
   that card.
 - Nothing preselects the recommended option today (`draft.selected` starts empty), so Enter
   doesn't leak it; keep it that way.
-- Not decided: how long "stays shown" lasts (this visit, this browser session, or remembered
-  for good), and whether the chat may mention the pick before you reveal it. See
-  [Needs a card](#needs-a-card).
+- **"Stays shown" lasts until you leave the card**
+  ([20261111nsaj-revealed-pick-duration.md](../decisions/20261111nsaj-revealed-pick-duration.md),
+  option `visit`): "The pick shows until you move to another card or the queue; coming back, it
+  is hidden again." That includes going back with `k` right after `j`, a reload and the next
+  day. From the card's technical detail: the state lives in the card view and is reset when the
+  card changes; nothing is stored (not in the browser, not in the card). A new recommendation
+  (#0007's new options) is hidden like any other (E). Accepted costs: going back to a card you
+  just looked at means pressing `r` again; nothing shows whether you already looked at the pick
+  there; on a card you discussed after revealing, the conversation panel still shows what the
+  chat said about it.
+- What the chat may say before you reveal the pick is decided by 20261111mby8 (`neutral`), in E.
 - The card's guide for revisiting: "If you find yourself always revealing it first, switch to
   `after`."
 
@@ -317,8 +426,16 @@ Card: [0017-deferred-resurfacing.md](../decisions/0017-deferred-resurfacing.md),
     `docs/card-format.md` ("…are still the same in both") gain it too. Not added before the
     field exists: an agent would be told to keep a field no card has.
 - `defer_until` goes in `docs/card-format.md` (D can document it, or this PR).
-- Not decided: what a deferred card **without** `defer_until` does (deferred before this
-  ships, or by a hand edit). See [Needs a card](#needs-a-card).
+- **A deferred card without `defer_until`** (deferred before snooze ships, or set to
+  `status: deferred` by hand) comes back to the queue once
+  ([202611112hzh-deferred-without-date.md](../decisions/202611112hzh-deferred-without-date.md),
+  option `back-now`): "No date counts as a date already passed; the card appears in the queue
+  marked 'back from deferral', and d snoozes it again for a week." The queue treats a missing
+  `defer_until` as already passed; this never writes the card. `d` on it sets a real
+  `defer_until` (the `ALLOWED_FROM.defer` change above). Accepted costs: on the day snooze
+  ships, every old deferral lands in the queue at once, and a card deferred by hand comes
+  straight back. The demo project's `0003-first-run-copy.md` is such a card, so after this
+  ships `president demo` shows it in the queue, not under Deferred.
 - Accepted cost: cards come back whether or not anything changed.
 
 ### Withdrawn cards in the hub (#0014)
@@ -327,17 +444,26 @@ Card: [0014-withdrawn-status.md](../decisions/0014-withdrawn-status.md), option 
 format part is in D.
 
 - The queue leaves out open cards that have a `withdrawn` field and lists them in a collapsed
-  **Withdrawn by agents (n)** section. Not decided: whether a withdrawn **deferred** card is
-  listed under Deferred or Withdrawn, and whether it comes back when its `defer_until` passes
-  (#0017). See [Needs a card](#needs-a-card).
+  **Withdrawn by agents (n)** section. A withdrawn **deferred** card is listed under
+  Withdrawn, and the queue ignores its `defer_until` while it is withdrawn ("the agent's later
+  word wins"); Back to queue removes the withdrawal and the date applies again
+  ([202611116ff6-withdrawn-cards-elsewhere.md](../decisions/202611116ff6-withdrawn-cards-elsewhere.md),
+  the same under every option and not changed by a note). It follows that a withdrawn deferred
+  card with no `defer_until` also stays under Withdrawn, rather than coming back by
+  202611112hzh's rule: the date, missing or not, is what is ignored.
 - The card page shows "Withdrawn by the agent: <reason>" above the options, which still work:
   you can decide, note, or reject a withdrawn card as usual.
 - A **Back to queue** button removes the field **and** appends a note to `feedback` (the card's
   example: "Back in the queue"). The note is required: `president update` doesn't compare
   `withdrawn`, so without it an agent's update made from an earlier read would withdraw the card
   again.
-- Not decided: whether a withdrawn card still sinks the cards that depend on it (#0009); it is
-  still `open`, so today's `openDependencies` would say yes. See [Needs a card](#needs-a-card).
+- **A withdrawn card still sinks the cards that depend on it** (202611116ff6, option
+  `labelled`): `openDependencies` (`src/core/queue.ts`) is unchanged, so its dependents stay at
+  the bottom (#0009) until you decide the withdrawn card (your own answer, such as "Dropped
+  with the map screen", is enough) or decide them where they are. Only the dependency mark
+  changes: in the queue and in the card page's notice it says the dependency was withdrawn, for
+  example "depends on #0042, withdrawn". There is no button to accept a withdrawal (the
+  option's stated cost). What `president pending` and `validate` say is in D.
 
 ## D. Card format and CLI
 
@@ -377,9 +503,21 @@ Card: [0013-card-ids.md](../decisions/0013-card-ids.md), option `dated`.
 
   and changes its mind by removing it with another `president update`. `status` doesn't change.
   `update`'s guard already refuses the agent's version if you acted on the card meanwhile.
-- Document the field in `docs/card-format.md` and the skill (when and how to withdraw). The
-  card's con applies: `president pending` and `validate` don't know the field yet. Not decided:
-  what they should say or do with a withdrawn card. See [Needs a card](#needs-a-card).
+- Document the field in `docs/card-format.md` and the skill (when and how to withdraw).
+- **`president pending` and `validate` label a withdrawn card**
+  ([202611116ff6-withdrawn-cards-elsewhere.md](../decisions/202611116ff6-withdrawn-cards-elsewhere.md),
+  option `labelled`: "president pending and validate say a card is withdrawn and why"):
+  - `validate` adds the reason to the `ok` line:
+
+    ```
+    $ president validate
+    ok      0042-map-tiles.md (withdrawn: We dropped the map screen.)
+    ok      0047-map-pins.md
+    ```
+
+  - `pending` lists a withdrawn card only when it would anyway (you added a note, decided it),
+    with "(withdrawn)" after its title; its `--json` output gains a `withdrawn` mark.
+  - Nothing else changes for dependents: they stay sunk (C).
 
 ### The `chat` feedback type (#0023)
 
@@ -470,8 +608,16 @@ Card: [0002-conversation-placement.md](../decisions/0002-conversation-placement.
   under the options, where the "Discuss" placeholder is today (#0002's `below` layout).
 - The panel keeps its own scroll position while you move around the card. Single-key shortcuts
   already don't fire while you type, so the message box doesn't conflict with them.
-- Not decided: A/B cards, which already use the 72rem two-column layout: three columns, or the
-  panel overlaying the card. See [Needs a card](#needs-a-card).
+- **A/B cards get three columns**
+  ([20261111sblu-side-panel-on-ab-cards.md](../decisions/20261111sblu-side-panel-on-ab-cards.md),
+  option `three`): option A, option B and the conversation side by side; each option column gets
+  narrower while the panel is open. From the card's technical detail: the page's max width
+  (72rem, `.card-page-wide`) grows by the panel's width while it is open, and `.options-ab`
+  keeps two columns inside the card column. The 1100-pixel fallback from #0002 still applies.
+  The panel's width isn't fixed by any card (the card's numbers assume 24rem); it is the
+  implementer's call. Accepted costs: each option is about 13% narrower on a 1440-pixel window
+  and about 27% on a 1280-pixel one, so long code lines scroll sideways more often, and three
+  columns of text is a busy screen on a laptop.
 
 ### Teach me: a worked example (#0005)
 
@@ -487,8 +633,44 @@ answer to **Teach me**:
 The conversation continues after it as usual. *More info / research* is a separate button.
 The card's guide: worked examples lose their edge for someone who already knows the area.
 
-Not decided: what Teach me gives on an `open` card with no options (`docs/card-format.md` lets
-one leave `options` out, so there is nothing to compare). See [Needs a card](#needs-a-card).
+**On an `open` card with no options**
+([20261111fauj-teach-me-without-options.md](../decisions/20261111fauj-teach-me-without-options.md),
+option `scenario`), Teach me keeps that shape minus the comparison: "The agent picks one
+realistic scenario, asks what you'd want to happen in it, then walks through what an answer has
+to cope with there, and says what the scenario leaves out." It doesn't draft candidate answers
+of its own. The hub picks the prompt by whether the card has options
+(`fm.options.length === 0`), as the Neither button already does (`src/web/views/CardView.tsx`).
+An `open` card that does list suggestions gets #0005's format on them as is. Accepted costs:
+with nothing to contrast you learn less about the differences that matter, and one scenario can
+mislead if it isn't typical.
+
+### The chat stays neutral until you reveal the pick (20261111mby8)
+
+Card: [20261111mby8-chat-and-hidden-pick.md](../decisions/20261111mby8-chat-and-hidden-pick.md),
+option `neutral`: "Until you press r, the chat explains and compares the options without naming
+the card's pick or recommending one of its own; asked directly, it says the pick is behind r.
+After you reveal it, the chat is free." This covers the session's answers in the conversation:
+Teach me, More info and your questions.
+
+- The card's example, asked "Which one would you go with?" before `r`: "The card's pick is
+  behind **r**; I'll keep my view out of it until you've formed yours. What decides it is ..."
+- **Where the instruction goes** (the card's technical detail): not only in the system prompt,
+  which Claude Code records once per conversation and reuses on every resume
+  (`--system-prompt-snapshot`). The hub adds a line such as "The human has not revealed the
+  card's pick" to every message until `r`, then "has revealed it" (or, with
+  `--system-prompt-snapshot off`, puts it in a per-run `--append-system-prompt`).
+- "Revealed" means revealed on that card as 20261111nsaj defines it (until you leave the card).
+  Once the chat has named the pick, the conversation's history keeps it, so the line sent stays
+  "revealed" for that conversation, even when the page hides the pick again on your next visit.
+- The session still reads the card file, `recommendation` included (`withheld`, which blocked
+  that, was not chosen). Accepted costs: it rests on the session following an instruction and
+  can slip, with no check; neutral facts can still point at one option; "which is safer?" gets a
+  comparison, not an answer, until `r`.
+- The new-options run (#0007) still writes a `recommendation`, hidden on the page like any
+  other; the card says it "doesn't change that run". Not decided: the run's readable message is
+  now a turn in the conversation (202611111gpm), so may it name or argue for the new pick
+  before you reveal it; and after new options, is a conversation where the old pick was revealed
+  neutral again about the new one? See [Needs a card](#needs-a-card) 2.
 
 ### Where the conversation lives (#0003, #0018, #0021)
 
@@ -510,10 +692,20 @@ Cards: [0003-conversation-storage.md](../decisions/0003-conversation-storage.md)
   closed tab or a hub restart) the page shows it. This copy is only for showing; continuing
   still resumes Claude Code's session.
   - If Claude Code has already deleted its copy, the page adds: "The agent no longer remembers
-    this conversation; your next message starts from the summaries."
-  - The hub copy needs its own cleanup. Not decided: how long it keeps conversations, and what
-    happens to them when a project is unregistered or a card is removed or renumbered. See
-    [Needs a card](#needs-a-card).
+    this conversation; your next message starts from the summaries." A summary can still be
+    written from the hub's copy (20261111paot, under "Leaving a conversation" below).
+  - **The copy is kept as long as its card exists**
+    ([202611114wet-hub-copy-retention.md](../decisions/202611114wet-hub-copy-retention.md),
+    option `with-card`): "A conversation is kept while its card is in a registered project;
+    once the card file or the project has been gone for 30 days, the hub deletes it." From the
+    card's technical detail: at hub start, and once a day while it runs, list the copies; for
+    each, check that its project is registered and its card exists; record when it was first
+    found missing (this machine's state folder), and delete it 30 days after that, unless the
+    card is back by then. The 30 days cover a checkout on another branch and a project removed
+    and added back. There is no time limit otherwise: a conversation on a decided card stays
+    readable for good. Accepted costs: text the agent quoted from your files stays on disk as
+    long as the card exists; a renumbered card loses its conversation after 30 days, since the
+    copy is filed under the old id (rare with dated ids).
 - **Where the hub keeps the session id (#0021).** Each machine's hub keeps its own small list
   of "project, card → session id" in `$XDG_STATE_HOME/president/` (not beside the registry in
   `$XDG_CONFIG_HOME/president/`: the registry is configuration, this is state). Example:
@@ -556,7 +748,9 @@ Cards: [0003-conversation-storage.md](../decisions/0003-conversation-storage.md)
 ### Leaving a conversation without closing it (#0024)
 
 Card: [0024-leaving-an-open-conversation.md](../decisions/0024-leaving-an-open-conversation.md),
-option `remind`. For open and deferred cards:
+option `remind`. For open and deferred cards, and for decided cards too
+([202611111ky9-leaving-chat-on-decided-card.md](../decisions/202611111ky9-leaving-chat-on-decided-card.md),
+option `remind`: "Remind you, as on open cards"):
 
 - **Leaving saves nothing and runs nothing.** "Leaving" is moving to another card or the queue,
   reloading, closing the tab, or restarting the hub.
@@ -566,17 +760,43 @@ option `remind`. For open and deferred cards:
   only shows its own `beforeunload` question).
 - **Coming back** to the card, also after a reload or a hub restart, the conversation area says
   "Conversation not summarized yet. [Write summary]" above the message box.
-- If Claude Code has deleted the conversation meanwhile, the card says "This conversation is no
-  longer on this machine" instead of Write summary (see the conflict with #0018 under
-  [Cross-card consequences](#cross-card-consequences)).
+- **If Claude Code has deleted the conversation meanwhile, Write summary still works, from the
+  hub's copy**
+  ([20261111paot-summary-after-claude-deletes.md](../decisions/20261111paot-summary-after-claude-deletes.md),
+  option `from-copy`: "a fresh session reads the saved messages and writes the summary, which
+  you edit and save as usual"). #0018's "no longer remembers" line stays, and #0024's "This
+  conversation is no longer on this machine" is replaced by the card's sketch:
+
+  ```
+  Discuss
+    you, 2 Oct      Does our HTTP client already throw on 404?
+    agent, 2 Oct    It does: src/http.ts line 40 ...
+    The agent no longer remembers this conversation.
+    Not summarized yet.  [Write summary from these messages]
+  ```
+
+  The run (the card's technical detail): a new `claude -p` with #0004's flags and a new session
+  id, given the hub's copy on standard input (never as an argument) with the summary request,
+  `--max-budget-usd 1` still capping it; nothing is saved to the session store (#0021) for it,
+  or it runs with `--no-session-persistence`, since nobody continues it. Accepted costs: the
+  fresh session sees only what the page showed, not the files the original agent read; one
+  more run, and a long conversation costs more to read. Under 202611114wet's `with-card` the
+  copy outlives Claude Code's, so this case does arise.
 - The hub keeps the list of cards with an unsummarized conversation on this machine, outside
   the project (`$XDG_STATE_HOME/president/`), or derives it from the conversation's last
   message time against the card's last summary (the card offers both).
 - The reminder is per machine; on another machine the card shows nothing, and a summary can only
-  be written where you talked. Accepted costs: if you never come back, or after 30 days, what
-  you discussed never reaches the agent.
-- Not decided: leaving an unsummarized conversation on a **decided** card (#0024 covers open and
-  deferred cards; #0020 allows the chat on decided ones). See [Needs a card](#needs-a-card).
+  be written where you talked. Accepted cost: if you never come back, what you discussed never
+  reaches the agent. (#0024 also named "after 30 days", when Claude Code deletes the session;
+  20261111paot's `from-copy` lifts that for as long as the hub keeps its copy.)
+- **On a decided card** (202611111ky9): the same notice when you leave ("Your conversation on
+  #0043 isn't summarized; it's there when you come back."), and back on the card "Conversation
+  not summarized yet. [Write summary]". The per-machine "not summarized" list includes decided
+  cards. Saving the summary uses the action #0020 allows on resolved cards, with the Undo-window
+  rule (nothing saved to a card decided less than 10 seconds ago), and it reaches the agent in
+  `president pending` under "New notes from the human". Accepted costs: a quick look-up on an
+  old decision also leaves a reminder until you close the conversation; decided cards with
+  pending reminders are easy to miss, since decided cards aren't in the queue.
 
 ### Deciding while a conversation is open (#0019)
 
@@ -606,8 +826,18 @@ option `wait`.
   must include it.
 - Accepted costs: deciding a discussed card is no longer one keypress, and writing the summary
   is one more agent run.
-- Not decided: whether **Decide this as my answer** in the Neither panel (#0010), which also
-  resolves the card, waits for the summary the same way. See [Needs a card](#needs-a-card).
+- **Decide this as my answer waits too**
+  ([20261111is21-own-answer-with-open-chat.md](../decisions/20261111is21-own-answer-with-open-chat.md),
+  option `wait`): "With an unsummarized conversation, 'Decide this as my answer' first shows the
+  agent's summary to edit, then saves the summary and your answer together; 'Decide without
+  summary' skips it." The same box, buttons and Esc as above. It is the same `resolve` action as
+  Save and decide, with `choice: custom`, your answer as the decision's note and the summary as
+  a separate `chat` entry, in one write, so `undoLastAction`'s `ours.action === "resolve"`
+  check covers it and Undo takes both back. Accepted costs: a few seconds' wait and one more
+  agent run even when your answer says it all, and two boxes in a row.
+- When Claude Code's session for the conversation is gone, the summary Decide (and Decide this
+  as my answer) offers is written the way 20261111paot writes it for Write summary: from the
+  hub's copy. Neither card says so in words; it follows from both being the same summary.
 
 ### Talking about a decided card (#0020)
 
@@ -651,11 +881,47 @@ Card: [0007-neither-try-again.md](../decisions/0007-neither-try-again.md), optio
 - Under #0008, the new `recommendation` stays hidden until you reveal it, like any other.
 - Undoing Ask for new options stops the run. The hub writes the run's options only against the
   card as the run read it (`update`'s feedback guard then refuses after an undo).
-- Not decided: what the page says and does when the run fails or returns options the checks
-  refuse (nothing is written, so the card stays waiting for the working agent, as today);
-  whether the run's exchange shows in the card's conversation panel; and whether the run counts
-  as a conversation at all (a session-store entry, #0021; the hub's copy, #0018; a "not
-  summarized" reminder, #0024). See [Needs a card](#needs-a-card).
+- **The run is a turn in the card's conversation, without the reminder**
+  ([202611111gpm-new-options-run.md](../decisions/202611111gpm-new-options-run.md), option
+  `shown-no-reminder`): "The run is a turn in the card's conversation (stored, shown in the
+  panel, follow-ups reach the agent that wrote the options), but it doesn't mark the
+  conversation as not summarized, since its result is already on the card."
+  - It resumes the card's session, or starts one with `--session-id` and adds a session-store
+    entry (#0021); both messages are saved in the hub's copy (#0018). The panel shows them:
+
+    ```
+    Discuss
+      you, 14:02     Is IndexedDB available in the app's webview?
+      agent, 14:02   Yes ...
+      you, 21:00     Neither: Both assume a server. Compare on-device storage only.
+      agent, 21:02   Here are three on-device options: IndexedDB, SQLite (OPFS), plain files...
+                     (the options are now on the card)
+    ```
+
+  - The run doesn't add the conversation to the "not summarized" list (#0024); a conversation
+    already on it from earlier messages stays there. A follow-up question you then ask, and its
+    answer, make the conversation "not summarized" as usual.
+  - The readable message and the options can come back in one `--json-schema` output (a
+    message field next to the options).
+  - **When the run fails** or returns options the checks refuse: nothing is written (the card
+    stays `needs_new_options: true`, waiting for the working agent, as today), and the page says
+    why, for example:
+
+    ```
+    Couldn't write new options: the agent's options didn't pass the card checks
+    (option "b" has no title). The card waits for the project's agent, as before.
+    [Try again]
+    ```
+
+    Try again starts the run again with the same note. There is no automatic retry (the card:
+    "If you want one automatic retry, say so in your note"; there was no note).
+  - Accepted costs: the reply has to be both a readable message and options the hub can check,
+    which makes the run more fragile; the run's reasoning reaches the working agent only through
+    the options unless you go on to discuss them; every "neither" starts or extends a stored
+    conversation on this machine, even on a card you never chatted on.
+  - Undoing Ask for new options stops the run (above). What happens to the turn already shown
+    and saved (your "Neither: ..." message and any partial reply) isn't fixed by a card; it is
+    the implementer's call, said in the pull request.
 
 ### The chat never applies decisions (#0006)
 
@@ -674,26 +940,60 @@ from `president pending` and runs `president applied` (in the main folder, #0022
 - The skill's "Applying resolved cards" and the apply flow in docs/card-format.md need no change
   for #0006.
 
-## F. Rename the command (#0016)
+## F. Rename the command to `preside` (#0016, 20261111dmvt)
 
-Card: [0016-rename-the-cli.md](../decisions/0016-rename-the-cli.md), option `rename`.
+Cards: [0016-rename-the-cli.md](../decisions/0016-rename-the-cli.md), option `rename`, and
+[20261111dmvt-command-name.md](../decisions/20261111dmvt-command-name.md), option `preside`. An
+agent-facing pull request: it changes the CLI, the skill and every command agents are told to
+type.
 
-- The command becomes a name nobody owns on npm, and **that name is reserved on npm with a
-  placeholder package**, so `npx <name>` can only ever find ours or nothing. The product can
-  still be called president; only what you type changes.
-- **The name is not chosen.** The card's `presctl` is an example ("tell me the name you want in
-  the note"), and the decision came without a note. Names the card found free on npm on
-  2026-11-11: `presctl`, `prescards`, `pres-cards`, `decicards`, `president-cli`; check again
-  before using one. See [Needs a card](#needs-a-card).
-- Publishing the placeholder needs the human's npm account: ask the human to do it, or to
-  approve it, once the name is chosen.
+- The command becomes **`preside`**, and **that name is reserved on npm with a placeholder
+  package**, so `npx preside` can only ever find ours or nothing. The product can still be
+  called president; only what you type changes.
+
+  ```sh
+  preside pending
+  # done: preside seen /home/me/app/decisions/0007-api-errors.md --token 2-0k3j5h2g9fd
+  ```
+
+- **Check the name again right before publishing.** On 2026-11-11 `npm view preside` gave 404
+  (free), and so did its punctuation variants `pre-side`, `pre.side` and `pre_side` (npm
+  refuses a new name that matches an existing one once punctuation is removed). A name free
+  then can be taken before the placeholder is published.
+- **The placeholder** (the card's technical detail): a `package.json` with the name `preside`,
+  a version such as `0.0.0`, a README saying what it is, and no `bin`, published with
+  `npm publish` from the human's npm account. An agent prepares it and asks the human to
+  publish it or approve publishing.
 - The work: about 200 mentions of `president <command>` in `src`, `bin`, `skills`, `docs`,
-  `README.md` and `test`; the `bin` entry in `package.json`; the help text (`src/cli/main.ts`);
-  the `done:` lines `president pending` prints; error messages; the README's install steps and
-  its "Use `president`, not `npx president`" warning (and the skill's); existing installs need
-  relinking.
-- Not decided: whether `president` stays as an alias for a while. See
-  [Needs a card](#needs-a-card).
+  `README.md` and `test` (the card counted 181); the `bin` entry in `package.json` (today
+  `"president": "bin/president.js"`); the help text (`src/cli/main.ts`); the `done:` lines
+  `pending` prints (`src/cli/commands.ts`); error messages; the README's install line
+  (`ln -s "$PWD/bin/president.js" ~/.local/bin/president`) and its "Use `president`, not
+  `npx president`" warning (and the skill's); `docs/card-format.md`. Existing installs need
+  relinking. The skill changes with the rename, since projects link to the copy in this repo.
+- #0016 and dmvt rename only the command. Other names with "president" in them (the
+  `PRESIDENT_PORT` variable, the `~/.config/president/` and `~/.local/state/president/`
+  folders, the package's own `name`, the product) are not renamed by them.
+- Accepted costs: `preside` begins like `president`, so habit can turn one into the other in
+  either direction; it is a common word, so searches for it mostly find chairing meetings.
+
+### The `president` alias and when it ends
+
+The card's recommendation, with no "no alias" in a note: **`president` keeps working next to
+`preside`** for a while, so old `done:` lines printed before the rename and agents typing the
+old name from habit still find the installed command, rather than failing and trying
+`npx president`, the exact mistake the rename guards against.
+
+- In F: a second `bin` entry (`"president": "bin/president.js"` next to the new one) and a
+  second link in the README's install step. Everything president prints and every doc uses
+  `preside`.
+- **F2 removes it**, in a pull request, one month after the rename ships, or once every
+  registered project's own docs and agent instructions (its `CLAUDE.md`, its `docs/`) use the
+  new name, whichever is later. Whoever removes it checks both: the month has passed, and a
+  `grep` for `president <command>` in each registered project's `CLAUDE.md` and `docs/` finds
+  nothing.
+- Accepted cost: agents keep seeing and typing `president` longer, and the old name has to be
+  removed in a second step.
 
 ## Cross-card consequences
 
@@ -711,21 +1011,41 @@ Card: [0016-rename-the-cli.md](../decisions/0016-rename-the-cli.md), option `ren
   `allow` is what lets #0020 save summaries on decided cards outside that window.
 - **#0019 + #0024.** A conversation you left unsummarized (#0024) is still offered when you
   later decide the card (#0019's `wait`), so it can't silently miss the decision.
-- **#0018 `hub-copy` + #0024 `remind`: they disagree after Claude Code deletes a conversation.**
-  #0018 keeps showing the messages from the hub's copy ("The agent no longer remembers this
-  conversation"), while #0024 has the card say "This conversation is no longer on this machine"
-  instead of Write summary. Both texts can't be right, and whether a summary can still be
-  written from the hub's copy is not decided. See [Needs a card](#needs-a-card).
-- **Three per-machine stores, one folder.** Session ids (#0021), the hub's copy (#0018) and the
-  "not summarized" list, if it is kept rather than derived (#0024), all live in
-  `$XDG_STATE_HOME/president/`, keyed by project name and card id, and none travels with Sync.
+- **#0018 `hub-copy` + #0024 `remind`, settled by 20261111paot `from-copy`.** They disagreed
+  after Claude Code deletes a conversation; now #0018's "no longer remembers" line stays,
+  #0024's "no longer on this machine" goes, and Write summary works from the hub's copy.
+  202611114wet's `with-card` keeps that copy as long as the card, so the case is real.
+- **Four per-machine stores, one folder.** Session ids (#0021), the hub's copy (#0018), the
+  "not summarized" list if it is kept rather than derived (#0024), and the "first found
+  missing" dates 202611114wet's cleanup records all live in `$XDG_STATE_HOME/president/`, keyed
+  by project name and card id, and none travels with Sync.
+- **202611111gpm `shown-no-reminder` + #0002 + 20261111sblu.** Every "neither" now gives the card
+  a stored conversation, and #0002 opens the panel by default once a card has one, so after a
+  "neither" the panel is open on that card (three columns on an A/B card). The run's
+  conversation is kept as long as the card (202611114wet).
+- **202611111gpm + #0019 / 20261111is21.** The run doesn't make a conversation "not summarized",
+  so deciding a card whose only conversation is the new-options run doesn't wait for a summary;
+  a follow-up question does make it wait.
+- **20261111nsaj `visit` + 20261111mby8 `neutral`.** The page hides the pick again on every new
+  visit, but a conversation in which the pick was revealed stays "revealed" for the chat (mby8's
+  technical detail), and its earlier messages may name the pick. Both cards accepted this.
+- **202611112hzh `back-now` + 202611116ff6 + #0009.** A missing `defer_until` counts as passed,
+  except on a withdrawn card, whose date is ignored either way. A dependency that came back from
+  deferral is still undecided, so its dependents stay sunk, as with any deferred dependency.
+- **20261111st0c `reviewed-main` + #0013 `dated`.** With numbered ids, another card can take a
+  draft's number in the main folder while the draft is under review; the duplicate-id rule
+  (renumber the newer card, at the copy) still applies. Dated ids (D) make that rare.
+- **20261111st0c + 2026111209dq `top-only`.** In a project Sync skips, a new card copied into the
+  main folder reaches git only by a hand commit there, like the human's answers.
 - **#0007 `spawn` + #0010 `neither-plus`**: the Neither panel has two buttons, Ask for new
   options (now runs the session) and Decide this as my answer. #0007 works under #0004 as
   written: the session reads and researches, and the hub writes.
-- **#0008 `hidden` + the chat (#0005, #0007).** *Teach me* asks you to predict before
-  explaining, which fits forming your own view first. But the session reads the whole card
-  file, `recommendation` included, and nothing stops it naming the agent's pick before you press
-  `r`. Not decided; see [Needs a card](#needs-a-card).
+- **#0008 `hidden` + the chat (#0005, #0007), settled by 20261111mby8 `neutral`.** The session
+  still reads the whole card file, `recommendation` included, but an instruction sent with
+  every message keeps it from naming the pick before you press `r`. Still open: the
+  new-options run's message and a new pick after a reveal ([Needs a card](#needs-a-card) 2).
+- **20261111fauj `scenario` + #0008.** Teach me on an option-less card drafts no answers of its
+  own, for the same reason #0008 hides the pick: the agent's ideas shouldn't come before yours.
 - **#0009 `sink` + #0015 `priority-oldest` + #0017 `snooze`.** One order everywhere: ready cards
   first, then dependent ones, each by priority and age; snoozed cards whose date has passed sort
   among them like open ones. A dependency that is deferred (snoozed) still counts as undecided,
@@ -736,13 +1056,14 @@ Card: [0016-rename-the-cli.md](../decisions/0016-rename-the-cli.md), option `ren
   main folder until someone commits `decisions/` on main by hand; pull requests that apply
   decisions (this one included) carry no card files, and their links to `../decisions/<card>`
   show the card as decided once the answers reach main.
-- **#0016 `rename` touches everything.** Every printed command and doc line in A to E changes
-  name. If F comes later, those PRs write `president`; F renames them with the rest.
+- **#0016 `rename` + 20261111dmvt `preside` touch everything.** Every printed command and doc
+  line in A2 to E changes name. If F comes later, those PRs write `president`; F renames them
+  with the rest, and the alias keeps anything missed working until F2.
 
 ### Existing docs that now contradict a decision
 
-Not edited here (another pull request, #7, is editing `SKILL.md` and `card-format.md`); the
-build PR named in brackets fixes each.
+Not edited here (this pull request records decisions in `foundations.md` and the roadmap
+only); the build PR named in brackets fixes each.
 
 - `docs/card-format.md` and the skill, picking an id ("add one to the highest number"):
   replaced by #0013's dated ids [D].
@@ -756,59 +1077,43 @@ build PR named in brackets fixes each.
   deferred card also returns when `defer_until` passes [C].
 - README, the `n` row ("an agent writes new ones"): under #0007 the hub starts the card's
   session at once [E].
-- README and the skill, "Use `president`, not `npx president`": #0016 renames the command [F].
+- README and the skill, "Use `president`, not `npx president`": #0016 renames the command, to
+  `preside` (20261111dmvt) [F].
+- The skill's "Not decided yet" paragraph (card changes outside an apply) and its interim rule
+  to write new cards straight into `<main>/decisions/`; *Writing a card*, step 1: 20261111st0c
+  has new cards reviewed in the agent's worktree first, then copied [A2].
+- foundations.md, *Engineering process*, "Every task ... ends in a PR": a task that only writes
+  cards now ends with them reviewed and copied into the main folder, with no pull request
+  (20261111st0c) [A2, when the skill changes].
+- The deferred card page, "Deferred. It stays out of the queue until reopened."
+  (`CardView.tsx`): a deferred card without a date comes back at once (202611112hzh) [C].
+- PR #12's roadmap B, "The notice an open card shows after a pull ... is unchanged": 20261112xp4s
+  changes it after a Sync [B, PR #12].
 
 ## Needs a card
 
 Questions the decided cards leave open. Each is the human's to answer: write a card before
 building the part it blocks. Grouped by the build PR that needs the answer.
 
-**A (agent rules)**
+The thirteen questions this list held after batch 2 were all answered on 2026-11-12: 1 by
+20261111st0c, 2 by 202611112hzh, 3 by 202611116ff6, 4 by 20261111nsaj, 5 by 20261111mby8, 6 by
+20261111sblu, 7 by 202611114wet, 8 by 20261111paot, 9 by 202611111ky9, 10 by 20261111is21, 11
+by 202611111gpm, 12 by 20261111fauj and 13 by 20261111dmvt. B's "Suggestion, not decided" about
+the notice after a pull was answered by 20261112xp4s.
 
-1. **Card changes outside an apply, and pull requests.** #0022 weighed only the human's answers
-   and `applied_at` in apply pull requests, but its skill line, "Never commit card files in your
-   pull request; Sync carries them", read literally covers every card change an agent makes
-   outside an apply: new cards (as PR #6 did) and `president update` rewrites (new options after
-   "neither" when the hub's run fails, adding or removing `withdrawn`). Do agents still put those
-   in a reviewed pull request (where CI validates them), or write them straight into the main
-   folder for Sync to commit (Sync's step 4 expects such untracked new cards)? Until this is
-   answered, A ships the line as written plus the main-folder rule.
+**B (Sync, PR #12)**
 
-**C (queue and card UX)**
-
-2. **Deferred cards without `defer_until`** (#0017): cards deferred before snooze ships, or by
-   hand. Do they stay deferred until Back to queue, or get the default week?
-3. **Withdrawn cards elsewhere** (#0014): what `president pending` and `president validate` say
-   about a withdrawn card; whether it still sinks the cards that depend on it (#0009); and, with
-   #0017, whether a withdrawn deferred card is listed under Deferred or Withdrawn, and whether it
-   comes back to the queue when its `defer_until` passes.
-4. **How long a revealed recommendation stays revealed** (#0008): this visit, this browser, or
-   recorded.
+1. **Unsynced answers in a project Sync skips** (2026111209dq). The top bar's "answers not
+   synced" count leaves out a project Sync skips, so nothing reminds you its answers haven't
+   moved. The card raised it under every option ("it can count them too": "web: 2 answers not
+   synced (Sync skips it)"), but its choice, `top-only`, doesn't decide it. Count them, or keep
+   leaving them out? It doesn't block PR #12, which leaves them out today.
 
 **E (PR 2)**
 
-5. **The chat and the hidden recommendation** (#0008 with #0005 and #0007): may the session
-   (Teach me, More info, answers) name or argue for the agent's pick before you reveal it?
-6. **The side panel on A/B cards** (#0002): three columns, or the panel overlays the card.
-7. **The hub's copy of conversations** (#0018): how long it keeps them, and what happens to them
-   when a project is unregistered or a card is removed or renumbered.
-8. **A conversation Claude Code has deleted** (#0018 against #0024): the page still shows it
-   from the hub's copy, but #0024 says "no longer on this machine". Can "Write summary" still
-   work (a fresh session given the hub's copy), or is the conversation gone for summaries?
-9. **Leaving a conversation on a decided card** (#0024 covers open and deferred cards only):
-   remind as on open cards, or something else?
-10. **Deciding from the Neither panel with a conversation open** (#0019 with #0010): does
-    "Decide this as my answer" also wait for the summary, as Decide does?
-11. **The new-options run** (#0007): when it fails, what the page says and whether it retries;
-    whether the run's exchange appears in the card's conversation; and whether the run counts as
-    a conversation at all: a session-store entry (#0021), the hub's copy (#0018), and a "not
-    summarized" reminder (#0024).
-12. **Teach me on `open` cards with no options** (#0005): `worked` asks you to predict "which
-    option handles it better" and walks each option through the scenario, but
-    `docs/card-format.md` lets an `open` card leave `options` out, so there is nothing to
-    compare. What does Teach me give there?
-
-**F (rename)**
-
-13. **The new command name** (#0016), and whether `president` stays as an alias for a release.
-    Then the human publishes (or approves publishing) the npm placeholder.
+2. **The new pick after "neither" and the neutral chat** (20261111mby8 with #0007 and
+   202611111gpm). The new-options run writes a new `recommendation`, hidden on the page until
+   `r`, and its readable message is now a turn in the conversation. May that message name or
+   argue for the new pick before you reveal it? And in a conversation where you had revealed
+   the old pick (so the chat is free there, by mby8's technical detail), is the chat neutral
+   again about the new one until you press `r`? It blocks the prompt of the new-options run.
