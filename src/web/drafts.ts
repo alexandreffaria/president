@@ -83,6 +83,23 @@ export function restoreDraft(
   for (const listener of listeners.get(k) ?? []) listener(next);
 }
 
+/**
+ * Puts `summary` (an agent's, or one an undo brings back) in the card's stored draft only
+ * while its summary is empty: what is in the summary box is never replaced, and no other
+ * field is touched. Read from the store, not a view, so a result that lands after the view
+ * that asked for it has gone (the human left the card and came back) still sees what was
+ * typed since. Open views of the card are told. True when it was put in.
+ */
+export function fillSummaryIfEmpty(project: string, id: string, summary: string): boolean {
+  const k = key(project, id);
+  const current = drafts.get(k) ?? EMPTY;
+  if (current.summary.trim()) return false;
+  const next = { ...current, summary };
+  if (worthKeeping(next)) drafts.set(k, next);
+  for (const listener of listeners.get(k) ?? []) listener(next);
+  return true;
+}
+
 /** The panel restoreDraft asked to open for this card, if any (once). */
 export function takePanel(project: string, id: string): Panel | undefined {
   const k = key(project, id);

@@ -26,6 +26,7 @@ import { OptionCard } from "../components/OptionCard.tsx";
 import {
   type Draft,
   type Panel as DraftPanel,
+  fillSummaryIfEmpty,
   restoreDraft,
   takePanel,
   unsentText,
@@ -206,6 +207,8 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const decideButton = useRef<HTMLButtonElement>(null);
   /** The "Before deciding" box (#0019), open while a decision waits for the summary. */
   const [beforeDeciding, setBeforeDeciding] = useState<PendingDecision | null>(null);
+  /** The conversation panel's Write summary is running (CardChat tells). */
+  const panelWriting = useRef(false);
   /** Counts summary requests, so one answered after Esc is ignored. */
   const summaryRequest = useRef(0);
   /** Bumped when this view leaves its card (unmount, another card): a Decide in flight stops. */
@@ -509,14 +512,13 @@ export function CardView({ project, id }: { project: string; id: string }) {
    * An agent summary (Decide's run, or Write summary in the panel) goes into the draft only
    * while the draft is empty: the agent never replaces text already in the summary box, so
    * what the human typed wins and the agent's summary is dropped. True when it was used.
+   * Checked against the stored draft, not this view's: the run may end after the human left
+   * the card and came back to a new view.
    */
   const takeAgentSummary = (summary: string): boolean => {
-    if (latest.current.summary.trim()) {
-      toast("The agent's summary wasn't used: the summary box already has text.");
-      return false;
-    }
-    updateDraft({ summary });
-    return true;
+    if (fillSummaryIfEmpty(project, id, summary)) return true;
+    toast("The agent's summary wasn't used: the summary box already has text.");
+    return false;
   };
 
   /**
@@ -569,8 +571,8 @@ export function CardView({ project, id }: { project: string; id: string }) {
     }
     // A summary run is already going (Write summary in the panel): don't start a second one,
     // which the hub would refuse. The box opens to type in; that run's summary fills it if it
-    // is still empty when it is done.
-    if (conversation.running === "summary") {
+    // is still empty when it is done. The panel says it started one before the hub's copy does.
+    if (conversation.running === "summary" || panelWriting.current) {
       setBeforeDeciding({ ...pending, writing: false, summaryRunning: true });
       return false;
     }
@@ -959,6 +961,9 @@ export function CardView({ project, id }: { project: string; id: string }) {
           draft={draft}
           onDraft={updateDraft}
           onAgentSummary={takeAgentSummary}
+          onWriting={(writing) => {
+            panelWriting.current = writing;
+          }}
           onClose={hideChat}
           focusOnOpen={focusChat}
           onSaveSummary={saveSummary}

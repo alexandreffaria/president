@@ -1179,3 +1179,132 @@ describe("the agent never replaces text already in the summary box (PR #28 R3)",
     );
   });
 });
+
+describe("a result for a view of the card that has gone writes only into an empty summary (PR #28 R4)", () => {
+  const deciding = () =>
+    host.querySelector("#before-deciding-summary") as HTMLTextAreaElement | null;
+  const script = (steps: object[]) =>
+    io(() => writeFile(join(fakeDir, "script.json"), JSON.stringify(steps)));
+  const panelBox = () => host.querySelector(".chat-summary textarea") as HTMLTextAreaElement | null;
+  const NOT_USED = "The agent's summary wasn't used: the summary box already has text.";
+
+  /** Leaves #0002 for #0003 and comes back: a new view of the card. */
+  async function leaveAndComeBack() {
+    navigate("/card/demo/0003");
+    await until(() => window.location.pathname === "/card/demo/0003", "#0003");
+    await pause();
+    await pause();
+    navigate("/card/demo/0002");
+    await until(() => messageBox() !== null, "the conversation again");
+    await pause();
+    await pause();
+  }
+
+  it("a Write summary that finishes after leaving and coming back keeps what you typed (R4-1)", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("Does it throw?");
+    await script([{ text: "Agent summary.", delayMs: 3000 }]);
+    await click("Write summary");
+    await until(() => text().includes("The agent is writing a summary…"), "the run");
+    await leaveAndComeBack();
+    await typeInto(messageBox(), "Unsent message.");
+    await press("2");
+    await click("Decide");
+    await until(() => deciding() !== null && !text().includes("Writing a summary"), "the box");
+    await typeInto(deciding(), "My own summary.");
+    await press("Escape");
+    await until(() => deciding() === null, "the box to close");
+    await until(() => text().includes(NOT_USED), "the notice that it wasn't used");
+    await leaveAndComeBack();
+    expect((messageBox() as HTMLTextAreaElement).value).toBe("Unsent message.");
+    await press("2");
+    await click("Decide");
+    await until(() => deciding() !== null, "the box");
+    expect(deciding()?.value).toBe("My own summary.");
+  });
+
+  it("a Write summary that finishes after leaving and coming back fills an empty box, keeping the rest", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("Does it throw?");
+    await script([{ text: "Agent summary.", delayMs: 1500 }]);
+    await click("Write summary");
+    await until(() => text().includes("The agent is writing a summary…"), "the run");
+    await leaveAndComeBack();
+    await typeInto(messageBox(), "Unsent message.");
+    await until(() => panelBox()?.value === "Agent summary.", "the summary in the open view");
+    expect((messageBox() as HTMLTextAreaElement).value).toBe("Unsent message.");
+    await leaveAndComeBack();
+    expect((messageBox() as HTMLTextAreaElement).value).toBe("Unsent message.");
+  });
+
+  it("Close without summary's Undo after leaving and coming back keeps what you typed since (R4-2)", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("Does it throw?");
+    await script([{ text: "It throws." }]);
+    await click("Write summary");
+    await until(() => panelBox()?.value === "It throws.", "the summary");
+    await until(() => button("Close without summary")?.disabled === false, "the button");
+    await click("Close without summary");
+    await until(() => text().includes("Conversation closed without a summary."), "the notice");
+    await leaveAndComeBack();
+    await typeInto(messageBox(), "Unsent message.");
+    await press("u");
+    await until(() => text().includes("The conversation isn't summarized again."), "the undo");
+    // The open view shows the summary put back.
+    await until(() => panelBox()?.value === "It throws.", "the restored summary");
+    expect((messageBox() as HTMLTextAreaElement).value).toBe("Unsent message.");
+    await leaveAndComeBack();
+    expect((messageBox() as HTMLTextAreaElement).value).toBe("Unsent message.");
+  });
+
+  it("Decide right after Write summary says the agent is already writing one (R4-3)", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("Does it throw?");
+    await script([{ text: "Agent summary.", delayMs: 1500 }]);
+    // The page reads the conversation again only late: it doesn't know from the hub yet.
+    intercept = (input, init, hub) =>
+      input === "/api/chats/demo/0002" && (init.method ?? "GET") === "GET"
+        ? new Promise((resolve) => setTimeout(resolve, 2000)).then(hub)
+        : undefined;
+    await click("Write summary");
+    await press("2");
+    await click("Decide");
+    await until(() => text().includes("The agent is already writing a summary"), "the box");
+    expect(text()).not.toContain("Couldn't write the summary");
+    await until(() => deciding()?.value === "Agent summary.", "the summary in the box");
+  });
+
+  it("Close without summary's Undo doesn't replace a summary typed since", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("Does it throw?");
+    await script([{ text: "It throws." }, {}, { text: "Second summary." }]);
+    await click("Write summary");
+    await until(() => panelBox()?.value === "It throws.", "the summary");
+    await until(() => button("Close without summary")?.disabled === false, "the button");
+    await click("Close without summary");
+    await until(() => text().includes("Conversation closed without a summary."), "the notice");
+    await leaveAndComeBack();
+    // A new message makes Decide wait for a summary again: its run fills the empty box, and
+    // you rewrite it.
+    await sendMessage("And then?");
+    await press("2");
+    await click("Decide");
+    await until(() => deciding()?.value === "Second summary.", "the box");
+    await typeInto(deciding(), "My own summary.");
+    await press("Escape");
+    await until(() => deciding() === null, "the box to close");
+    await press("u");
+    await until(() => text().includes("The conversation isn't summarized again."), "the undo");
+    expect(text()).toContain("Your earlier summary wasn't put back");
+    await leaveAndComeBack();
+    await press("2");
+    await click("Decide");
+    await until(() => deciding() !== null, "the box");
+    expect(deciding()?.value).toBe("My own summary.");
+  });
+});

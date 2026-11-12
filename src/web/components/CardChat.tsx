@@ -27,7 +27,7 @@ import { type RefObject, useEffect, useRef, useState } from "react";
 import type { CardDetailDto, ChatAsk, ChatMessageDto } from "../../core/api.ts";
 import type { ChatContext } from "../api.ts";
 import type { CardChat as ChatState } from "../chat.ts";
-import type { Draft } from "../drafts.ts";
+import { type Draft, fillSummaryIfEmpty } from "../drafts.ts";
 import { fullDate, timeAgo } from "../format.ts";
 import { useKeyLayer } from "../keyboard.ts";
 import { useToast } from "../toast.tsx";
@@ -54,6 +54,8 @@ export function CardChat(props: {
    * replaces text already in the summary box); true when it was used.
    */
   onAgentSummary: (summary: string) => boolean;
+  /** Told when this panel's Write summary starts and ends, before the hub's copy says so. */
+  onWriting?: (writing: boolean) => void;
   /** The "Before deciding" box is open and holds the summary (#0019). */
   deciding?: boolean;
 }) {
@@ -145,6 +147,7 @@ export function CardChat(props: {
 
   const writeSummary = async () => {
     setWriting(true);
+    props.onWriting?.(true);
     try {
       const { summary } = await chat.summarize(context);
       // Text typed while the agent wrote (here or in the "Before deciding" box) wins.
@@ -156,6 +159,7 @@ export function CardChat(props: {
       toast((error as Error).message, { tone: "error" });
     } finally {
       setWriting(false);
+      props.onWriting?.(false);
     }
   };
 
@@ -194,10 +198,15 @@ export function CardChat(props: {
             chat
               .reopen(closed)
               .then(() => {
-                if (dropped.trim()) {
-                  props.onDraft({ summary: dropped });
-                }
-                toast("Undone. The conversation isn't summarized again.");
+                // Into the stored draft, only while its summary is empty: this view may have
+                // gone (the human left the card and came back), and what was typed since stays.
+                const kept =
+                  dropped.trim() !== "" && !fillSummaryIfEmpty(card.project, card.id, dropped);
+                toast(
+                  kept
+                    ? "Undone. The conversation isn't summarized again. Your earlier summary wasn't put back: the summary box already has text."
+                    : "Undone. The conversation isn't summarized again.",
+                );
               })
               .catch((error: Error) => toast(`Couldn't undo: ${error.message}`, { tone: "error" }));
           },
