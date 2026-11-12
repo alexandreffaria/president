@@ -21,6 +21,13 @@ follow-ups: 2026111209dq needed nothing, and 20261112xp4s is commit `b672fe1`. C
 are all decided, each with its recommended option and no note. The new questions they leave
 are in [Needs a card](#needs-a-card).
 
+Later on 2026-11-12: the three cards of batch 4 (20261112l9vh, 2026111272fu, 20261112160s),
+which answered the three questions [Needs a card](#needs-a-card) then held, are decided too,
+each with its recommended option and no note. l9vh is new work for B, in a follow-up pull
+request (row B2); 72fu and 160s are part of E. 160s left one new question, about a second
+tab; card 20261112dfik answered it (`refuse-undo`, its recommended option, no note), also part
+of E. [Needs a card](#needs-a-card) is empty for now.
+
 ## Build plan
 
 Each row is one pull request (PR 2 may be split, see its section). The order is a suggestion;
@@ -31,9 +38,10 @@ Each row is one pull request (PR 2 may be split, see its section). The order is 
 | A | [Agent rules: the skill line for #0022](#a-agent-rules-the-skill-line-for-0022) | #0022 | PR #7 (it edits `SKILL.md`) | **Built** in PR #10 |
 | A2 | [Agent rules: how agents deliver new cards and rewrites](#a2-agent-rules-how-agents-deliver-new-cards-and-rewrites-20261111st0c) (agent-facing: the skill) | 20261111st0c | A (built) | **First**, before any agent writes the next card: the skill today tells agents to write new cards straight into the main folder with no review, the reading st0c did not choose |
 | B | [Sync](#b-sync-0001) | #0001, #0022, 2026111209dq, 20261112xp4s | nothing | **Built** in PR #12, together with [the two follow-up decisions](#decided-while-pr-12-was-open-2026111209dq-20261112xp4s): 09dq is what it already did, and xp4s is commit `b672fe1` |
+| B2 | [Sync: count a skipped project's answers apart](#b2-sync-count-a-skipped-projects-answers-apart-20261112l9vh) | 20261112l9vh | B (PR #12) merged | A small pull request right after PR #12 merges, not inside PR #12, which is in a late review round and still changing |
 | C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | Alongside B; before PR 2, which builds on #0010's Neither panel and #0011's notes on decided cards |
 | D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part), 202611116ff6 (`pending` and `validate`) | PR #7 (it edits `card-format.md` and `SKILL.md`) | Before or with C and PR 2; `chat` must exist before PR 2 writes it |
-| E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj | C (#0010's panel, #0011's notes on decided cards), D (`chat` type); [Needs a card](#needs-a-card) 2 and 3, for the parts they block | After C and D |
+| E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s, 20261112dfik | C (#0010's panel, #0011's notes on decided cards), D (`chat` type) | After C and D |
 | F | [Rename the command to `preside`](#f-rename-the-command-to-preside-0016-20261111dmvt) (agent-facing: the CLI, the skill and every printed command) | #0016, 20261111dmvt | A2 (both edit `SKILL.md`). The npm placeholder is published by the human (an agent prepares it). No card orders it against F; suggested: publish it before F merges (after repeating the name check), so the name F writes everywhere can't be taken meanwhile | At a moment with no other pull request open, since it touches about 200 lines everywhere; ideally before E, which adds new printed commands |
 | F2 | [Remove the `president` alias](#the-president-alias-and-when-it-ends) | 20261111dmvt | F | One month after F ships, or once every registered project's own docs and agent instructions use `preside`, whichever is later |
 
@@ -363,9 +371,9 @@ repository (or worktree); otherwise pressing Sync shows, greyed out, "Not synced
 because it isn't the top folder of a git repository" (the same sentence for a folder that isn't
 in git at all). Sync never pulls, sets aside or pushes a repository that holds more than the
 project. Accepted cost: a project in a monorepo or a home folder kept in git never gets Sync.
-Not decided: whether the top bar's "answers not synced" count includes a skipped project, which
-it leaves out today (the card: "whichever option you pick, it can count them too"); see
-[Needs a card](#needs-a-card) 1.
+Whether the top bar counts a skipped project's unsynced answers was decided afterwards, by
+20261112l9vh: yes, on a line of its own. PR #12 leaves them out; the count is built in a
+follow-up pull request, see [B2](#b2-sync-count-a-skipped-projects-answers-apart-20261112l9vh).
 
 **The notice when Sync changes the card you have open.** Card
 [20261112xp4s-notice-after-sync.md](../decisions/20261112xp4s-notice-after-sync.md), option
@@ -397,6 +405,79 @@ text, and a picked option is cleared.
 - Built in PR #12 (commit `b672fe1`), and its roadmap B describes it. Item 10 of PR #12's
   description ("Not built: ... The notice still says 'An agent changed this card'") was written
   before that commit.
+
+## B2. Sync: count a skipped project's answers apart (20261112l9vh)
+
+Card: [20261112l9vh-unsynced-count-skipped-projects.md](../decisions/20261112l9vh-unsynced-count-skipped-projects.md),
+option `count-apart`: "The top bar adds, per skipped project, a line such as "web: 2 answers not
+synced (Sync skips it)"; the number on the Sync button still counts only what Sync can move."
+
+**Where it goes.** A small pull request of its own, started from main once PR #12 (`feat/sync`)
+has merged. Not inside PR #12: it is in a late review round and its `sync.ts` is still
+changing, and the card itself says it "doesn't hold up pull request 12, which leaves them out
+today".
+
+**What the human sees.** With answers on the laptop in a skipped `web` and a note in
+`president`:
+
+```
+Top bar:      1 answer not synced                [Sync 1  s]
+              web: 2 answers not synced (Sync skips it)
+After Sync:   president  Synced: sent 0031.
+              web        Not synced: web is skipped because it isn't the top folder of a git repository.
+Top bar now:  web: 2 answers not synced (Sync skips it)
+```
+
+- One line per skipped project with at least one unsynced card change. The Sync button's
+  number and "N answers not synced" don't include it: they keep meaning "what pressing Sync
+  will send or bring in", so the button goes from 1 to 0 above while the `web` line stays.
+- The line stays until someone commits that project's `decisions/` and pushes it (you, or an
+  agent you ask). Pressing Sync never clears it.
+- A folder that isn't in git at all is skipped too, but shows no count: git keeps no record of
+  what has been sent anywhere.
+- Sync still does nothing in a skipped project; only what you are told changes. Pressing Sync
+  shows the same skipped sentence as today.
+- Accepted costs (the card): a line pressing Sync never clears; a little more to build; if you
+  keep a skipped project on one machine only, the line is always there.
+
+**What to build** (the card's technical detail, against `feat/sync` at `b672fe1`; check the
+merged code, since PR #12 changed after that):
+
+- `Repo.unavailable()` reports "it isn't the top folder of a git repository" as soon as the
+  project folder has no `.git` entry, without running git, so a project inside a bigger
+  repository and a folder outside git look the same. When `.git` is missing, run
+  `git rev-parse --show-toplevel` in the project folder. If it succeeds, the project is inside
+  that repository (as in the `realTop !== realDir` case): run `localCardChanges` anyway. Its
+  pathspec `decisions/` is relative to the project folder, so it counts only this project's
+  cards. The `@{u}...HEAD` part needs the bigger repository's upstream; without one, only
+  uncommitted changes count. If `rev-parse` fails, the folder is outside git: keep 0. This adds
+  one git process per status refresh for such a folder, which today costs none (see the
+  comment at `unavailable()`).
+- `repoStatus` returns that count in a separate field (for example `skippedUnsynced`), never in
+  `unsynced`, so it isn't added to the button's number or to "N answers not synced".
+- `SyncControl` (`src/web/components/Sync.tsx`) shows one line per project with
+  `skippedUnsynced > 0`.
+
+**Merging with PR #12.** PR #12 branched from an older main (`03efd6f`). Checked with
+`git merge-tree` against `origin/feat/sync` at `0b126cc`: the only conflict in this file is the
+build-plan table, because PR #12 carries the table as it was before PRs #11, #13 and #14.
+Resolve it by keeping main's table as it is: its B row already says "Built in PR #12", and
+PR #12's side has no row to add (its A, E and F rows point at questions that have been
+answered since). Section B merges without a conflict, keeping both PR #12's "Built" paragraph
+with its list of settled details and main's "Decided while PR 12 was open" text. The
+2026-11-11 status line also merges silently, to PR #12's "B (Sync) is built"; put back main's
+"none of this is built", since the 2026-11-12 update below it is the one that says B is
+built. Recheck after PR #12's next round, which may change these lines again. PR #12 leaves a
+skipped project's answers out of every count; B2 adds them on a line of their own.
+
+**Projects with submodules.** PR #12's round 4 (`0b126cc`) also skips a project whose
+repository has git submodules (a `.gitmodules` file, or a gitlink in the index), in
+`Repo.unavailable()` ("it has git submodules, which Sync doesn't handle"), so like every other
+skipped project its answers are left out of `unsynced`. Such a project is a project Sync skips,
+which is what this card's question and `count-apart` are about ("per skipped project"), so B2
+covers it too: its count goes on its own line, never in the button's number. B2 counts it with
+`localCardChanges` and the project's own upstream, since the project is its own repository.
+The line's wording comes from the card's example; "(Sync skips it)" fits every reason.
 
 ## C. Queue and card UX
 
@@ -767,16 +848,52 @@ Teach me, More info and your questions.
   `--system-prompt-snapshot off`, puts it in a per-run `--append-system-prompt`).
 - "Revealed" means revealed on that card as 20261111nsaj defines it (until you leave the card).
   Once the chat has named the pick, the conversation's history keeps it, so the line sent stays
-  "revealed" for that conversation, even when the page hides the pick again on your next visit.
+  "revealed" for that conversation, even when the page hides the pick again on your next visit,
+  until new options replace that pick (2026111272fu, below).
 - The session still reads the card file, `recommendation` included (`withheld`, which blocked
   that, was not chosen). Accepted costs: it rests on the session following an instruction and
   can slip, with no check; neutral facts can still point at one option; "which is safer?" gets a
   comparison, not an answer, until `r`.
 - The new-options run (#0007) still writes a `recommendation`, hidden on the page like any
-  other; the card says it "doesn't change that run". Not decided: the run's readable message is
-  now a turn in the conversation (202611111gpm), so may it name or argue for the new pick
-  before you reveal it; and after new options, is a conversation where the old pick was revealed
-  neutral again about the new one? See [Needs a card](#needs-a-card) 2.
+  other; the card says it "doesn't change that run".
+- **The new pick after "neither"** ([2026111272fu-new-pick-and-neutral-chat.md](../decisions/2026111272fu-new-pick-and-neutral-chat.md),
+  option `reset`): "The run's message explains how the new options answer your note without
+  naming its pick, and every conversation on the card is neutral about the new pick until you
+  press r, even one where you had revealed the old pick."
+  - The run's message (a turn in the conversation, 202611111gpm) never names or argues for the
+    new pick. Its prompt says: "Explain how the new options answer the note; don't say which you
+    recommend. Your pick goes only in `recommendation`." The run's argument for the pick goes in
+    the new `recommendation`'s reasoning, shown when you press `r`.
+  - After the hub writes new options, every conversation on the card is neutral about the new
+    pick until you press `r` on the new options, even one in which you had revealed the old
+    pick and the chat had been free. One rule for every pick a card ever has. The page treats
+    it the same way (the card's reasoning: "hidden on the page and in the chat until you press
+    r, wherever you had got to with the old one"; 20261111nsaj's `visit` already keeps the
+    reveal as "state in the card view, reset when the card changes"), so a pick you revealed
+    during this visit doesn't make the new one show.
+  - **How** (the card's technical detail): the per-conversation "revealed" flag, kept per
+    machine (for example next to the session id of #0021), records which recommendation was
+    revealed, for example a hash of `recommendation`. When the hub writes new options, the flag
+    no longer matches, and the line sent with each message becomes "The human revealed an
+    earlier pick on this card, which the new options replaced; they have not revealed the new
+    one." Pressing `r` on the new options sets the flag again. The run itself gets the line too.
+  - The card's example, in a conversation where you had pressed `r` on Monday:
+
+    ```
+      you, Tue       Neither: Both assume a server. Compare on-device storage only.
+      agent, Tue     Here are three on-device options. Browser storage needs no setup but the
+                     browser can clear it; a small database file survives and can be searched,
+                     at the cost of a library; plain files are the simplest to back up. My pick
+                     among them is behind r.
+      you, Tue       Which one would you go with now?
+      agent, Tue     The new pick is behind r; I'll keep my view out of it until you've formed
+                     yours. What decides it is whether you need to search old trips ...
+    ```
+
+  - Accepted costs: the run's message is a description of the new options rather than "here is
+    what I'd do and why"; in a conversation where you had revealed the old pick, the chat now
+    dodges questions it answered freely before; the earlier messages stay in the panel, and what
+    the chat said about the old pick can still hint at the new one.
 
 ### Where the conversation lives (#0003, #0018, #0021)
 
@@ -971,7 +1088,9 @@ Card: [0007-neither-try-again.md](../decisions/0007-neither-try-again.md), optio
 
 - **Ask for new options** in the Neither panel (`Ctrl ⏎`) applies today's `neither` action (the
   note goes to `feedback` as `neither`, `needs_new_options: true`) **and** starts the card's
-  session at once, with a prompt built from the card and its unseen feedback, and
+  session, once the action's Undo notice has gone away (20261112160s, below) or when you press
+  Start now in another tab (20261112dfik, below), with a prompt
+  built from the card and its unseen feedback, and
   `--json-schema` for the options. The run uses #0004's flags; it can see the card's earlier
   conversation on this machine, if any, and do research.
 - While it runs, the card says "Writing new options..." and sits under "Waiting for new
@@ -984,9 +1103,14 @@ Card: [0007-neither-try-again.md](../decisions/0007-neither-try-again.md), optio
   the card's accepted cost, along with one Claude Code run per "neither".
 - With #0010 the panel has two buttons: **Ask for new options** and **Decide this as my
   answer**. (A third, "Ask for new options now", belonged to #0007's `per-card`, not chosen.)
-- Under #0008, the new `recommendation` stays hidden until you reveal it, like any other.
-- Undoing Ask for new options stops the run. The hub writes the run's options only against the
-  card as the run read it (`update`'s feedback guard then refuses after an undo).
+- Under #0008, the new `recommendation` stays hidden until you reveal it, like any other. The
+  run's message doesn't name it either, and every conversation on the card is neutral about it
+  until you press `r`, even one where you had revealed the old pick (2026111272fu `reset`; see
+  [The chat stays neutral until you reveal the pick](#the-chat-stays-neutral-until-you-reveal-the-pick-20261111mby8)).
+- Undoing Ask for new options puts the card back as today (#0012). Under 20261112160s the run
+  hasn't started while Undo is offered, so there is nothing to stop (if another tab started it,
+  20261112dfik refuses the Undo instead); the hub still writes the
+  run's options only against the card as the run read it (`update`'s feedback guard).
 - **The run is a turn in the card's conversation, without the reminder**
   ([202611111gpm-new-options-run.md](../decisions/202611111gpm-new-options-run.md), option
   `shown-no-reminder`): "The run is a turn in the card's conversation (stored, shown in the
@@ -1024,10 +1148,91 @@ Card: [0007-neither-try-again.md](../decisions/0007-neither-try-again.md), optio
   - Accepted costs: the reply has to be both a readable message and options the hub can check,
     which makes the run more fragile; the run's reasoning reaches the working agent only through
     the options unless you go on to discuss them; every "neither" starts or extends a stored
-    conversation on this machine, even on a card you never chatted on.
-  - Undoing Ask for new options stops the run (above). What happens to the turn already shown
-    and saved (your "Neither: ..." message and any partial reply, which the resumed session has
-    already received) is not fixed by a card; see [Needs a card](#needs-a-card) 3.
+    conversation on this machine, even on a card you never chatted on (one you undo doesn't,
+    below).
+- **Your "Neither" message reaches the agent only once Undo is gone**
+  ([20261112160s-undo-new-options-turn.md](../decisions/20261112160s-undo-new-options-turn.md),
+  option `wait-out`): "Your "Neither" message shows in the panel at once, marked "Sending when
+  Undo closes"; the run starts only when the Undo notice goes away (10 seconds, longer while you
+  hover over it or it has keyboard focus), so an Undo before then removes the message, and
+  nothing ever reached the agent."
+
+  ```
+  Right after pressing Ask for new options:
+    you, 14:02     Is IndexedDB available in the app's webview?
+    agent, 14:02   Yes ...
+    you, 21:00     Neither: Both assume a server. Compare on-device storage only.
+                   Sending when Undo closes
+
+  Right after Undo:
+    you, 14:02     Is IndexedDB available in the app's webview?
+    agent, 14:02   Yes ...
+  ```
+
+  - On Undo: the card is restored (#0012), your note comes back as a draft in the Neither
+    panel, the pending message leaves the panel, and nothing reaches the session, the session
+    store (#0021) or the hub's copy (#0018). A later question goes to the conversation as it was,
+    which never saw the "Neither" message. On a card with no conversation before, none is left.
+  - Without Undo, the run starts when the notice goes away and the panel shows its reply as
+    202611111gpm decided. A failed run behaves as decided there (message, Try again).
+  - **How** (the card's technical detail): Ask for new options records the note as today, and the
+    page shows the message as pending. The page asks the hub to start the run only when its
+    `undo:<project>/<id>` toast closes (`src/web/toast.tsx`; the timer pauses while the toast is
+    hovered or focused). `toast.tsx` has no close callback today; add one (for example
+    `onClose`). A message you send in the panel during the wait is held until the run has
+    started, so it reaches the session after the "Neither" message.
+  - **Tab closed or reloaded before the notice goes away:** no run starts, and the card stays
+    `needs_new_options: true`, waiting for the project's agent. The hub records the run as "to
+    start" when the note is recorded, and as "started" once the run starts. Any page other than
+    the one showing the Undo notice (a second tab, or this tab after a reload) that opens the
+    card while the record says "to start" shows the second-tab message below, with
+    **Start now** (20261112dfik replaced 160s's "didn't start" and Try again here: the page
+    can't tell a tab closed early from a notice still waiting in another tab).
+  - Accepted costs: every run starts about 10 seconds later, even when you never undo, which
+    bends #0007's "starts an agent right away"; while you hover over the Undo notice the run
+    keeps waiting; a tab closed in those seconds starts no run until you press Start now.
+- **The same card open in a second tab while the run waits: that tab can start the run, and
+  Undo is then refused**
+  ([20261112dfik-second-tab-during-wait.md](../decisions/20261112dfik-second-tab-during-wait.md),
+  option `refuse-undo`): "The second tab says the run hasn't started yet and offers "Start now";
+  pressing it starts the run, and Undo in the first tab is then refused with "Couldn't undo: the
+  run for this note already started from another tab", as 0012 already does when another tab
+  changed the card."
+
+  ```
+  Tab B, 21:00:03 (you pressed Ask for new options in tab A at 21:00)
+    you, 21:00     Neither: Both assume a server. Compare on-device storage only.
+    The run for your note at 21:00 hasn't started. If another tab still shows
+    its Undo notice, it starts when that closes.   [Start now]
+
+  You press Start now in tab B, then go back to tab A and press u:
+    Tab A   Couldn't undo: the run for this note already started from another tab.
+  ```
+
+  - Tab B first shows today's "You changed this card in another president tab." notice, as for
+    any change made in another tab; the message above follows it.
+  - If you don't press Start now, tab B replaces it with "Writing new options..." once tab A's
+    notice closes and the run starts. If tab A was closed early, Start now is the Try again
+    160s described.
+  - **The hub tells every tab when a run starts.** Starting a run writes nothing to the card,
+    so today no event goes out: when the hub's record turns to "started", it emits `cards` (or
+    a new hub-to-tab event), so that tab B replaces Start now with "Writing new options..." and
+    tab A drops "Sending when Undo closes". Tabs still send nothing on the socket.
+  - **Undo checks the record.** `undoLastAction` (`src/server/cards.ts`) for a `neither`
+    refuses with a new code (for example `run_started`) once the hub's record for that note
+    says "started"; the page shows the message above. The Undo journal alone can't tell, since
+    starting a run doesn't change the card's revision or file stamp.
+  - The second tab's text uses only what the hub knows: the note's time and "to start".
+  - **Ordering rules** (the card's "Under every option"): the hub starts at most one run for a
+    note and never starts one for a note already undone (Undo clears its "to start" record). An
+    Undo and a start are handled one after the other: the first tab's notice closing after the
+    run started never starts a second one, and a start that comes at the same moment as an Undo
+    either starts the run (and the Undo is refused) or finds the note already gone.
+  - Accepted costs: one click on Start now in the second tab takes Undo away from the first
+    tab; the second tab doesn't know whether a notice is still waiting elsewhere, so its message
+    says "if", in that case and after a tab closed early alike; an Undo pressed in the first tab
+    after the run started from the second is refused, so your note stays sent and the new
+    options still come.
 
 ### The chat never applies decisions (#0006)
 
@@ -1124,17 +1329,33 @@ old name from habit still find the installed command, rather than failing and tr
 - **Four per-machine stores, one folder.** Session ids (#0021), the hub's copy (#0018), the
   "not summarized" list if it is kept rather than derived (#0024), and the "first found
   missing" dates 202611114wet's cleanup records all live in `$XDG_STATE_HOME/president/`, keyed
-  by project name and card id, and none travels with Sync.
+  by project name and card id, and none travels with Sync. 2026111272fu adds the
+  per-conversation "revealed" flag, with which recommendation was revealed; its card suggests
+  keeping it next to the session id, so on the same machine and not in the card.
 - **202611111gpm `shown-no-reminder` + #0002 + 20261111sblu.** Every "neither" now gives the card
   a stored conversation, and #0002 opens the panel by default once a card has one, so after a
   "neither" the panel is open on that card (three columns on an A/B card). The run's
   conversation is kept as long as the card (202611114wet).
+- **20261112160s `wait-out` + #0007 `spawn` + #0012 `hybrid`.** The run starts when the Undo
+  notice closes rather than at once, so an undone "neither" leaves no trace in the card (#0012),
+  the panel, the hub's copy or the session. It also means the run never needs stopping on
+  Undo, and the new-options run can only write against a card whose Undo window is over.
+- **20261112dfik `refuse-undo` + #0012 `hybrid` + 20261112160s `wait-out`.** A run started from
+  another tab counts like another tab writing the card: Undo is refused (#0012's rule), so an
+  Undo that goes through still means nothing reached the agent. The one exception to 160s's
+  "the run starts when the notice closes" is a run you start yourself with Start now.
+- **20261112l9vh `count-apart` + 2026111209dq `top-only` + 20261111st0c.** A skipped
+  project's line counts every unsynced card change in its `decisions/`, including new cards an
+  agent copied into the main folder, which reach git there only by a hand commit.
 - **202611111gpm + #0019 / 20261111is21.** The run doesn't make a conversation "not summarized",
   so deciding a card whose only conversation is the new-options run doesn't wait for a summary;
   a follow-up question does make it wait.
 - **20261111nsaj `visit` + 20261111mby8 `neutral`.** The page hides the pick again on every new
   visit, but a conversation in which the pick was revealed stays "revealed" for the chat (mby8's
   technical detail), and its earlier messages may name the pick. Both cards accepted this.
+  2026111272fu `reset` ends it at new options: once the hub writes them, the conversation is
+  neutral again about the new pick until you press `r`, though its earlier messages still
+  name the old one.
 - **202611112hzh `back-now` + 202611116ff6 + #0009.** A missing `defer_until` counts as passed,
   except on a withdrawn card, whose date is ignored either way. A dependency that came back from
   deferral is still undecided, so its dependents stay sunk, as with any deferred dependency.
@@ -1148,8 +1369,10 @@ old name from habit still find the installed command, rather than failing and tr
   written: the session reads and researches, and the hub writes.
 - **#0008 `hidden` + the chat (#0005, #0007), settled by 20261111mby8 `neutral`.** The session
   still reads the whole card file, `recommendation` included, but an instruction sent with
-  every message keeps it from naming the pick before you press `r`. Still open: the
-  new-options run's message and a new pick after a reveal ([Needs a card](#needs-a-card) 2).
+  every message keeps it from naming the pick before you press `r`. 2026111272fu `reset`
+  extends it to the new-options run: its message never names the new pick, and a new pick is
+  hidden in every conversation on the card until you press `r`, even where the old one was
+  revealed.
 - **20261111fauj `scenario` + #0008.** Teach me on an option-less card drafts no answers of its
   own, for the same reason #0008 hides the pick: the agent's ideas shouldn't come before yours.
 - **#0009 `sink` + #0015 `priority-oldest` + #0017 `snooze`.** One order everywhere: ready cards
@@ -1190,8 +1413,8 @@ only); the build PR named in brackets fixes each.
   card*'s "A new card has no human edits to lose: write its file directly
   (`<main>/decisions/<id>-<slug>.md`)": 20261111st0c has new cards reviewed in the agent's
   worktree first, then copied [A2].
-- The skill's pointer "(president's `docs/roadmap.md`, 'Needs a card' 1)": that item is now a
-  different question; the card it meant is 20261111st0c, decided [A2].
+- The skill's pointer "(president's `docs/roadmap.md`, 'Needs a card' 1)": that item has since
+  held other questions (the list is empty now); the card it meant is 20261111st0c, decided [A2].
 - foundations.md, *Engineering process*, "Every task ... ends in a PR" and "the loop repeats
   until **every** finding, non-blocking ones included, is fixed": a task that only writes cards
   now ends with them reviewed in the agent's worktree and copied into the main folder, with no
@@ -1211,24 +1434,10 @@ The thirteen questions this list held after batch 2 were all answered on 2026-11
 by 202611111gpm, 12 by 20261111fauj and 13 by 20261111dmvt. B's "Suggestion, not decided" about
 the notice after a pull was answered by 20261112xp4s.
 
-**B (Sync, PR #12)**
+The three questions this list held after PR #14 were answered on 2026-11-12: 1 by
+20261112l9vh, 2 by 2026111272fu and 3 by 20261112160s.
 
-1. **Unsynced answers in a project Sync skips** (2026111209dq). The top bar's "answers not
-   synced" count leaves out a project Sync skips, so nothing reminds you its answers haven't
-   moved. The card raised it under every option ("it can count them too": "web: 2 answers not
-   synced (Sync skips it)"), but its choice, `top-only`, doesn't decide it. Count them, or keep
-   leaving them out? It doesn't block PR #12, which leaves them out today.
+The question this list held after PR #15 (the same card open in a second tab while the run
+waits for Undo) was answered on 2026-11-12 by 20261112dfik.
 
-**E (PR 2)**
-
-2. **The new pick after "neither" and the neutral chat** (20261111mby8 with #0007 and
-   202611111gpm). The new-options run writes a new `recommendation`, hidden on the page until
-   `r`, and its readable message is now a turn in the conversation. May that message name or
-   argue for the new pick before you reveal it? And in a conversation where you had revealed
-   the old pick (so the chat is free there, by mby8's technical detail), is the chat neutral
-   again about the new one until you press `r`? It blocks the prompt of the new-options run.
-3. **Undoing "Ask for new options" after the run's turn is in the conversation** (202611111gpm
-   with #0007 and #0012). The note is undone and the run stopped, but your "Neither: ..."
-   message (and any partial reply) is already in the panel, in the hub's copy and in the Claude
-   Code session it resumed. Remove it from the panel (the session still remembers it), keep it
-   marked "undone", or something else? It blocks only the Undo part of the new-options run.
+None at the moment.
