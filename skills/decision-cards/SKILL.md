@@ -108,17 +108,16 @@ it, so don't skip it.
 1. Pick the id: list `<main>/decisions/` (not a worktree's copy), take the highest number and
    add one, zero-padded to 4 digits (`0001` when there are no cards yet). The file name is
    `<id>-<short-slug>.md`, e.g. `0012-empty-state-copy.md`. Write the draft:
-   - **in a worktree**: in the worktree's own `decisions/`, e.g.
+   - **in a worktree**: in the worktree's own `decisions/` (under the project's subfolder, if
+     the project is one; create the folder if the worktree has none), e.g.
      `<worktree>/decisions/0012-empty-state-copy.md`, and never commit it;
    - **in the main folder itself**: outside `decisions/`, in a scratch folder outside the
      project (for example one made with `mktemp -d`), e.g.
      `<scratch>/0012-empty-state-copy.md`. Not under a `.` or `_` name inside `decisions/`:
      the hub ignores those, but `president validate` refuses them ("is not a card file").
 
-   Another agent may pick the same number while your draft is under review; the copy's
-   `president validate` (step 7) then reports both cards as broken with
-   `id "0012" is also used by ...`. If it does, renumber your card (the newer one) to the
-   next free id: change its `id` and rename the file to match. Leave the other card alone.
+   Another agent may take the same number while your draft is under review; step 7 checks
+   for that.
 2. Get the current time for `created`; don't guess it or copy the example's:
 
    ```sh
@@ -218,15 +217,28 @@ options:
    - a warning that a `depends_on` "is not a card in this project", for a card that is in
      `<main>/decisions/`: the worktree's `decisions/` lacks the main folder's uncommitted
      cards, so its id and dependency checks are not authoritative. Only step 7's validate in
-     the main folder is. (A draft in a scratch folder is checked on its own, without them.)
-6. Have a fresh session (one that didn't write the card) review the draft. Fix what it finds
-   and have the fixes reviewed again, round after round, until a review finds nothing
-   should-fix. Validate the draft again after each fix.
-7. Copy the reviewed draft into the main folder, by absolute path
-   (`<main>/decisions/0012-empty-state-copy.md`), and run
-   `president validate <main>/decisions/0012-empty-state-copy.md` there: it must print `ok`
-   (for a duplicate id, see step 1). Then delete the draft, so your branch never commits it.
-   The card is in the human's queue now; leave it uncommitted.
+     the main folder is. (A draft in a scratch folder gets neither check: `validate` reads only
+     that file, so its `depends_on` is checked first at step 7.)
+6. Have a fresh session review the draft: one that didn't write it, for example a subagent
+   you start for this. Give it the draft's absolute path and ask it to check the card
+   against **What makes a good card**, to check every fact and quote against its source,
+   and to mark each finding should-fix (a wrong or one-sided fact, a missing or straw-man
+   option, anything the human could decide wrongly from) or nit. Fix what it finds,
+   validate the draft again, and have a fresh session review the fixed draft, round after
+   round, until a review finds nothing should-fix. If you can't start a fresh session, don't
+   copy the card in: tell the human where the draft is.
+7. List `<main>/decisions/` again. If another card has taken your id meanwhile, renumber the
+   draft to the next free id (change its `id` and rename the file to match) and validate it
+   again. Then copy the reviewed draft into the main folder, by absolute path
+   (`<main>/decisions/0012-empty-state-copy.md`), never over an existing file, and run
+   `president validate <main>/decisions/0012-empty-state-copy.md`: it must print `ok` and no
+   `warning` line (here a `depends_on` warning is a real problem). If it reports
+   `id "0012" is also used by ...` (another agent copied the same id in since you looked),
+   your copy is the newer card: renumber the file in `<main>/decisions/`, not the draft
+   (it is broken, so edit its `id` directly and rename it, see **Changing a card**), to the
+   next free id there, then validate it and the other card's file again; leave the other
+   card alone. Then delete the draft (and the scratch folder, if you made one), so your
+   branch never commits it. The card is in the human's queue now; leave it uncommitted.
 
 ### What makes a good card
 
@@ -284,12 +296,14 @@ For each one that `president pending <main>` lists:
 
 ### Projects Sync skips
 
-Sync (the hub's Sync button) only works on a project whose folder is the top folder of its
-git repository. It skips a project inside a bigger repository (a monorepo subfolder, a home
-folder kept in git), and pressing Sync says why. In a project Sync skips, the card changes in
-the main folder (the human's answers, your `applied` marks, new cards you copied in,
-rewrites) reach the main branch only when someone commits `decisions/` on it by hand, in the
-main folder. Do that only when the human asks you to, and never in a pull request.
+Sync (the hub's Sync button) skips a project whose folder isn't the top folder of its git
+repository (a monorepo subfolder, a folder inside a home folder kept in git, a folder not in
+git at all), a project whose repository has git submodules (a `.gitmodules` file or a
+submodule in the index), and one whose file list is too long to check for them. Pressing
+Sync says why. In such a project, if it is in git, the card changes in the main folder (the
+human's answers, your `applied` marks, new cards you copied in, rewrites) reach the main
+branch only when someone commits `decisions/` on it by hand, in the main folder, and pushes
+it. Do that only when the human asks you to, and never in a pull request.
 
 ## Cards that need new options
 

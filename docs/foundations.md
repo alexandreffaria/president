@@ -84,7 +84,7 @@ reviews the PR, and the loop repeats until **every** finding, non-blocking ones 
 Nobody reads the plumbing by hand, so review is the quality gate.
 
 Decision cards are the exception ([20261111st0c](../decisions/20261111st0c-agent-card-changes.md)): no PR
-carries card files. A new card is reviewed in the agent's own folder: a fresh session reviews the draft, and the
+carries card files. A new card is reviewed before it reaches the main folder (in the agent's worktree, or a scratch folder for an agent in the main folder itself): a fresh session reviews the draft, and the
 loop repeats until nothing should-fix is left; then the agent copies it into the main folder, where the human
 sees it at once (`skills/decision-cards/SKILL.md`, *Writing a card*). A task that only writes cards ends there,
 with no PR.
