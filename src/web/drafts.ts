@@ -27,6 +27,11 @@ export interface Draft {
    * one written by hand): Decide reuses the draft only while that is still all of them.
    */
   summaryCovers: number | undefined;
+  /**
+   * The human typed in that summary (or wrote it): Decide never replaces it with a new
+   * agent summary, even once messages came after it.
+   */
+  summaryEdited: boolean;
 }
 
 const EMPTY: Draft = {
@@ -39,6 +44,7 @@ const EMPTY: Draft = {
   chat: "",
   summary: "",
   summaryCovers: undefined,
+  summaryEdited: false,
 };
 
 export type Panel = "neither" | "note";

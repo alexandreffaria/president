@@ -143,7 +143,7 @@ export function CardChat(props: {
     try {
       const { summary, covers } = await chat.summarize(context);
       focusAfterBox.current = "box";
-      props.onDraft({ summary, summaryCovers: covers });
+      props.onDraft({ summary, summaryCovers: covers, summaryEdited: false });
       setBoxOpen(true);
     } catch (error) {
       toast((error as Error).message, { tone: "error" });
@@ -176,9 +176,10 @@ export function CardChat(props: {
     setClosing(true);
     const dropped = draft.summary;
     const droppedCovers = draft.summaryCovers;
+    const droppedEdited = draft.summaryEdited;
     try {
       const closed = await chat.close();
-      props.onDraft({ summary: "", summaryCovers: undefined });
+      props.onDraft({ summary: "", summaryCovers: undefined, summaryEdited: false });
       setBoxOpen(false);
       toast("Conversation closed without a summary. Nothing was added to the card.", {
         action: {
@@ -189,7 +190,11 @@ export function CardChat(props: {
               .reopen(closed)
               .then(() => {
                 if (dropped.trim()) {
-                  props.onDraft({ summary: dropped, summaryCovers: droppedCovers });
+                  props.onDraft({
+                    summary: dropped,
+                    summaryCovers: droppedCovers,
+                    summaryEdited: droppedEdited,
+                  });
                 }
                 toast("Undone. The conversation isn't summarized again.");
               })
@@ -291,7 +296,9 @@ export function CardChat(props: {
             ref={summaryBox}
             rows={5}
             value={draft.summary}
-            onChange={(event) => props.onDraft({ summary: event.target.value })}
+            onChange={(event) =>
+              props.onDraft({ summary: event.target.value, summaryEdited: true })
+            }
             onKeyDown={(event) => {
               if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                 event.preventDefault();

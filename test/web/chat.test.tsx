@@ -995,3 +995,133 @@ describe("deciding while a conversation is open, reviewed (PR #28 R1)", () => {
     expect(await file()).toMatch(/status: open/);
   });
 });
+
+describe("deciding while a conversation is open, reviewed (PR #28 R2)", () => {
+  const file = () => io(() => readFile(join(demo, "decisions", "0002-api-errors.md"), "utf8"));
+  const deciding = () =>
+    host.querySelector("#before-deciding-summary") as HTMLTextAreaElement | null;
+  const script = (steps: object[]) =>
+    io(() => writeFile(join(fakeDir, "script.json"), JSON.stringify(steps)));
+  const panelBox = () => host.querySelector(".chat-summary textarea") as HTMLTextAreaElement | null;
+  const STALE = "Messages came after this summary";
+
+  it("keeps a summary typed after a failed run: Esc, then Decide opens it as is (R2-1)", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("Does it throw?");
+    await script([{ text: "", exit: 1, stderr: "boom" }]);
+    await press("2");
+    await press("Enter");
+    await until(() => text().includes("Couldn't write the summary"), "the error");
+    await typeInto(deciding(), "My own summary.");
+    await press("Escape");
+    await until(() => deciding() === null, "the box to close");
+    const runs = (await calls()).length;
+    await click("Decide");
+    await until(() => deciding()?.value === "My own summary.", "the box with my summary");
+    await pause();
+    expect((await calls()).length).toBe(runs);
+    expect(deciding()?.value).toBe("My own summary.");
+    expect(text()).not.toContain(STALE);
+    await click("Save and decide");
+    await until(() => text().includes("with the conversation's summary"), "the decision");
+    expect(await file()).toMatch(/type: chat\n\s+note: My own summary\./);
+  });
+
+  it("keeps an edited agent summary when a message came after it, and says so (R2-1)", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("Does it throw?");
+    // The runs from here: the summary, the reply to the next question; no other run.
+    await script([{ text: "It throws." }, {}]);
+    await click("Write summary");
+    await until(() => panelBox()?.value === "It throws.", "the summary");
+    await typeInto(panelBox(), "It throws on 404.");
+    await press("Escape", panelBox() as Element);
+    await until(() => !!button("Edit summary"), "the kept draft");
+    await sendMessage("And on 500?");
+    const runs = (await calls()).length;
+    await press("2");
+    await click("Decide");
+    await until(() => deciding()?.value === "It throws on 404.", "the box with my edit");
+    expect(text()).toContain(STALE);
+    await pause();
+    expect((await calls()).length).toBe(runs);
+    expect(deciding()?.value).toBe("It throws on 404.");
+    // Esc keeps it, and the next Decide still opens it as is.
+    await press("Escape");
+    await until(() => deciding() === null, "the box to close");
+    await click("Decide");
+    await until(() => deciding()?.value === "It throws on 404.", "the box again");
+    expect((await calls()).length).toBe(runs);
+  });
+
+  it("still writes an untouched agent summary again when a message came after it (R2-1)", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("Does it throw?");
+    await script([{ text: "It throws." }, {}, { text: "It throws, and on 500 too." }]);
+    await click("Write summary");
+    await until(() => panelBox()?.value === "It throws.", "the summary");
+    await press("Escape", panelBox() as Element);
+    await until(() => !!button("Edit summary"), "the kept draft");
+    await sendMessage("And on 500?");
+    await press("2");
+    await click("Decide");
+    await until(() => deciding()?.value === "It throws, and on 500 too.", "a new summary");
+    expect(text()).not.toContain(STALE);
+  });
+
+  it("decides nothing when the view leaves the card while the conversation is read (R2-2)", async () => {
+    const sent = await io(() =>
+      fetch("/api/chats/demo/0002/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "Does it throw?" }),
+      }).then((res) => res.text()),
+    );
+    expect(sent).toContain('"done"');
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    intercept = (input, init, hub) =>
+      input === "/api/chats/demo/0002" && (init.method ?? "GET") === "GET"
+        ? gate.then(hub)
+        : undefined;
+    window.history.replaceState(null, "", "/card/demo/0002");
+    root.render(<App />);
+    await until(() => text().includes("Pick an option"), "the card");
+    await press("2");
+    await press("Enter");
+    await press("Escape");
+    await until(() => window.location.pathname === "/", "the queue");
+    const runs = (await calls()).length;
+    release();
+    await settled();
+    await pause();
+    expect(window.location.pathname).toBe("/");
+    expect(await file()).toMatch(/status: open/);
+    expect((await calls()).length).toBe(runs);
+  });
+
+  it("says to try again when the conversation can't be read (R2-3)", async () => {
+    intercept = (input, init) =>
+      input === "/api/chats/demo/0002" && (init.method ?? "GET") === "GET"
+        ? Promise.resolve(
+            new Response(JSON.stringify({ error: "the hub broke", code: "internal" }), {
+              status: 500,
+              headers: { "content-type": "application/json" },
+            }),
+          )
+        : undefined;
+    window.history.replaceState(null, "", "/card/demo/0002");
+    root.render(<App />);
+    await until(() => text().includes("Pick an option"), "the card");
+    await press("2");
+    await press("Enter");
+    await until(() => text().includes("Couldn't read this card's conversation"), "the toast");
+    expect(text()).toContain("so nothing was decided; try again.");
+    expect(await file()).toMatch(/status: open/);
+  });
+});

@@ -83,6 +83,7 @@ const NO_DRAFT: Draft = {
   chat: "",
   summary: "",
   summaryCovers: undefined,
+  summaryEdited: false,
 };
 
 /**
@@ -98,6 +99,8 @@ interface PendingDecision {
   writing: boolean;
   /** Why it couldn't be written. */
   error?: string;
+  /** The summary in the box is the human's own, and messages came after it. */
+  stale?: boolean;
 }
 
 /** Below this window width the conversation sits in the page's flow, not beside it (#0002). */
@@ -204,6 +207,16 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const [beforeDeciding, setBeforeDeciding] = useState<PendingDecision | null>(null);
   /** Counts summary requests, so one answered after Esc is ignored. */
   const summaryRequest = useRef(0);
+  /** Bumped when this view leaves its card (unmount, another card): a Decide in flight stops. */
+  const viewGeneration = useRef(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs its cleanup on a card change
+  useEffect(
+    () => () => {
+      viewGeneration.current++;
+      summaryRequest.current++;
+    },
+    [project, id],
+  );
 
   const queue = buildQueue(hub.cards, hub.projectFilter);
   const position = queue.findIndex((c) => c.project === project && c.id === id);
@@ -505,6 +518,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
   ) => {
     if (!card || !fm || !choice || busy || beforeDeciding || checkingChat.current) return false;
     const opener = document.activeElement;
+    const generation = viewGeneration.current;
     let conversation = cardChat.chat;
     if (!conversation) {
       // Not loaded yet (a ⏎ right after the card showed): read it first, since it may hold
@@ -513,13 +527,17 @@ export function CardView({ project, id }: { project: string; id: string }) {
       try {
         conversation = await api.chat(project, id);
       } catch (error) {
-        toast(`Couldn't read this card's conversation: ${(error as Error).message}`, {
-          tone: "error",
-        });
+        if (generation !== viewGeneration.current) return false;
+        toast(
+          `Couldn't read this card's conversation (${(error as Error).message}), so nothing was decided; try again.`,
+          { tone: "error" },
+        );
         return false;
       } finally {
         checkingChat.current = false;
       }
+      // The view left this card while the conversation was read: decide nothing.
+      if (generation !== viewGeneration.current) return false;
     }
     const waits =
       conversation.unsummarized === true ||
@@ -528,15 +546,19 @@ export function CardView({ project, id }: { project: string; id: string }) {
     if (!waits) return resolve(choice, note, sent, panel);
     decideOpener.current = opener instanceof HTMLElement ? opener : null;
     const pending = { choice, note, sent, panel };
-    // A summary already in the box (one written earlier, or put back by Undo) is used as is,
-    // as long as it was written from every message there is; otherwise a new one is written.
+    // A summary already in the box (one written earlier, or put back by Undo) is used as is
+    // when the human wrote or edited it (never replaced, even once messages came after it),
+    // or when the agent wrote it from every message there is; otherwise a new one is written.
     const kept = latest.current;
-    if (
-      kept.summary.trim() &&
-      cardChat.live === undefined &&
-      kept.summaryCovers === conversation.messages.length
-    ) {
-      setBeforeDeciding({ ...pending, writing: false });
+    const current =
+      cardChat.live === undefined && kept.summaryCovers === conversation.messages.length;
+    const own = kept.summaryEdited || kept.summaryCovers === undefined;
+    if (kept.summary.trim() && (own || current)) {
+      // Say so when the agent's count shows messages came after it (unknown for one typed).
+      const stale =
+        cardChat.live !== undefined ||
+        (kept.summaryCovers !== undefined && kept.summaryCovers !== conversation.messages.length);
+      setBeforeDeciding({ ...pending, writing: false, stale });
       return false;
     }
     const request = ++summaryRequest.current;
@@ -544,7 +566,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
     try {
       const { summary, covers } = await cardChat.summarize({ revealed, revision: card.revision });
       if (request !== summaryRequest.current) return false;
-      updateDraft({ summary, summaryCovers: covers });
+      updateDraft({ summary, summaryCovers: covers, summaryEdited: false });
       setBeforeDeciding({ ...pending, writing: false });
     } catch (error) {
       if (request !== summaryRequest.current) return false;
@@ -567,7 +589,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
     const ok = await resolve(
       pending.choice,
       pending.note,
-      { ...pending.sent, summary: "", summaryCovers: undefined },
+      { ...pending.sent, summary: "", summaryCovers: undefined, summaryEdited: false },
       pending.panel,
       withSummary ? summary : undefined,
       !withSummary,
@@ -611,7 +633,10 @@ export function CardView({ project, id }: { project: string; id: string }) {
     }
     return act(
       { type: "chat", note: summary },
-      { done: "Summary saved.", sent: { summary: "", summaryCovers: undefined } },
+      {
+        done: "Summary saved.",
+        sent: { summary: "", summaryCovers: undefined, summaryEdited: false },
+      },
     );
   };
 
@@ -947,8 +972,9 @@ export function CardView({ project, id }: { project: string; id: string }) {
         <BeforeDeciding
           writing={beforeDeciding.writing}
           error={beforeDeciding.error}
+          stale={beforeDeciding.stale === true}
           summary={draft.summary}
-          onSummary={(summary) => updateDraft({ summary })}
+          onSummary={(summary) => updateDraft({ summary, summaryEdited: true })}
           busy={busy}
           onSaveAndDecide={() => void finishDeciding(true)}
           onDecideWithout={() => void finishDeciding(false)}

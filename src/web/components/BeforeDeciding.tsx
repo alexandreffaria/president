@@ -23,6 +23,8 @@ export function BeforeDeciding(props: {
   writing: boolean;
   /** Why no summary could be written, when it couldn't. */
   error: string | undefined;
+  /** The summary is the human's own and leaves out messages that came after it. */
+  stale: boolean;
   summary: string;
   onSummary: (summary: string) => void;
   busy: boolean;
@@ -86,7 +88,9 @@ export function BeforeDeciding(props: {
             <p className="muted small">
               {props.error
                 ? `Couldn't write the summary: ${props.error} Write one yourself, or decide without it.`
-                : "Edit it if needed. It is added to the card's history as a conversation summary, in the same write as your decision."}
+                : props.stale
+                  ? "Messages came after this summary; edit it to add them. It is added to the card's history as a conversation summary, in the same write as your decision."
+                  : "Edit it if needed. It is added to the card's history as a conversation summary, in the same write as your decision."}
             </p>
             <textarea
               id="before-deciding-summary"
