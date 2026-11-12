@@ -154,7 +154,8 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
 5. **Sync** (the button in the top bar, or `s`) sends your answers to your other machines and
    brings theirs here. president writes card files but never commits them on its own; the top
    bar shows "3 answers not synced" while a project has card changes that aren't pushed, so
-   press Sync before you leave a machine. When the hub starts it only runs `git fetch`, which
+   press Sync before you leave a machine. Where that doesn't fit next to the menu, the number
+   is on the Sync button instead. When the hub starts it only runs `git fetch`, which
    changes no file and no branch, and shows "2 card changes on the remote, press Sync".
 
    For each project with card changes, here or on the remote, Sync runs `git fetch`, checks
@@ -195,13 +196,17 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
    helper or an ssh agent), and each git command is stopped after a timeout. Sync only works
    on a project whose folder is the top folder of its git repository, and it skips a project
    with git submodules (a `.gitmodules` file or a submodule in the index), or whose file
-   list is too long to check for them: commit and push `decisions/` there by hand. If git
-   prints more than Sync reads (4 MiB) anywhere else, Sync stops with "git output too large".
-   For every list it reads before committing, that means it changed nothing; the lists it
-   reads later are bounded by earlier ones, so they can't realistically be cut. A very large
-   change on the online copy matters only when an agent has uncommitted edits here: then Sync
-   can't compare the two, and you press Sync again once those edits are committed and pushed,
-   or put away.
+   list is too long to check for them: commit and push `decisions/` there by hand. The top bar
+   counts such a project's answers on a line of their own, "web: 2 answers not synced (Sync
+   skips it)", which stays until they are committed and pushed (until committed, where the
+   repository's branch tracks nothing or HEAD is detached) and never adds to the Sync
+   button's number (a folder outside git shows no count). If git prints more than Sync reads
+   (4 MiB) anywhere else, Sync stops with "git output too large". For every list it reads
+   before its first change (the `git add` of the cards), that means it changed nothing; the
+   lists it reads later are bounded by earlier ones, so they can't realistically be cut. A
+   very large change on the online copy matters only when an agent has uncommitted edits
+   here: then Sync can't compare the two, and you press Sync again once those edits are
+   committed and pushed, or put away.
 
 To try it with sample cards:
 

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { buildQueue } from "../core/queue.ts";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import { HelpOverlay } from "./components/HelpOverlay.tsx";
-import { SyncControl, SyncProvider, SyncReport } from "./components/Sync.tsx";
+import { SyncControl, SyncProvider, SyncReport, SyncSkipped } from "./components/Sync.tsx";
 import { type Connection, HubProvider, useHub } from "./hub.tsx";
 import { useKeyboard } from "./keyboard.ts";
 import { Link, parseRoute, usePathname } from "./router.tsx";
@@ -131,6 +131,7 @@ function Header(props: { current: string; onHelp: () => void }) {
           <span className="sr-only">Keyboard shortcuts</span>
         </button>
       </div>
+      <SyncSkipped />
     </header>
   );
 }

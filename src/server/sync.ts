@@ -123,7 +123,8 @@ class Repo {
    */
   async unavailable(): Promise<string | undefined> {
     // The top folder of a work tree always holds .git (a folder, or a file in a worktree).
-    // Checked first, so folders that aren't repositories cost no git process at all.
+    // Checked first, so this costs no git process in such a folder (the top bar's count of
+    // a skipped project's answers, skippedCardChanges, runs one there).
     if (!(await lstat(join(this.dir, ".git")).then(Boolean, () => false))) {
       return "it isn't the top folder of a git repository";
     }
@@ -151,6 +152,25 @@ class Repo {
     if (index.truncated) return "git's list of its files is too long to check for submodules";
     if (splitZ(index.stdout).some((entry) => entry.startsWith("160000"))) return SUBMODULES;
     return undefined;
+  }
+
+  /**
+   * For a project Sync skips, its card changes all the same (20261112l9vh, count-apart):
+   * inside a bigger repository they are counted against that repository's upstream (the
+   * pathspec is relative to the project folder, so only this project's cards count). 0 for a
+   * folder outside git, which keeps no record of what was sent, or one git can't read.
+   */
+  async skippedCardChanges(): Promise<number> {
+    if ((await this.run(["rev-parse", "--show-toplevel"])).code !== 0) return 0;
+    try {
+      const { upstream } = await this.branch();
+      return (await this.localCardChanges(upstream !== undefined)).length;
+    } catch (error) {
+      // Output cut at the limit, or a timeout, gives 0 too, and the line goes. The pathspec
+      // keeps the lists to decisions/, so that would take tens of thousands of changed cards.
+      if (error instanceof GitFailed) return 0;
+      throw error;
+    }
   }
 
   /**
@@ -862,6 +882,8 @@ async function runSequence(
 export interface RepoStatus {
   unavailable?: string;
   unsynced: number;
+  /** Set when Sync skips the project: its card changes, never counted in `unsynced`. */
+  skippedUnsynced?: number;
   remoteChanges: number;
   /** A rebase in progress (one a Sync cut short left, say), shown until it is finished. */
   rebase?: { message: string; action: string };
@@ -876,7 +898,10 @@ export async function repoStatus(
   const repo = new Repo(dir, options);
   try {
     const unavailable = await repo.unavailable();
-    if (unavailable) return { unavailable, unsynced: 0, remoteChanges: 0 };
+    if (unavailable) {
+      const skippedUnsynced = await repo.skippedCardChanges();
+      return { unavailable, unsynced: 0, skippedUnsynced, remoteChanges: 0 };
+    }
     const { upstream } = await repo.branch();
     const unsynced = (await repo.localCardChanges(upstream !== undefined)).length;
     const remoteChanges = upstream ? (await repo.remoteCardChanges()).length : 0;
@@ -1061,6 +1086,9 @@ export class SyncService {
           project: project.name,
           ...(counts.unavailable ? { unavailable: counts.unavailable } : {}),
           unsynced: counts.unsynced,
+          ...(counts.skippedUnsynced !== undefined
+            ? { skippedUnsynced: counts.skippedUnsynced }
+            : {}),
           remoteChanges: counts.remoteChanges,
           ...(counts.rebase ? { rebase: counts.rebase } : {}),
           ...(state.fetchError ? { fetchError: state.fetchError } : {}),

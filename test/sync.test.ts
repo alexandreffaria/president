@@ -276,6 +276,22 @@ describe("Sync: the checks say not now and change nothing", () => {
     expect(await s.read(s.laptop, "app.js")).toBe("x = wip\n");
   });
 
+  it("refuses when the file both changed is named with only a space (S7-4)", async () => {
+    const s = await gitSandbox();
+    await s.write(s.laptop, " ", "x\n");
+    s.push(s.laptop, "a file named space");
+    s.git(s.desktop, "pull", "--quiet");
+    await desktopPushes(s, { " ": "x = remote\n" });
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+    await s.write(s.laptop, " ", "x = wip\n");
+    const before = snapshot(s);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result.outcome).toBe("not-now");
+    expect(snapshot(s)).toEqual(before);
+  });
+
   it("refuses when the remote renamed a file the agent has uncommitted edits to (S7-1)", async () => {
     const s = await gitSandbox();
     s.git(s.desktop, "mv", "lib.js", "lib2.js");
@@ -688,6 +704,63 @@ describe("the fetch at hub start and the counts", () => {
     expect(await repoStatus(join(s.root, "home"), s.options)).toEqual({
       unavailable: "it isn't the top folder of a git repository",
       unsynced: 0,
+      skippedUnsynced: 0,
+      remoteChanges: 0,
+    });
+  });
+});
+
+describe("a skipped project's answers, counted apart (B2, 20261112l9vh)", () => {
+  /** A project "web" inside the laptop's repository, with two cards pushed. */
+  async function webInShop(s: Sandbox): Promise<string> {
+    const web = join(s.laptop, "web");
+    await s.write(web, "decisions/0001-a.md", "status: open\n");
+    await s.write(web, "decisions/0002-b.md", "status: open\n");
+    s.push(s.laptop, "web cards");
+    return web;
+  }
+
+  it("counts a project inside a bigger repository against that repository's upstream", async () => {
+    const s = await gitSandbox();
+    const web = await webInShop(s);
+    // Committed but not pushed, edited, and new: three cards of web's.
+    await s.write(web, "decisions/0001-a.md", "status: resolved\n");
+    s.git(s.laptop, "commit", "--quiet", "-am", "answer");
+    await s.write(web, "decisions/0002-b.md", "status: deferred\n");
+    await s.write(web, "decisions/0003-c.md", "status: open\n");
+    // The bigger repository's own cards and code aren't web's.
+    await answerAndAgentWork(s);
+    const before = snapshot(s);
+
+    expect(await repoStatus(web, s.options)).toEqual({
+      unavailable: "it isn't the top folder of a git repository",
+      unsynced: 0,
+      skippedUnsynced: 3,
+      remoteChanges: 0,
+    });
+    // Sync still does nothing there.
+    expect((await syncRepo(web, "web", s.options)).outcome).toBe("unavailable");
+    expect(snapshot(s)).toEqual(before);
+  });
+
+  it("counts only uncommitted changes when the bigger repository has no upstream", async () => {
+    const s = await gitSandbox();
+    const web = await webInShop(s);
+    await s.write(web, "decisions/0001-a.md", "status: resolved\n");
+    s.git(s.laptop, "commit", "--quiet", "-am", "answer");
+    await s.write(web, "decisions/0002-b.md", "status: deferred\n");
+    s.git(s.laptop, "branch", "--unset-upstream");
+    expect((await repoStatus(web, s.options)).skippedUnsynced).toBe(1);
+  });
+
+  it("keeps 0 for a folder outside git", async () => {
+    const s = await gitSandbox();
+    const plain = join(s.root, "home", "plain");
+    await s.write(plain, "decisions/0001-a.md", "status: resolved\n");
+    expect(await repoStatus(plain, s.options)).toEqual({
+      unavailable: "it isn't the top folder of a git repository",
+      unsynced: 0,
+      skippedUnsynced: 0,
       remoteChanges: 0,
     });
   });
@@ -1054,10 +1127,12 @@ describe("Sync and submodules (round 4)", () => {
         "Not synced: shop is skipped because it has git submodules, which Sync doesn't handle",
     });
     expect(snapshot(s)).toEqual(before);
-    // The top bar agrees: skipped, and no answers counted that Sync will never move.
+    // The top bar agrees: skipped, and its answer counted apart, never in the number Sync
+    // clears (B2).
     expect(await repoStatus(s.laptop, s.options)).toEqual({
       unavailable: "it has git submodules, which Sync doesn't handle",
       unsynced: 0,
+      skippedUnsynced: 1,
       remoteChanges: 0,
     });
   });
@@ -1101,6 +1176,7 @@ describe("Sync and submodules (round 4)", () => {
     expect(await repoStatus(s.laptop, options)).toEqual({
       unavailable: "git's list of its files is too long to check for submodules",
       unsynced: 0,
+      skippedUnsynced: 1,
       remoteChanges: 0,
     });
   });
@@ -1117,9 +1193,10 @@ describe("Sync and submodules (round 4)", () => {
     expect(result.message).toMatch(
       /^Not synced: shop is skipped because git can't read it: .*index/,
     );
-    expect((await repoStatus(s.laptop, s.options)).unavailable).toMatch(
-      /^git can't read it: .*index/,
-    );
+    expect(await repoStatus(s.laptop, s.options)).toMatchObject({
+      unavailable: expect.stringMatching(/^git can't read it: .*index/),
+      skippedUnsynced: 0,
+    });
     expect(s.remoteLog()).toEqual(remoteBefore);
     expect(await s.read(s.laptop, ".git/index")).toBe("garbage");
   });
@@ -1134,6 +1211,11 @@ describe("Sync and submodules (round 4)", () => {
 
     expect(result.outcome).toBe("unavailable");
     expect(snapshot(s)).toEqual(before);
+    expect(await repoStatus(s.laptop, s.options)).toMatchObject({
+      unsynced: 0,
+      skippedUnsynced: 1,
+      remoteChanges: 0,
+    });
   });
 });
 

@@ -29,7 +29,8 @@ tab; card 20261112dfik answered it (`refuse-undo`, its recommended option, no no
 of E. [Needs a card](#needs-a-card) is empty for now.
 
 Later still: A2 (the skill's rule for delivering new cards and rewrites, 20261111st0c) is
-built in PR #17.
+built in PR #17. B2 (20261112l9vh) is built in PR #18 (branch `feat/sync-followups`), with
+three follow-ups from PR #12's review: S7-4, S4-6 and S8-1.
 
 ## Build plan
 
@@ -41,7 +42,7 @@ Each row is one pull request (PR 2 may be split, see its section). The order is 
 | A | [Agent rules: the skill line for #0022](#a-agent-rules-the-skill-line-for-0022) | #0022 | PR #7 (it edits `SKILL.md`) | **Built** in PR #10 |
 | A2 | [Agent rules: how agents deliver new cards and rewrites](#a2-agent-rules-how-agents-deliver-new-cards-and-rewrites-20261111st0c) (agent-facing: the skill) | 20261111st0c | A (built) | **Built** in PR #17 |
 | B | [Sync](#b-sync-0001) | #0001, #0022, 2026111209dq, 20261112xp4s | nothing | **Built** in PR #12, together with [the two follow-up decisions](#decided-while-pr-12-was-open-2026111209dq-20261112xp4s): 09dq is what it already did, and xp4s is commit `b672fe1` |
-| B2 | [Sync: count a skipped project's answers apart](#b2-sync-count-a-skipped-projects-answers-apart-20261112l9vh) | 20261112l9vh | B (PR #12) merged | A small pull request right after PR #12 merges, not inside PR #12, which is in a late review round and still changing |
+| B2 | [Sync: count a skipped project's answers apart](#b2-sync-count-a-skipped-projects-answers-apart-20261112l9vh) | 20261112l9vh | B (PR #12) merged | **Built** in the follow-up pull request (PR #18, branch `feat/sync-followups`) |
 | C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | Alongside B; before PR 2, which builds on #0010's Neither panel and #0011's notes on decided cards |
 | D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part), 202611116ff6 (`pending` and `validate`) | PR #7 (it edits `card-format.md` and `SKILL.md`) | Before or with C and PR 2; `chat` must exist before PR 2 writes it |
 | E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s, 20261112dfik | C (#0010's panel, #0011's notes on decided cards), D (`chat` type) | After C and D |
@@ -197,20 +198,22 @@ section left open were settled the simplest safe way, and the human can change a
   at the exact path of a file ignored here, git replaces it (and it removes ignored files in
   a folder the online copy turns into a file).
 - A project with **git submodules** (a `.gitmodules` file, or a gitlink in the index) is
-  skipped like one that isn't a repository's top folder, and its answers aren't counted: a
+  skipped like one that isn't a repository's top folder, and its answers are counted only on
+  a line of their own ([B2](#b2-sync-count-a-skipped-projects-answers-apart-20261112l9vh)): a
   pull can delete an agent's untracked files inside a submodule without a word. The check
   reads `git ls-files --format=%(objectmode)` (`--stage` on a git older than 2.38), and a
   list cut at Sync's output limit skips the project too, so a gitlink is never missed.
   Anywhere else, output cut at that limit stops Sync ("git output too large"). For every list
-  Sync reads before committing, it refuses before changing anything; the lists it reads after
-  that are bounded by lists already read whole, so they can't realistically be cut. Check 3
-  reads `git diff --name-only HEAD` first and, only when that lists files outside
-  `decisions/`, the whole `git diff --name-only HEAD...@{u}`. So a very large change list on
-  the remote matters only when an agent has uncommitted edits here. If the remote's list is
-  cut, the action says to press Sync again once those edits are committed and pushed, or put
-  away; if check 2's log or the list of files edited here is cut, it says to commit and push
-  that work by hand, or put it away. The pull runs with `LANGUAGE=en`, so git's untracked-file
-  wording is matched in English under a localized git too.
+  Sync reads before its first change (the `git add` of the cards), it refuses before changing
+  anything; the lists it reads after that are bounded by lists already read whole, so they
+  can't realistically be cut. Check 3 reads `git diff --name-only HEAD` first and, only when
+  that lists files outside `decisions/`, the whole `git diff --name-only HEAD...@{u}`. So a
+  very large change list on the remote matters only when an agent has uncommitted edits here.
+  If the remote's list is cut, the action says to press Sync again once those edits are
+  committed and pushed, or put away; if check 2's log or the list of files edited here is cut,
+  it says to commit and push that work by hand, or put it away. The pull runs with
+  `LANGUAGE=en`, so git's untracked-file wording is matched in English under a localized git
+  too.
 - The rebase, merge, detached-HEAD and no-upstream parts of check 1 run **before** the fetch
   (they need no network); the rest after it, as in the card.
 - Sync skips a project with no card changes here or on the remote (after its fetch) without
@@ -384,7 +387,7 @@ because it isn't the top folder of a git repository" (the same sentence for a fo
 in git at all). Sync never pulls, sets aside or pushes a repository that holds more than the
 project. Accepted cost: a project in a monorepo or a home folder kept in git never gets Sync.
 Whether the top bar counts a skipped project's unsynced answers was decided afterwards, by
-20261112l9vh: yes, on a line of its own. PR #12 leaves them out; the count is built in a
+20261112l9vh: yes, on a line of its own. PR #12 left them out; the count is built in the
 follow-up pull request, see [B2](#b2-sync-count-a-skipped-projects-answers-apart-20261112l9vh).
 
 **The notice when Sync changes the card you have open.** Card
@@ -423,6 +426,30 @@ text, and a picked option is cleared.
 Card: [20261112l9vh-unsynced-count-skipped-projects.md](../decisions/20261112l9vh-unsynced-count-skipped-projects.md),
 option `count-apart`: "The top bar adds, per skipped project, a line such as "web: 2 answers not
 synced (Sync skips it)"; the number on the Sync button still counts only what Sync can move."
+
+**Built** in the pull request "Sync follow-ups: count skipped projects apart (B2), S7-4, S4-6,
+S8-1" (PR #18, branch `feat/sync-followups`), as written below: `Repo.skippedCardChanges` and
+`repoStatus` in `src/server/sync.ts`, `skippedUnsynced` in `ProjectSyncStatus`
+(`src/core/api.ts`), and `SyncSkipped` in `src/web/components/Sync.tsx`, a list under the top
+bar's first line (`.sync-skipped`). The count runs for every skipped project:
+`git rev-parse --show-toplevel` first (one git process for a folder outside git, which keeps
+0), then `localCardChanges` against the checked-out branch's upstream, if any. A project git
+can't read also keeps 0. `skippedUnsynced` is set for every skipped project (0 included) and
+left out for the others. Tests: `test/sync.test.ts` ("a skipped project's answers, counted
+apart", and the submodule tests), `test/sync-api.test.ts`, `test/web/sync.test.tsx`.
+
+The same pull request carries three follow-ups from PR #12's review:
+
+- **S7-4.** `splitZ` (`src/server/git.ts`) dropped any path made only of whitespace (a file
+  named " "), so check 3 never saw it; it now drops only empty entries.
+- **S4-6.** The summary next to the Sync button is no longer hidden below a fixed 66rem: the
+  top bar measures whether, with it shown, the end group still fits on the nav's line, and
+  if not hides it and puts the count on the button (`data-squeezed`, re-measured when the bar,
+  the end group or the nav changes size and when the text changes). "1 answer not synced" now shows
+  from 480 px up.
+- **S8-1.** The README and B above said Sync refuses before changing anything for every list
+  it reads "before committing"; it is "before its first change (the `git add` of the cards)",
+  since the staged list is read after that `git add`.
 
 **Where it goes.** A small pull request of its own, started from main once PR #12 (`feat/sync`)
 has merged. Not inside PR #12: it is in a late review round and its `sync.ts` is still
