@@ -24,8 +24,9 @@ are in [Needs a card](#needs-a-card).
 Later on 2026-11-12: the three cards of batch 4 (20261112l9vh, 2026111272fu, 20261112160s),
 which answered the three questions [Needs a card](#needs-a-card) then held, are decided too,
 each with its recommended option and no note. l9vh is new work for B, in a follow-up pull
-request (row B2); 72fu and 160s are part of E. 160s leaves one new question, about a second
-tab, now [Needs a card](#needs-a-card) 1.
+request (row B2); 72fu and 160s are part of E. 160s left one new question, about a second
+tab; card 20261112dfik answered it (`refuse-undo`, its recommended option, no note), also part
+of E. [Needs a card](#needs-a-card) is empty for now.
 
 ## Build plan
 
@@ -40,7 +41,7 @@ Each row is one pull request (PR 2 may be split, see its section). The order is 
 | B2 | [Sync: count a skipped project's answers apart](#b2-sync-count-a-skipped-projects-answers-apart-20261112l9vh) | 20261112l9vh | B (PR #12) merged | A small pull request right after PR #12 merges, not inside PR #12, which is in a late review round and still changing |
 | C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | Alongside B; before PR 2, which builds on #0010's Neither panel and #0011's notes on decided cards |
 | D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part), 202611116ff6 (`pending` and `validate`) | PR #7 (it edits `card-format.md` and `SKILL.md`) | Before or with C and PR 2; `chat` must exist before PR 2 writes it |
-| E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s | C (#0010's panel, #0011's notes on decided cards), D (`chat` type); [Needs a card](#needs-a-card) 1, for the multi-tab part of 160s's wait | After C and D |
+| E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s, 20261112dfik | C (#0010's panel, #0011's notes on decided cards), D (`chat` type) | After C and D |
 | F | [Rename the command to `preside`](#f-rename-the-command-to-preside-0016-20261111dmvt) (agent-facing: the CLI, the skill and every printed command) | #0016, 20261111dmvt | A2 (both edit `SKILL.md`). The npm placeholder is published by the human (an agent prepares it). No card orders it against F; suggested: publish it before F merges (after repeating the name check), so the name F writes everywhere can't be taken meanwhile | At a moment with no other pull request open, since it touches about 200 lines everywhere; ideally before E, which adds new printed commands |
 | F2 | [Remove the `president` alias](#the-president-alias-and-when-it-ends) | 20261111dmvt | F | One month after F ships, or once every registered project's own docs and agent instructions use `preside`, whichever is later |
 
@@ -996,7 +997,8 @@ Card: [0007-neither-try-again.md](../decisions/0007-neither-try-again.md), optio
 
 - **Ask for new options** in the Neither panel (`Ctrl ⏎`) applies today's `neither` action (the
   note goes to `feedback` as `neither`, `needs_new_options: true`) **and** starts the card's
-  session, once the action's Undo notice has gone away (20261112160s, below), with a prompt
+  session, once the action's Undo notice has gone away (20261112160s, below) or when you press
+  Start now in another tab (20261112dfik, below), with a prompt
   built from the card and its unseen feedback, and
   `--json-schema` for the options. The run uses #0004's flags; it can see the card's earlier
   conversation on this machine, if any, and do research.
@@ -1015,7 +1017,8 @@ Card: [0007-neither-try-again.md](../decisions/0007-neither-try-again.md), optio
   until you press `r`, even one where you had revealed the old pick (2026111272fu `reset`; see
   [The chat stays neutral until you reveal the pick](#the-chat-stays-neutral-until-you-reveal-the-pick-20261111mby8)).
 - Undoing Ask for new options puts the card back as today (#0012). Under 20261112160s the run
-  hasn't started while Undo is offered, so there is nothing to stop; the hub still writes the
+  hasn't started while Undo is offered, so there is nothing to stop (if another tab started it,
+  20261112dfik refuses the Undo instead); the hub still writes the
   run's options only against the card as the run read it (`update`'s feedback guard).
 - **The run is a turn in the card's conversation, without the reminder**
   ([202611111gpm-new-options-run.md](../decisions/202611111gpm-new-options-run.md), option
@@ -1089,18 +1092,56 @@ Card: [0007-neither-try-again.md](../decisions/0007-neither-try-again.md), optio
     started, so it reaches the session after the "Neither" message.
   - **Tab closed or reloaded before the notice goes away:** no run starts, and the card stays
     `needs_new_options: true`, waiting for the project's agent. The hub records the run as "to
-    start" when the note is recorded; a page that later opens the card while no Undo notice is
-    waiting on it shows it like a failed run:
-
-    ```
-    The run for your note at 21:00 didn't start. The card waits for the project's agent, as
-    before.
-    [Try again]
-    ```
-
+    start" when the note is recorded, and as "started" once the run starts. Any page other than
+    the one showing the Undo notice (a second tab, or this tab after a reload) that opens the
+    card while the record says "to start" shows the second-tab message below, with
+    **Start now** (20261112dfik replaced 160s's "didn't start" and Try again here: the page
+    can't tell a tab closed early from a notice still waiting in another tab).
   - Accepted costs: every run starts about 10 seconds later, even when you never undo, which
     bends #0007's "starts an agent right away"; while you hover over the Undo notice the run
-    keeps waiting; a tab closed in those seconds starts no run until you press Try again.
+    keeps waiting; a tab closed in those seconds starts no run until you press Start now.
+- **The same card open in a second tab while the run waits: that tab can start the run, and
+  Undo is then refused**
+  ([20261112dfik-second-tab-during-wait.md](../decisions/20261112dfik-second-tab-during-wait.md),
+  option `refuse-undo`): "The second tab says the run hasn't started yet and offers "Start now";
+  pressing it starts the run, and Undo in the first tab is then refused with "Couldn't undo: the
+  run for this note already started from another tab", as 0012 already does when another tab
+  changed the card."
+
+  ```
+  Tab B, 21:00:03 (you pressed Ask for new options in tab A at 21:00)
+    you, 21:00     Neither: Both assume a server. Compare on-device storage only.
+    The run for your note at 21:00 hasn't started. If another tab still shows
+    its Undo notice, it starts when that closes.   [Start now]
+
+  You press Start now in tab B, then go back to tab A and press u:
+    Tab A   Couldn't undo: the run for this note already started from another tab.
+  ```
+
+  - Tab B first shows today's "You changed this card in another president tab." notice, as for
+    any change made in another tab; the message above follows it.
+  - If you don't press Start now, tab B replaces it with "Writing new options..." once tab A's
+    notice closes and the run starts. If tab A was closed early, Start now is the Try again
+    160s described.
+  - **The hub tells every tab when a run starts.** Starting a run writes nothing to the card,
+    so today no event goes out: when the hub's record turns to "started", it emits `cards` (or
+    a new hub-to-tab event), so that tab B replaces Start now with "Writing new options..." and
+    tab A drops "Sending when Undo closes". Tabs still send nothing on the socket.
+  - **Undo checks the record.** `undoLastAction` (`src/server/cards.ts`) for a `neither`
+    refuses with a new code (for example `run_started`) once the hub's record for that note
+    says "started"; the page shows the message above. The Undo journal alone can't tell, since
+    starting a run doesn't change the card's revision or file stamp.
+  - The second tab's text uses only what the hub knows: the note's time and "to start".
+  - **Ordering rules** (the card's "Under every option"): the hub starts at most one run for a
+    note and never starts one for a note already undone (Undo clears its "to start" record). An
+    Undo and a start are handled one after the other: the first tab's notice closing after the
+    run started never starts a second one, and a start that comes at the same moment as an Undo
+    either starts the run (and the Undo is refused) or finds the note already gone.
+  - Accepted costs: one click on Start now in the second tab takes Undo away from the first
+    tab; the second tab doesn't know whether a notice is still waiting elsewhere, so its message
+    says "if", in that case and after a tab closed early alike; an Undo pressed in the first tab
+    after the run started from the second is refused, so your note stays sent and the new
+    options still come.
 
 ### The chat never applies decisions (#0006)
 
@@ -1208,6 +1249,10 @@ old name from habit still find the installed command, rather than failing and tr
   notice closes rather than at once, so an undone "neither" leaves no trace in the card (#0012),
   the panel, the hub's copy or the session. It also means the run never needs stopping on
   Undo, and the new-options run can only write against a card whose Undo window is over.
+- **20261112dfik `refuse-undo` + #0012 `hybrid` + 20261112160s `wait-out`.** A run started from
+  another tab counts like another tab writing the card: Undo is refused (#0012's rule), so an
+  Undo that goes through still means nothing reached the agent. The one exception to 160s's
+  "the run starts when the notice closes" is a run you start yourself with Start now.
 - **20261112l9vh `count-apart` + 2026111209dq `top-only` + 20261111st0c.** A skipped
   project's line counts every unsynced card change in its `decisions/`, including new cards an
   agent copied into the main folder, which reach git there only by a hand commit.
@@ -1277,8 +1322,8 @@ only); the build PR named in brackets fixes each.
   card*'s "A new card has no human edits to lose: write its file directly
   (`<main>/decisions/<id>-<slug>.md`)": 20261111st0c has new cards reviewed in the agent's
   worktree first, then copied [A2].
-- The skill's pointer "(president's `docs/roadmap.md`, 'Needs a card' 1)": that item is now a
-  different question; the card it meant is 20261111st0c, decided [A2].
+- The skill's pointer "(president's `docs/roadmap.md`, 'Needs a card' 1)": that item has since
+  held other questions (the list is empty now); the card it meant is 20261111st0c, decided [A2].
 - foundations.md, *Engineering process*, "Every task ... ends in a PR" and "the loop repeats
   until **every** finding, non-blocking ones included, is fixed": a task that only writes cards
   now ends with them reviewed in the agent's worktree and copied into the main folder, with no
@@ -1301,14 +1346,7 @@ the notice after a pull was answered by 20261112xp4s.
 The three questions this list held after PR #14 were answered on 2026-11-12: 1 by
 20261112l9vh, 2 by 2026111272fu and 3 by 20261112160s.
 
-**E (PR 2)**
+The question this list held after PR #15 (the same card open in a second tab while the run
+waits for Undo) was answered on 2026-11-12 by 20261112dfik.
 
-1. **The same card open in a second tab while the run waits for Undo** (20261112160s with
-   #0012). Under `wait-out` the run starts when the Undo notice closes in the tab where you
-   pressed Ask for new options, and the hub records the run as "to start"; a page that opens
-   the card "while no Undo notice is waiting on it" shows "didn't start" and Try again. In a
-   second tab (or window) opened during those seconds, the notice is waiting in the other tab:
-   what does the second tab show? If it shows Try again and you press it, the run starts while
-   Undo is still offered in the first tab, so an Undo there could no longer keep the message
-   from the agent. Show it as pending ("Sending when Undo closes") there too, refuse that Undo
-   once the run started, or something else? It blocks only the multi-tab part of the wait.
+None at the moment.
