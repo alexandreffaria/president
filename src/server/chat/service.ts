@@ -391,7 +391,7 @@ export class ChatService {
         );
       }
       this.#offered.set(keyName(key), messages.length);
-      return { summary, fromCopy, covers: messages.length };
+      return { summary, fromCopy };
     } finally {
       this.#running.delete(keyName(key));
       this.#changed(key);

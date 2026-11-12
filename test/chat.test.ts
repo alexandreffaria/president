@@ -516,7 +516,6 @@ describe("summaries (#0003, #0019, #0020, #0024, 20261111paot)", () => {
     expect((await response.json()) as ChatSummaryResponse).toEqual({
       summary: "Discussed with the card's agent. I now see it throws.",
       fromCopy: false,
-      covers: 2,
     });
     const call = (await t.calls())[1];
     expect(call?.args).toContain("--resume");

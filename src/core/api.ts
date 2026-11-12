@@ -178,11 +178,6 @@ export interface ChatSummaryResponse {
    * copy of the messages (20261111paot).
    */
   fromCopy: boolean;
-  /**
-   * How many messages of the conversation (`ChatDto.messages`) the summary was written from:
-   * a kept draft is reused for a decision only while no message has come since (#0019).
-   */
-  covers: number;
 }
 
 /**

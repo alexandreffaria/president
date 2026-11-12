@@ -77,7 +77,10 @@ decision together, the Teach me (#0005, 20261111fauj) and More info buttons, and
 summary" in the summary box (202611111ky9), with Undo on its notice. It also builds the two
 cards PR #28 asked for: "Decide without summary" closes the conversation too (20261112hq3k
 `ends`), and More info answers with the facts the decision turns on, each backed by a quote
-(20261112e1ik `findings`). Neither's run (#0007) follows in E2.
+(20261112e1ik `findings`). E1c note: Decide never replaces a summary already in the box; an
+agent summary isn't refreshed after more chat — edit or clear it. (Three review rounds of
+PR #28 tried to tell an out-of-date agent draft from one you edited, and each fix lost typed
+text another way; the rule was cut back to this one.) Neither's run (#0007) follows in E2.
 
 Then (2026-11-12): 20261112nyu2 (what the project's agent does with new options the hub wrote
 from a "neither" note) is decided: `fix`, change only a wrong or missing fact or an option that
@@ -1192,6 +1195,14 @@ option `wait`.
   the conversation in the same request as the decision, and undoing that decision reopens it).
   Accepted cost: if you meant "summarize later", use Save and decide, or add a note to the
   decided card. **Esc** goes back to the card without deciding.
+- **The agent never replaces text already in the summary box** (E1c). If the box already holds
+  a draft (the agent's from an earlier Write summary, one you typed, or one Undo put back),
+  Decide opens it as it is, with no new run, even when messages came after it: edit it, or
+  clear it and decide again for a new one. Only an empty box gets "Writing a summary...". An
+  agent summary that arrives once there is text in the box (Write summary finishing after you
+  typed in the "Before deciding" box) is dropped, with a notice. Decide while Write summary is
+  still running opens the box at once to type in, saying a summary is being written; it fills
+  the box when done, if the box is still empty.
 - The summary is a separate `chat` entry, not text in the decision's "Why?" (the card's variant
   that would prefill "Why?" was not chosen).
 - **Undo** (10 seconds, #0006) restores the card from before that one write, which removes both,

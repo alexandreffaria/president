@@ -18,13 +18,16 @@ import { useKeyLayer } from "../keyboard.ts";
 
 const TITLE = "Before deciding: summary of your conversation";
 
+/** A hub message as a sentence: they have no final period. */
+const sentence = (text: string) => (/[.!?]$/.test(text.trim()) ? text.trim() : `${text.trim()}.`);
+
 export function BeforeDeciding(props: {
   /** The summary is being written. */
   writing: boolean;
   /** Why no summary could be written, when it couldn't. */
   error: string | undefined;
-  /** The summary is the human's own and leaves out messages that came after it. */
-  stale: boolean;
+  /** Another summary run was going (the panel's Write summary); it fills the box if empty. */
+  summaryRunning: boolean;
   summary: string;
   onSummary: (summary: string) => void;
   busy: boolean;
@@ -86,10 +89,10 @@ export function BeforeDeciding(props: {
         ) : (
           <>
             <p className="muted small">
-              {props.error
-                ? `Couldn't write the summary: ${props.error} Write one yourself, or decide without it.`
-                : props.stale
-                  ? "Messages came after this summary; edit it to add them. It is added to the card's history as a conversation summary, in the same write as your decision."
+              {props.error && !props.summary.trim()
+                ? `Couldn't write the summary: ${sentence(props.error)} Write one yourself, or decide without it.`
+                : props.summaryRunning && !props.summary.trim()
+                  ? "The agent is already writing a summary; it appears here when it's done, unless you write one first. Or decide without it."
                   : "Edit it if needed. It is added to the card's history as a conversation summary, in the same write as your decision."}
             </p>
             <textarea

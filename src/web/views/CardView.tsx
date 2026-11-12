@@ -82,8 +82,6 @@ const NO_DRAFT: Draft = {
   note: "",
   chat: "",
   summary: "",
-  summaryCovers: undefined,
-  summaryEdited: false,
 };
 
 /**
@@ -99,8 +97,11 @@ interface PendingDecision {
   writing: boolean;
   /** Why it couldn't be written. */
   error?: string;
-  /** The summary in the box is the human's own, and messages came after it. */
-  stale?: boolean;
+  /**
+   * Another summary run was already going (the panel's Write summary): no second one; its
+   * summary fills the box when it is done, if the box is still empty.
+   */
+  summaryRunning?: boolean;
 }
 
 /** Below this window width the conversation sits in the page's flow, not beside it (#0002). */
@@ -209,13 +210,13 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const summaryRequest = useRef(0);
   /** Bumped when this view leaves its card (unmount, another card): a Decide in flight stops. */
   const viewGeneration = useRef(0);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: runs its cleanup on a card change
+  // Its cleanup runs on unmount, which is also a card change: the view is keyed per card.
   useEffect(
     () => () => {
       viewGeneration.current++;
       summaryRequest.current++;
     },
-    [project, id],
+    [],
   );
 
   const queue = buildQueue(hub.cards, hub.projectFilter);
@@ -505,6 +506,20 @@ export function CardView({ project, id }: { project: string; id: string }) {
   };
 
   /**
+   * An agent summary (Decide's run, or Write summary in the panel) goes into the draft only
+   * while the draft is empty: the agent never replaces text already in the summary box, so
+   * what the human typed wins and the agent's summary is dropped. True when it was used.
+   */
+  const takeAgentSummary = (summary: string): boolean => {
+    if (latest.current.summary.trim()) {
+      toast("The agent's summary wasn't used: the summary box already has text.");
+      return false;
+    }
+    updateDraft({ summary });
+    return true;
+  };
+
+  /**
    * Decide, and "Decide this as my answer" from the Neither panel. When the card has a
    * conversation no saved summary covers on this machine (or one still answering), the
    * decision waits: "Writing a summary…", then the "Before deciding" box (#0019 `wait`,
@@ -546,31 +561,28 @@ export function CardView({ project, id }: { project: string; id: string }) {
     if (!waits) return resolve(choice, note, sent, panel);
     decideOpener.current = opener instanceof HTMLElement ? opener : null;
     const pending = { choice, note, sent, panel };
-    // A summary already in the box (one written earlier, or put back by Undo) is used as is
-    // when the human wrote or edited it (never replaced, even once messages came after it),
-    // or when the agent wrote it from every message there is; otherwise a new one is written.
-    const kept = latest.current;
-    const current =
-      cardChat.live === undefined && kept.summaryCovers === conversation.messages.length;
-    const own = kept.summaryEdited || kept.summaryCovers === undefined;
-    if (kept.summary.trim() && (own || current)) {
-      // Say so when the agent's count shows messages came after it (unknown for one typed).
-      const stale =
-        cardChat.live !== undefined ||
-        (kept.summaryCovers !== undefined && kept.summaryCovers !== conversation.messages.length);
-      setBeforeDeciding({ ...pending, writing: false, stale });
+    // The agent never replaces text already in the summary box: a draft there (whoever wrote
+    // it, however old) is opened as it is, with no run. Only an empty box gets one.
+    if (latest.current.summary.trim()) {
+      setBeforeDeciding({ ...pending, writing: false });
+      return false;
+    }
+    // A summary run is already going (Write summary in the panel): don't start a second one,
+    // which the hub would refuse. The box opens to type in; that run's summary fills it if it
+    // is still empty when it is done.
+    if (conversation.running === "summary") {
+      setBeforeDeciding({ ...pending, writing: false, summaryRunning: true });
       return false;
     }
     const request = ++summaryRequest.current;
     setBeforeDeciding({ ...pending, writing: true });
     try {
-      const { summary, covers } = await cardChat.summarize({ revealed, revision: card.revision });
+      const { summary } = await cardChat.summarize({ revealed, revision: card.revision });
       if (request !== summaryRequest.current) return false;
-      updateDraft({ summary, summaryCovers: covers, summaryEdited: false });
+      takeAgentSummary(summary);
       setBeforeDeciding({ ...pending, writing: false });
     } catch (error) {
       if (request !== summaryRequest.current) return false;
-      // A kept draft that is out of date stays in the box, to edit or decide without.
       setBeforeDeciding({ ...pending, writing: false, error: (error as Error).message });
     }
     return false;
@@ -589,7 +601,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
     const ok = await resolve(
       pending.choice,
       pending.note,
-      { ...pending.sent, summary: "", summaryCovers: undefined, summaryEdited: false },
+      { ...pending.sent, summary: "" },
       pending.panel,
       withSummary ? summary : undefined,
       !withSummary,
@@ -635,7 +647,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
       { type: "chat", note: summary },
       {
         done: "Summary saved.",
-        sent: { summary: "", summaryCovers: undefined, summaryEdited: false },
+        sent: { summary: "" },
       },
     );
   };
@@ -946,6 +958,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
           layout={wide ? "side" : "inline"}
           draft={draft}
           onDraft={updateDraft}
+          onAgentSummary={takeAgentSummary}
           onClose={hideChat}
           focusOnOpen={focusChat}
           onSaveSummary={saveSummary}
@@ -972,9 +985,9 @@ export function CardView({ project, id }: { project: string; id: string }) {
         <BeforeDeciding
           writing={beforeDeciding.writing}
           error={beforeDeciding.error}
-          stale={beforeDeciding.stale === true}
+          summaryRunning={beforeDeciding.summaryRunning === true}
           summary={draft.summary}
-          onSummary={(summary) => updateDraft({ summary, summaryEdited: true })}
+          onSummary={(summary) => updateDraft({ summary })}
           busy={busy}
           onSaveAndDecide={() => void finishDeciding(true)}
           onDecideWithout={() => void finishDeciding(false)}
