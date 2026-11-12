@@ -171,5 +171,5 @@ brought in an agent's new option, you get the usual notice instead.
   agent changed this card while you had it open' ... Suggestion, not decided: make the notice
   say the change came from Sync."
 - Code on `feat/sync`: `src/web/views/CardView.tsx` (the notice and `changedBy`),
-  `src/web/app-writes.ts` (changes from this browser), `src/web/card-changes.ts` (the list of
+  `src/web/app-writes.ts` (changes from this tab), `src/web/card-changes.ts` (the list of
   changes).

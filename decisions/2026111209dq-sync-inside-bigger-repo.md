@@ -89,9 +89,10 @@ work in it.
 `decisions/` folder, so it never adds anyone else's files. Sync still refuses ("Not now") when
 an agent has unfinished or unsent work it could disturb, and still stops, changing nothing, if
 something looks wrong.
-Today the top bar's "answers not synced" count leaves a skipped project out, so nothing
-reminds you its answers haven't moved; whichever option you pick, it can count them too
-("web: 2 answers not synced (Sync skips it)").
+
+**One gap under every option.** Today the top bar's "answers not synced" count leaves a
+skipped project out, so nothing reminds you its answers haven't moved; whichever option you
+pick, it can count them too ("web: 2 answers not synced (Sync skips it)").
 
 **What there is today.** One project is registered on this machine: president, which is the
 top folder of its own repository. So no project is affected yet, though the decision-cards
@@ -130,8 +131,10 @@ in a local commit.
   requiring a `.git` entry in the project folder (the `lstat` at the top, which is what skips
   subfolders today) and `realpath(show-toplevel) === realpath(dir)`; every path in the sequence becomes
   `<prefix>/decisions/` (from `git rev-parse --show-prefix`): `git add`, `commit --only`, the
-  counts, check 2 ("no unpushed commit outside decisions/") and check 3's `isCardPath`. Checks 2
-  and 3 stay repository-wide, which is where the extra "not now" comes from.
+  counts, check 2 ("no unpushed commit outside decisions/", including its re-run after the pull
+  that PR #12's review asks for) and check 3's `isCardPath` (including the on-disk, untracked
+  test for ignored files from the same review). Checks 2 and 3 stay repository-wide, which is
+  where the extra "not now" comes from.
 - Two registered projects in one repository (`shop/web` and `shop/api`) must share one git
   sequence: key `KeyedMutex` and `WriteGate` by the repository's top folder, not
   `project.path`, or run one Sync per repository covering both projects' `decisions/`.
