@@ -323,7 +323,10 @@ it. Do that only when the human asks you to, and never in a pull request.
 ## Cards that need new options
 
 When the human rejects all options, president appends their note to `feedback` (with
-`type: neither`) and sets `needs_new_options: true`. For each such card:
+`type: neither`) and sets `needs_new_options: true`. The hub usually writes new options from
+the note itself right away and removes `needs_new_options`; the card then shows up under
+**New notes from the human** instead (see there). `pending` lists a card here when the flag is
+still set (the hub's run failed or hasn't run). For each such card:
 
 1. Read **all** the feedback `pending` shows for the card (every entry newer than `seen_at`, not
    only the latest `neither`). It says what was wrong or what they want instead.
@@ -342,7 +345,7 @@ reopen a decided card, take back a decision with Undo, or save the summary of a 
 they had with an agent about the card. These land in `feedback` (`type: note`, `defer`,
 `reopen`, `undo` or `chat`), and `preside pending` lists every card with feedback newer than its
 `seen_at`. A `chat` entry (printed `chat <time>: <text>`) is a conversation summary the human
-edited: read it as a note from them about a conversation you didn't see. Two of them need care:
+edited: read it as a note from them about a conversation you didn't see. Three of them need care:
 
 - **`undo`**: the human took back a decision right after making it (`previous_resolution` is
   the decision). If you recorded it in the docs or changed code for it, revert that. If you
@@ -351,13 +354,23 @@ edited: read it as a note from them about a conversation you didn't see. Two of 
   the code yet; the earlier decision stands until there is a new one. Run the `done:` line.
   When the human decides again, `pending` lists the card as "Decided again": replace the
   earlier record then.
+- **`neither`** (printed `neither <time>: <text>`; in `--json`, a `new_notes` entry with
+  `type: "neither"`) on a card listed here, so without `needs_new_options`: the hub already
+  wrote new options from that note, with `preside update`'s checks, and left the note unread
+  for you. Don't answer the note again with options of your own. Read the hub's options
+  against the code and your current work. If one of them states a fact that is wrong or
+  leaves out one that matters, or clashes with what you are building, change only that, with
+  `preside update` (see **Changing a card**), and add a line to the card's `## Context`
+  saying what you changed, for example "Edited by the project's agent: noted that SQLite is
+  already in the app (`src/db.ts`)." Otherwise change nothing. Then run the `done:` line.
 
 For each:
 
 1. Read the new entries. They may ask a question, add a constraint, ask for research, or say
    why the card is on hold.
-2. Act on them: update the context or the options (and `recommendation`), do the research and
-   add sources, or change the code if the note is about work already done. If a note needs an
+2. Act on them (on a `neither` entry, only as its item above says): update the context or the
+   options (and `recommendation`), do the research and add sources, or change the code if the
+   note is about work already done. If a note needs an
    answer, put it in the card's body where the human will read it. Change the card only with
    `preside update` (see **Changing a card**).
 3. Run the card's `done:` line from `pending` (`preside seen <file> --token <token>`). Don't

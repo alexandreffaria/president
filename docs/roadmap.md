@@ -79,6 +79,12 @@ cards PR #28 asked for: "Decide without summary" closes the conversation too (20
 `ends`), and More info answers with the facts the decision turns on, each backed by a quote
 (20261112e1ik `findings`). Neither's run (#0007) follows in E2.
 
+Then (2026-11-12): 20261112nyu2 (what the project's agent does with new options the hub wrote
+from a "neither" note) is decided: `fix`, change only a wrong or missing fact or an option that
+clashes with its work, and say so in the card's context. It is a skill rule only, added in the
+pull request "Apply 20261112nyu2" (see
+[Neither: new options right away](#neither-new-options-right-away-0007)).
+
 ## Build plan
 
 Each row is one pull request (PR 2 may be split, see its section). The order is a suggestion;
@@ -1247,6 +1253,15 @@ Card: [0007-neither-try-again.md](../decisions/0007-neither-try-again.md), optio
 - The hub does not run `preside seen`: the working agent still finds the card in
   `preside pending` (the `neither` entry is unread) and reads options it didn't write. That is
   the card's accepted cost, along with one Claude Code run per "neither".
+  What that agent then does is
+  [20261112nyu2-agent-and-hub-written-options.md](../decisions/20261112nyu2-agent-and-hub-written-options.md),
+  option `fix`: it checks the hub's options against the code and its plan, changes only a fact
+  that is wrong or missing or an option that clashes with its work, with `preside update`, and
+  adds a line to the card's context saying what it changed ("Edited by the project's agent:
+  ..."); otherwise it changes nothing, then runs the `done:` line. It recognises these cards in
+  `preside pending` by an unread `neither` entry under "New notes from the human" on a card
+  without `needs_new_options`. The rule is in the skill's "New notes from the human"; nothing
+  to build in the hub or the CLI.
 - With #0010 the panel has two buttons: **Ask for new options** and **Decide this as my
   answer**. (A third, "Ask for new options now", belonged to #0007's `per-card`, not chosen.)
 - Under #0008, the new `recommendation` stays hidden until you reveal it, like any other. The
