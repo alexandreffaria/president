@@ -13,10 +13,12 @@ object.
 
 Status on 2026-11-11: none of this is built. Cards #0001 to #0024 are all decided.
 
-Update on 2026-11-12: A is built (PR #10) and B is being built in PR #12. The 13 cards of
-batch 3 (PR #11), which answered every question of the earlier [Needs a card](#needs-a-card)
-list, and the two Sync follow-ups from PR #12's review (PR #13) are decided too, each with its
-recommended option and no note. The new questions they leave are in [Needs a card](#needs-a-card).
+Update on 2026-11-12, which replaces the status line above: A (PR #10) and B (Sync, PR #12)
+are built; the rest isn't. PR #12 (branch `feat/sync` until it merges) also carries both Sync
+follow-ups: 2026111209dq needed nothing, and 20261112xp4s is commit `b672fe1`. Cards #0001 to #0024, the 13 cards of batch 3 (PR #11), which answered every
+question of the earlier [Needs a card](#needs-a-card) list, and the two Sync follow-ups from
+PR #12's review (PR #13) are all decided, each with its recommended option and no note. The new
+questions they leave are in [Needs a card](#needs-a-card).
 
 ## Build plan
 
@@ -27,11 +29,11 @@ Each row is one pull request (PR 2 may be split, see its section). The order is 
 |---|---|---|---|---|
 | A | [Agent rules: the skill line for #0022](#a-agent-rules-the-skill-line-for-0022) | #0022 | PR #7 (it edits `SKILL.md`) | **Built** in PR #10 |
 | A2 | [Agent rules: how agents deliver new cards and rewrites](#a2-agent-rules-how-agents-deliver-new-cards-and-rewrites-20261111st0c) (agent-facing: the skill) | 20261111st0c | A (built) | **First**, before any agent writes the next card: the skill today tells agents to write new cards straight into the main folder with no review, the reading st0c did not choose |
-| B | [Sync](#b-sync-0001) | #0001, #0022, 2026111209dq, 20261112xp4s | nothing | In PR #12, which also carries [the two follow-up decisions](#decided-while-pr-12-was-open-2026111209dq-20261112xp4s): 09dq is what it already does; xp4s is a small change to add there |
+| B | [Sync](#b-sync-0001) | #0001, #0022, 2026111209dq, 20261112xp4s | nothing | **Built** in PR #12, together with [the two follow-up decisions](#decided-while-pr-12-was-open-2026111209dq-20261112xp4s): 09dq is what it already did, and xp4s is commit `b672fe1` |
 | C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | Alongside B; before PR 2, which builds on #0010's Neither panel and #0011's notes on decided cards |
 | D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part), 202611116ff6 (`pending` and `validate`) | PR #7 (it edits `card-format.md` and `SKILL.md`) | Before or with C and PR 2; `chat` must exist before PR 2 writes it |
-| E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj | C (#0010's panel, #0011's notes on decided cards), D (`chat` type); [Needs a card](#needs-a-card) 2, for the part it blocks | After C and D |
-| F | [Rename the command to `preside`](#f-rename-the-command-to-preside-0016-20261111dmvt) (agent-facing: the CLI, the skill and every printed command) | #0016, 20261111dmvt | A2 (both edit `SKILL.md`). The npm placeholder is published by the human (an agent prepares it); no card orders it against F, but the name check is repeated right before publishing | At a moment with no other pull request open, since it touches about 200 lines everywhere; ideally before E, which adds new printed commands |
+| E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj | C (#0010's panel, #0011's notes on decided cards), D (`chat` type); [Needs a card](#needs-a-card) 2 and 3, for the parts they block | After C and D |
+| F | [Rename the command to `preside`](#f-rename-the-command-to-preside-0016-20261111dmvt) (agent-facing: the CLI, the skill and every printed command) | #0016, 20261111dmvt | A2 (both edit `SKILL.md`). The npm placeholder is published by the human (an agent prepares it). No card orders it against F; suggested: publish it before F merges (after repeating the name check), so the name F writes everywhere can't be taken meanwhile | At a moment with no other pull request open, since it touches about 200 lines everywhere; ideally before E, which adds new printed commands |
 | F2 | [Remove the `president` alias](#the-president-alias-and-when-it-ends) | 20261111dmvt | F | One month after F ships, or once every registered project's own docs and agent instructions use `preside`, whichever is later |
 
 Nothing here needs Sync to be built first: B is early because of #0022, not because the others
@@ -88,8 +90,15 @@ Card: [20261111st0c-agent-card-changes.md](../decisions/20261111st0c-agent-card-
 option `reviewed-main`: "New cards are reviewed by a fresh session and validated in the agent's
 worktree, then written into the main folder; rewrites go straight to the main folder with
 president update." An agent-facing pull request: it changes `skills/decision-cards/SKILL.md`
-(`docs/card-format.md` doesn't say where an agent writes a card). No code change is needed:
-`president validate` already works on a file in a worktree and prints no worktree warning.
+(`docs/card-format.md` doesn't say where an agent writes a card). Two things about step 2 for
+the skill to say (or for a small code change to fix, the implementer's call): `president
+validate` on a worktree's card prints "is not registered with the hub ... Register it: president
+add <worktree>", which the agent must ignore (never register a worktree); and it checks
+`depends_on` and duplicate ids against the worktree's `decisions/`, which lacks the main
+folder's uncommitted cards (every card delivered this way since the last Sync). So its warning
+there that a `depends_on` "is not a card in this project", for a card that exists in
+`<main>/decisions/`, is not a real problem, and only step 4's validate in the main folder is
+authoritative for ids and dependencies.
 
 - **#0022's line reads literally.** "Never commit card files in your pull request; Sync carries
   them" covers new cards and rewrites too, not only answers and `applied`. No pull request
@@ -113,15 +122,19 @@ president update." An agent-facing pull request: it changes `skills/decision-car
 - **Replace the skill's "Not decided yet" paragraph** under *The main folder, and card files in
   git* (and its interim "write new cards ... only in `<main>/decisions/`") with the rule above,
   and *Writing a card*, step 1 (which today says to write the file in `<main>/decisions/`
-  directly) and step 5, with the four steps. The id is still picked from the main folder's
-  list until D's dated ids (#0013) ship; with dated ids it doesn't depend on any folder.
+  directly, and whose duplicate-id sentence points at step 5's validate, now the copy's), step
+  5, and *Changing a card*'s last paragraph ("A new card has no human edits to lose: write its
+  file directly (`<main>/decisions/<id>-<slug>.md`)"), with the four steps. The id is still
+  picked from the main folder's list until D's dated ids (#0013) ship; with dated ids it
+  doesn't depend on any folder.
 - Cards the hub's own run rewrites (#0007) are written by the hub in the main folder; this card
   is only about cards agents write.
 - The card describes an agent in a worktree. For an agent working in the main folder itself,
   the same rule (the card reaches the human once it passes review) means the draft must sit
-  where the hub doesn't read it until then (outside `decisions/`, or under a name the hub
-  ignores: `docs/card-format.md` says files starting with `.` or `_` are ignored); which, is
-  the implementer's call (say it in the pull request).
+  where the hub doesn't read it until then: outside `decisions/` (for example in a scratch
+  folder), where `president validate <file>` checks it on its own. Not under a `.` or `_` name
+  inside `decisions/`: the hub ignores those, but `validate` refuses them ("is not a card
+  file"). Where exactly is the implementer's call (say it in the pull request).
 - Not adopted: the card's optional bookkeeping field (for example `reviewed: 2 rounds`), which
   "would show that a review ran, but nothing checks it". Adding one is the human's call.
 - Known costs the human accepted: the writing agent runs the review and decides when it is
@@ -232,10 +245,9 @@ Sync would then refuse whenever an agent has work in progress.
   hold or refuse card actions there until it finishes.
 - If `git push` fails, the answers stay in the local commit and the "not synced" count stays;
   show git's error. Pressing Sync again retries.
-- After a pull brings in the human's own answers from another machine, an open card currently
-  says "An agent changed this card while you had it open" (`src/web/views/CardView.tsx`),
-  because this hub didn't write it. Decided since: when this hub's Sync brought the change in,
-  the notice says so (20261112xp4s, [below](#decided-while-pr-12-was-open-2026111209dq-20261112xp4s)).
+- After a pull brings in a change to an open card, the card says "Sync just brought in a newer
+  version of this card from the online copy." (`src/web/views/CardView.tsx`; decided in card
+  `20261112xp4s`), not "An agent changed this card while you had it open".
 - Sync carries everything under `decisions/`: answers, notes, `applied_at` from agents
   (#0022), conversation summaries (#0003, #0023), `defer_until` (#0017) and `withdrawn` (#0014).
   Session ids, the hub's copy of conversations and the "not summarized" list never travel
@@ -289,8 +301,9 @@ text, and a picked option is cleared.
 - Accepted costs: the notice doesn't say whether it was you on the other machine, an agent or
   a merged pull request (the list of changes is the only clue); a change brought in some other
   way (`git pull` in a terminal) still says "An agent changed this card".
-- PR #12's roadmap text says this notice "is unchanged" and the suggestion "is not built";
-  update those lines when it is built.
+- Built in PR #12 (commit `b672fe1`), and its roadmap B describes it. Item 10 of PR #12's
+  description ("Not built: ... The notice still says 'An agent changed this card'") was written
+  before that commit.
 
 ## C. Queue and card UX
 
@@ -920,8 +933,8 @@ Card: [0007-neither-try-again.md](../decisions/0007-neither-try-again.md), optio
     the options unless you go on to discuss them; every "neither" starts or extends a stored
     conversation on this machine, even on a card you never chatted on.
   - Undoing Ask for new options stops the run (above). What happens to the turn already shown
-    and saved (your "Neither: ..." message and any partial reply) isn't fixed by a card; it is
-    the implementer's call, said in the pull request.
+    and saved (your "Neither: ..." message and any partial reply, which the resumed session has
+    already received) is not fixed by a card; see [Needs a card](#needs-a-card) 3.
 
 ### The chat never applies decisions (#0006)
 
@@ -1079,16 +1092,20 @@ only); the build PR named in brackets fixes each.
   session at once [E].
 - README and the skill, "Use `president`, not `npx president`": #0016 renames the command, to
   `preside` (20261111dmvt) [F].
-- The skill's "Not decided yet" paragraph (card changes outside an apply) and its interim rule
-  to write new cards straight into `<main>/decisions/`; *Writing a card*, step 1: 20261111st0c
-  has new cards reviewed in the agent's worktree first, then copied [A2].
-- foundations.md, *Engineering process*, "Every task ... ends in a PR": a task that only writes
-  cards now ends with them reviewed and copied into the main folder, with no pull request
-  (20261111st0c) [A2, when the skill changes].
+- The skill's "Not decided yet" paragraph (card changes outside an apply), its interim rule to
+  write new cards straight into `<main>/decisions/`, *Writing a card*, step 1, and *Changing a
+  card*'s "A new card has no human edits to lose: write its file directly
+  (`<main>/decisions/<id>-<slug>.md`)": 20261111st0c has new cards reviewed in the agent's
+  worktree first, then copied [A2].
+- The skill's pointer "(president's `docs/roadmap.md`, 'Needs a card' 1)": that item is now a
+  different question; the card it meant is 20261111st0c, decided [A2].
+- foundations.md, *Engineering process*, "Every task ... ends in a PR" and "the loop repeats
+  until **every** finding, non-blocking ones included, is fixed": a task that only writes cards
+  now ends with them reviewed in the agent's worktree and copied into the main folder, with no
+  pull request, and its review loop stops when nothing should-fix is left (20261111st0c) [A2,
+  when the skill changes].
 - The deferred card page, "Deferred. It stays out of the queue until reopened."
   (`CardView.tsx`): a deferred card without a date comes back at once (202611112hzh) [C].
-- PR #12's roadmap B, "The notice an open card shows after a pull ... is unchanged": 20261112xp4s
-  changes it after a Sync [B, PR #12].
 
 ## Needs a card
 
@@ -1117,3 +1134,8 @@ the notice after a pull was answered by 20261112xp4s.
    argue for the new pick before you reveal it? And in a conversation where you had revealed
    the old pick (so the chat is free there, by mby8's technical detail), is the chat neutral
    again about the new one until you press `r`? It blocks the prompt of the new-options run.
+3. **Undoing "Ask for new options" after the run's turn is in the conversation** (202611111gpm
+   with #0007 and #0012). The note is undone and the run stopped, but your "Neither: ..."
+   message (and any partial reply) is already in the panel, in the hub's copy and in the Claude
+   Code session it resumed. Remove it from the panel (the session still remembers it), keep it
+   marked "undone", or something else? It blocks only the Undo part of the new-options run.
