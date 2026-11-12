@@ -31,6 +31,7 @@ import { DECISIONS_DIR, findByPath, type Project, Registry } from "../server/reg
 
 import { CARD_FORMAT_DOC, DEMO_SOURCE, type Output } from "./main.ts";
 import { shellQuote } from "./shell.ts";
+import { linkedWorktree } from "./worktree.ts";
 
 export async function add(args: string[], out: Output): Promise<number> {
   const { values, positionals } = parseArgs({
@@ -39,6 +40,8 @@ export async function add(args: string[], out: Output): Promise<number> {
     options: { name: { type: "string" }, create: { type: "boolean" } },
   });
   const path = resolve(single(positionals, "add <path>"));
+  // A hint, not a refusal: the human may register a worktree on purpose.
+  await warnIfWorktree(path, out);
   if (
     !values.create &&
     (await isDirectory(path)) &&
@@ -229,6 +232,8 @@ export async function pending(args: string[], out: Output): Promise<number> {
     allowPositionals: true,
     options: { json: { type: "boolean" } },
   });
+  // Before projectAt's "not registered" note, which would suggest registering the worktree.
+  await warnIfWorktree(resolve(positionals[0] ?? "."), out);
   const project = await projectAt(positionals[0] ?? ".", out);
   const { cards, broken, warnings, error } = await loadProjectCards(project);
   if (error) throw new UserError(error);
@@ -612,6 +617,7 @@ async function cardAt(file: string, out: Output): Promise<{ project: Project; ca
     throw new UserError(`"${file}" is not a card file inside a ${DECISIONS_DIR}/ folder`);
   }
   const dir = dirname(dirname(file));
+  await warnIfWorktree(dir, out);
   const project = { name: basename(dir), path: dir };
   const exists = (await stat(file).catch(() => undefined))?.isFile() ?? false;
   const found = await findCard(project, name.id).catch((error: unknown) => {
@@ -673,7 +679,39 @@ async function projectAt(path: string, out: Output): Promise<Project> {
 
 function noDecisionsError(dir: string, more = ""): UserError {
   return new UserError(
-    `${dir} has no ${DECISIONS_DIR}/ folder. Run this from the project root (the folder that contains ${DECISIONS_DIR}/).${more}`,
+    `${dir} has no ${DECISIONS_DIR}/ folder. Run this in the project's main folder (the one that contains ${DECISIONS_DIR}/), not in a git worktree.${more}`,
+  );
+}
+
+/**
+ * A warning, not an error: in a git worktree `decisions/` is the worktree's own copy, so an
+ * agent there misses the human's answers and marks only that copy (#0022). None for a
+ * worktree registered with the hub, since the rule is "the registered folder": with a bare
+ * repository, every checkout is a worktree, and the registered one is the main folder.
+ */
+async function warnIfWorktree(dir: string, out: Output): Promise<void> {
+  const worktree = await linkedWorktree(dir);
+  if (worktree === undefined) return;
+  const projects = await new Registry().list().catch(() => []);
+  const registered = async (folder: string) =>
+    (await findByPath(projects, await realpath(folder).catch(() => folder))) !== undefined;
+  if (await registered(dir)) return;
+  // The registered checkout, else the main one (none when the repository is bare).
+  let main = worktree.main;
+  for (const checkout of worktree.checkouts) {
+    if (await registered(checkout)) {
+      main = checkout;
+      break;
+    }
+  }
+  const instead =
+    main !== undefined
+      ? `Give president commands paths in the project's main folder instead (${main}), and don't register a worktree with president add.`
+      : worktree.bare
+        ? "The repository is bare, so every checkout is a worktree, and none is registered with president: ask the human which one is the project's main folder."
+        : "Give president commands paths in the project's main folder instead (the folder registered with president), and don't register a worktree with president add.";
+  out.error(
+    `president: warning: ${dir} is in a git worktree, which has its own copy of ${DECISIONS_DIR}/: the human's answers are not in it, and this command reads or marks only that copy. ${instead}`,
   );
 }
 
