@@ -24,7 +24,8 @@ are in [Needs a card](#needs-a-card).
 Later on 2026-11-12: the three cards of batch 4 (20261112l9vh, 2026111272fu, 20261112160s),
 which answered the three questions [Needs a card](#needs-a-card) then held, are decided too,
 each with its recommended option and no note. l9vh is new work for B, in a follow-up pull
-request (row B2); 72fu and 160s are part of E.
+request (row B2); 72fu and 160s are part of E. 160s leaves one new question, about a second
+tab, now [Needs a card](#needs-a-card) 1.
 
 ## Build plan
 
@@ -365,23 +366,29 @@ merged code, since PR #12 changed after that):
 - `SyncControl` (`src/web/components/Sync.tsx`) shows one line per project with
   `skippedUnsynced > 0`.
 
-**Merging with PR #12.** PR #12 branched from an older main (`03efd6f`) and edits this file's
-status line, build-plan row B and section B (it marks B built and adds the list of details it
-settled). Main has since rewritten the same lines (PRs #13 and #14 and this one), so PR #12
-will meet conflicts here when it is rebased or merged. Resolve them by keeping both: PR #12's
-"Built" description and its list of settled details, and main's rows, the "Decided while PR 12
-was open" section and this B2 section. PR #12's own text says a skipped project shows no count;
-that stays true of PR #12 and B2 changes it.
+**Merging with PR #12.** PR #12 branched from an older main (`03efd6f`). Checked with
+`git merge-tree` against `origin/feat/sync` at `6201eaa`: the only conflict in this file is the
+build-plan table, because PR #12 carries the table as it was before PRs #11, #13 and #14.
+Resolve it by keeping main's table as it is: its B row already says "Built in PR #12", and
+PR #12's side has no row to add (its A, E and F rows point at questions that have been
+answered since). Section B merges without a conflict, keeping both PR #12's "Built" paragraph
+with its list of settled details and main's "Decided while PR 12 was open" text. The
+2026-11-11 status line also merges silently, to PR #12's "B (Sync) is built"; put back main's
+"none of this is built", since the 2026-11-12 update below it is the one that says B is
+built. Recheck after PR #12's next round, which may change these lines again. PR #12 leaves a
+skipped project's answers out of every count; B2 adds them on a line of their own.
 
 **Projects with submodules.** PR #12's next review round (not on `origin/feat/sync` when this
 was written) also skips a project whose repository has git submodules ("Not synced: web is
 skipped because it has git submodules"), at Sync time rather than in `Repo.unavailable()`. If it
 merges that way, such a project is a project Sync skips, which is what this card's question and
-`count-apart` are about ("per skipped project"), so B2 covers it too: its count belongs on its
-own line, not in the button's number. In that version `repoStatus` still adds such a project's
-answers to `unsynced`, because `unavailable()` doesn't see the submodules, so B2 must move them
-out (the project is its own repository, so `localCardChanges` with its upstream works as
-usual). The line's wording comes from the card's example; "(Sync skips it)" fits both reasons.
+`count-apart` are about ("per skipped project"), so B2 covers it too: its count goes on its own
+line, never in the button's number. That round should already leave such a project out of
+`unsynced`, as PR #12 does for every other skipped project, because the button's number means
+"what pressing Sync will send or bring in". If it merges with them still in `unsynced`
+(`unavailable()` doesn't see submodules), B2 moves them out. Either way B2 counts them for the
+line with `localCardChanges` and the project's own upstream, since the project is its own
+repository. The line's wording comes from the card's example; "(Sync skips it)" fits both reasons.
 
 ## C. Queue and card UX
 
@@ -772,8 +779,9 @@ Teach me, More info and your questions.
     pick until you press `r` on the new options, even one in which you had revealed the old
     pick and the chat had been free. One rule for every pick a card ever has. The page treats
     it the same way (the card's reasoning: "hidden on the page and in the chat until you press
-    r, wherever you had got to with the old one"), so a pick you revealed during this visit
-    doesn't make the new one show.
+    r, wherever you had got to with the old one"; 20261111nsaj's `visit` already keeps the
+    reveal as "state in the card view, reset when the card changes"), so a pick you revealed
+    during this visit doesn't make the new one show.
   - **How** (the card's technical detail): the per-conversation "revealed" flag, kept per
     machine (for example next to the session id of #0021), records which recommendation was
     revealed, for example a hash of `recommendation`. When the hub writes new options, the flag
