@@ -17,6 +17,10 @@
  *   POST   /api/chats/:project/:id/summary   { revealed?, revision? }  the session's summary,
  *                                            for the human to edit; saving it is the "chat"
  *                                            card action (or "resolve" with `summary`)
+ *   POST   /api/chats/:project/:id/new-options  { note, revealed?, revision? }  starts the run
+ *                                            that writes new options from the "neither" note
+ *                                            recorded at `note` (#0007): when the page's Undo
+ *                                            notice closes, Start now, or Try again
  *   GET    /api/sync                         per project: answers not synced, card changes on
  *                                            the remote, the last Sync's result (sync.ts)
  *   POST   /api/sync                         {}  runs Sync in every project; answers when done
@@ -44,6 +48,7 @@ import type {
   CardResponse,
   ChatStreamEvent,
   LiveMessage,
+  StartNewOptionsResponse,
 } from "../core/api.ts";
 import { CARD_ID_PATTERN, CARD_STATUSES, formatIssues } from "../core/schema.ts";
 import {
@@ -100,6 +105,8 @@ const ChatMessageSchema = z.object({
 
 const ChatSummarySchema = ChatMessageSchema.omit({ text: true });
 
+const NewOptionsSchema = ChatSummarySchema.extend({ note: z.string().min(1) });
+
 const ListQuerySchema = z.object({
   project: z.string().optional(),
   status: z.enum(CARD_STATUSES).optional(),
@@ -111,6 +118,8 @@ export function createApp(options: AppOptions): Hono {
   const sync = options.sync ?? new SyncService(registry, bus);
   const chat = options.chat ?? new ChatService(registry, bus);
   const writes = new PresidentWrites();
+  // The new-options run writes the card like any write: never while Sync runs there.
+  chat.setCardWriter((project, write) => sync.writeCard(project, write));
   const app = new Hono();
 
   app.use("*", localOnly());
@@ -216,6 +225,8 @@ export function createApp(options: AppOptions): Hono {
     if (action.type === "chat" || (action.type === "resolve" && action.summary)) {
       await chat.summarySaved(project, card.id, card.revision);
     }
+    // Ask for new options (#0007): the run is "to start" until the page's Undo notice closes.
+    if (action.type === "neither") await chat.newOptionsAsked(project, card);
     // The watcher will notice too; emitting now makes other tabs update immediately.
     bus.emit({ type: "cards", project: project.name });
     return c.json({ ok: true, card: toCardDetailDto(card, true) } satisfies CardResponse);
@@ -224,8 +235,9 @@ export function createApp(options: AppOptions): Hono {
   api.post("/cards/:project/:id/undo", async (c) => {
     const project = await requireProject(registry, c.req.param("project"));
     const { revision } = parseBody(RevisionSchema, await readJson(c.req.raw));
-    const card = await sync.writeCard(project, () =>
-      undoLastAction(project, c.req.param("id"), revision),
+    const id = c.req.param("id");
+    const card = await chat.undoing(project, id, (check) =>
+      sync.writeCard(project, () => undoLastAction(project, id, revision, check)),
     );
     writes.record(card.path, revision, card.revision);
     await chat.undone(revision);
@@ -276,6 +288,17 @@ export function createApp(options: AppOptions): Hono {
     const project = await requireProject(registry, c.req.param("project"));
     const input = parseBody(ChatSummarySchema, await readJson(c.req.raw));
     return c.json(await chat.summarize(project, cardId(c.req.param("id")), input));
+  });
+
+  api.post("/chats/:project/:id/new-options", async (c) => {
+    const project = await requireProject(registry, c.req.param("project"));
+    const input = parseBody(NewOptionsSchema, await readJson(c.req.raw));
+    const body: StartNewOptionsResponse = await chat.startNewOptions(
+      project,
+      cardId(c.req.param("id")),
+      input,
+    );
+    return c.json(body);
   });
 
   api.get("/sync", async (c) => c.json(await sync.status()));

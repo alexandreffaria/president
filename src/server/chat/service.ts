@@ -19,20 +19,30 @@
  */
 import { randomUUID } from "node:crypto";
 import { readdir } from "node:fs/promises";
-import { timestamp } from "../../core/actions.ts";
+import { z } from "zod";
+import { type CardActionType, timestamp } from "../../core/actions.ts";
 import type {
   ChatDto,
   ChatMessageDto,
   ChatStreamEvent,
   ChatSummaryResponse,
+  NewOptionsRunDto,
+  StartNewOptionsResponse,
 } from "../../core/api.ts";
 import { parseCardFileName } from "../../core/card-file.ts";
-import { findCard, isIgnoredFile, type LoadedCard } from "../cards.ts";
+import { newOptionsFailure } from "../../core/new-options.ts";
+import type { RawFrontmatter } from "../../core/schema.ts";
+import { replaceOptionSections } from "../../core/sections.ts";
+import { findCard, isIgnoredFile, type LoadedCard, rewriteCard } from "../cards.ts";
 import { UserError } from "../errors.ts";
-import { isNotFound } from "../fs-utils.ts";
+import { isNotFound, KeyedMutex } from "../fs-utils.ts";
 import { decisionsDirOf, type Project, type Registry } from "../registry.ts";
 import type { EventBus } from "../watcher.ts";
 import {
+  lastNeither,
+  newOptionsRequest,
+  newOptionsSchema,
+  optionsHash,
   pickHash,
   pickLine,
   sessionInstructions,
@@ -48,7 +58,55 @@ import {
   runClaude,
   transcriptExists,
 } from "./runner.ts";
-import { type CardKey, ChatStore, defaultStateDir, type SessionEntry } from "./store.ts";
+import {
+  type CardKey,
+  ChatStore,
+  defaultStateDir,
+  type NewOptionsRecord,
+  type SessionEntry,
+} from "./store.ts";
+
+/**
+ * Writes a card through whatever guards the hub's writes (Sync refuses them while it runs in
+ * the project); `write` does the writing.
+ */
+export type CardWriter = (
+  project: Project,
+  write: () => Promise<LoadedCard>,
+) => Promise<LoadedCard>;
+
+/** The `--json-schema` answer of a new-options run (prompts.ts newOptionsSchema). */
+const NewOptionsAnswer = z.object({
+  message: z.string().trim().min(1),
+  options: z
+    .array(
+      z.object({
+        id: z.string(),
+        title: z.string(),
+        summary: z.string(),
+        pros: z.array(z.string()),
+        cons: z.array(z.string()),
+        details: z.string(),
+      }),
+    )
+    .min(1),
+  recommendation: z.object({ option: z.string(), why: z.string() }),
+});
+
+/** Whether the card still waits for new options on the note recorded at `note`. */
+function waitsOn(card: LoadedCard, note: string): boolean {
+  return (
+    card.frontmatter.status !== "resolved" &&
+    card.frontmatter.needs_new_options === true &&
+    lastNeither(card)?.at === note
+  );
+}
+
+/** A reason as a clause after a colon: "The run failed." becomes "the run failed". */
+function clause(text: string): string {
+  const trimmed = text.trim().replace(/\.$/, "");
+  return /^[A-Z][a-z]/.test(trimmed) ? trimmed[0]?.toLowerCase() + trimmed.slice(1) : trimmed;
+}
 
 /** How long a copy is kept after its card or project was first found gone (202611114wet). */
 export const KEEP_MISSING_MS = 30 * 24 * 3600 * 1000;
@@ -123,8 +181,18 @@ export class ChatService {
   readonly #env: NodeJS.ProcessEnv | undefined;
   readonly #timeoutMs: number | undefined;
   readonly #now: () => Date;
-  /** Cards with a run going on (a reply or a summary): one at a time per card. */
+  /** Cards with a run going on (a reply, a summary, new options): one at a time per card. */
   readonly #running = new Map<string, ChatRun | "summary">();
+  /** Who waits for a card's run to end (#whenIdle). */
+  readonly #waiters = new Map<string, (() => void)[]>();
+  /**
+   * New-options runs started and not ended (they may still wait for the card's other run),
+   * by card. A message sent meanwhile goes to the session after the run (20261112160s).
+   */
+  readonly #newOptions = new Map<string, Promise<void>>();
+  /** One at a time per card: recording a note, starting its run, undoing it (20261112dfik). */
+  readonly #runLock = new KeyedMutex();
+  #writeCard: CardWriter = (_project, write) => write();
   /** Card revisions written by saving a summary, with what to put back if that is undone. */
   readonly #summaryWrites = new Map<string, { key: CardKey; before: SessionEntry | undefined }>();
   /** How many messages the summary last offered for a card covers. */
@@ -143,6 +211,11 @@ export class ChatService {
     this.#now = options.now ?? (() => new Date());
   }
 
+  /** How the new-options run writes the card (the app passes Sync's guard). */
+  setCardWriter(writer: CardWriter): void {
+    this.#writeCard = writer;
+  }
+
   /** Cleans up now and once a day (202611114wet). */
   start(): void {
     const run = () =>
@@ -156,29 +229,79 @@ export class ChatService {
   async close(): Promise<void> {
     clearInterval(this.#cleanupTimer);
     this.#abort.abort();
-    await Promise.all(
-      [...this.#running.values()].map((run) => (run === "summary" ? undefined : run.done)),
-    );
+    await Promise.all([
+      ...[...this.#running.values()].map((run) => (run === "summary" ? undefined : run.done)),
+      ...this.#newOptions.values(),
+    ]);
   }
 
   async conversation(project: Project, id: string): Promise<ChatDto> {
     const key = { project: project.name, id };
     const [messages, entry] = await Promise.all([this.store.messages(key), this.store.entry(key)]);
+    const newOptions =
+      entry?.newOptions && (await this.#visibleRun(project, key, entry.newOptions));
     return {
       messages,
       unsummarized: entry?.unsummarized === true,
       remembers: !entry?.session || (await transcriptExists(this.#claudeDir, entry.session)),
-      running: this.#running.has(keyName(key)),
+      running: this.#running.has(keyName(key)) || this.#newOptions.has(keyName(key)),
+      ...(newOptions ? { newOptions } : {}),
+    };
+  }
+
+  /**
+   * The record of the card's new-options run as the page shows it: only while it is about the
+   * card as it is now (the note is still the one the card waits on, or the options are still
+   * the ones the hub wrote).
+   */
+  async #visibleRun(
+    project: Project,
+    key: CardKey,
+    record: NewOptionsRecord,
+  ): Promise<NewOptionsRunDto | undefined> {
+    const found = await findCard(project, key.id).catch(() => undefined);
+    if (!found?.ok) return undefined;
+    const card = found.card;
+    if (record.state === "written") {
+      return record.options === optionsHash(card.frontmatter)
+        ? { note: record.note, state: "written" }
+        : undefined;
+    }
+    if (!waitsOn(card, record.note)) return undefined;
+    if (
+      record.state === "started" &&
+      !this.#newOptions.has(keyName(key)) &&
+      // Read again: the run may have ended (and saved how) while this was reading.
+      (await this.store.entry(key))?.newOptions?.state === "started" &&
+      !this.#newOptions.has(keyName(key))
+    ) {
+      // president stopped while it ran (the record is on disk, the run was in this process).
+      return {
+        note: record.note,
+        state: "failed",
+        error: "the run stopped when president was shut down",
+      };
+    }
+    return {
+      note: record.note,
+      state: record.state,
+      ...(record.error ? { error: record.error } : {}),
     };
   }
 
   /**
    * Sends the human's message to the card's session and returns the run, whose events the
-   * caller streams. Refused while another run on the card is going on.
+   * caller streams. Refused while another run on the card is going on, except a new-options
+   * run: the message then waits for it, so it reaches the session after the "Neither"
+   * message (20261112160s).
    */
   async send(project: Project, id: string, input: SendInput): Promise<ChatRun> {
-    const card = await this.#card(project, id);
+    let card = await this.#card(project, id);
     const key = { project: project.name, id: card.id };
+    if (this.#newOptions.has(keyName(key))) {
+      while (this.#newOptions.has(keyName(key))) await this.#newOptions.get(keyName(key));
+      card = await this.#card(project, id);
+    }
     const run = new ChatRun();
     this.#reserve(key, run);
     void this.#reply(project, card, key, input, run)
@@ -191,7 +314,7 @@ export class ChatService {
         });
       })
       .finally(() => {
-        this.#running.delete(keyName(key));
+        this.#release(key);
         this.#changed(key);
       });
     return run;
@@ -213,72 +336,18 @@ export class ChatService {
       run.emit({ type: "message", message });
     };
 
-    let resume = entry?.session && (await transcriptExists(this.#claudeDir, entry.session));
-    // A conversation existed (here, or on another machine: the card has its summaries) that
-    // this session won't remember.
-    const startsOver = () =>
-      Boolean(entry?.session) || card.frontmatter.feedback.some((f) => f.type === "chat");
-    let startOver = !resume && startsOver();
-    if (startOver) await save(this.#startOverNotice());
-    await save(this.#message("you", input.text));
-
-    let revealed = resume ? (revealedNow ?? entry?.revealed) : revealedNow;
     const texts: string[] = [];
-    let entryWrite: Promise<unknown> = Promise.resolve();
-    const attempt = async (): Promise<RunResult> => {
-      const session = resume && entry?.session ? entry.session : randomUUID();
-      const message = withPickLine(
-        pickLine(card, revealed),
-        startOver ? `${startOverNote(card)}\n\n${input.text}` : input.text,
-      );
-      if (resume) {
-        await this.store.updateEntry(key, (e) => ({
-          ...e,
-          session,
-          ...(revealed ? { revealed } : {}),
-        }));
-      }
-      return this.#run(
-        {
-          cwd: project.path,
-          session: resume ? { resume: session } : { start: session },
-          message,
-          appendSystemPrompt: resume ? undefined : sessionInstructions(card),
-        },
-        {
-          // A new session replaces this machine's entry once Claude Code has it; a new
-          // conversation starts neutral about the pick (it hasn't named it).
-          onStarted: () => {
-            if (resume) return;
-            entryWrite = this.store
-              .updateEntry(key, (e) => {
-                const next: SessionEntry = { ...e, session };
-                if (revealed) next.revealed = revealed;
-                else delete next.revealed;
-                return next;
-              })
-              .catch((error) => console.error("[chat]", error));
-          },
-          onText: (text) => {
-            texts.push(text);
-            run.emit({ type: "text", text });
-          },
-          onActivity: (text) => run.emit({ type: "activity", text }),
-        },
-      );
-    };
-
-    let result = await attempt();
-    if (!result.ok && resume && result.sessionNotFound) {
-      // Claude Code deleted it between the check and the run.
-      resume = false;
-      revealed = revealedNow;
-      startOver = true;
-      await save(this.#startOverNotice());
-      result = await attempt();
-    }
-    // The new session's entry is written before the run is reported done.
-    await entryWrite;
+    const result = await this.#converse(project, card, key, entry, {
+      text: input.text,
+      revealedNow,
+      notice: save,
+      first: () => save(this.#message("you", input.text)),
+      onText: (text) => {
+        texts.push(text);
+        run.emit({ type: "text", text });
+      },
+      onActivity: (text) => run.emit({ type: "activity", text }),
+    });
 
     const text = texts.join("\n\n").trim() || result.text;
     let reply: ChatMessageDto | undefined;
@@ -295,6 +364,322 @@ export class ChatService {
       await this.store.append(key, message);
       run.emit({ type: "error", error, message });
     }
+  }
+
+  /**
+   * One turn of the card's session: resumes it, or starts one (with an id chosen up front,
+   * kept in this machine's entry once Claude Code has it), starting over from the card and
+   * its summaries when Claude Code no longer has the conversation. `first` saves the human's
+   * message, after the start-over notice when there is one; `text` goes to the session after
+   * the pick line.
+   */
+  async #converse(
+    project: Project,
+    card: LoadedCard,
+    key: CardKey,
+    entry: SessionEntry | undefined,
+    turn: {
+      text: string;
+      /** The pick the page says the human revealed with this message (pickHash). */
+      revealedNow: string | undefined;
+      jsonSchema?: string;
+      /** Saves a line from president (the start-over notice). */
+      notice: (message: ChatMessageDto) => Promise<void>;
+      first: () => Promise<void>;
+      onText?: (text: string) => void;
+      onActivity?: (text: string) => void;
+    },
+  ): Promise<RunResult> {
+    let resume = entry?.session && (await transcriptExists(this.#claudeDir, entry.session));
+    // A conversation existed (here, or on another machine: the card has its summaries) that
+    // this session won't remember.
+    const startsOver = () =>
+      Boolean(entry?.session) || card.frontmatter.feedback.some((f) => f.type === "chat");
+    let startOver = !resume && startsOver();
+    if (startOver) await turn.notice(this.#startOverNotice());
+    await turn.first();
+
+    let revealed = resume ? (turn.revealedNow ?? entry?.revealed) : turn.revealedNow;
+    let entryWrite: Promise<unknown> = Promise.resolve();
+    const attempt = async (): Promise<RunResult> => {
+      const session = resume && entry?.session ? entry.session : randomUUID();
+      const message = withPickLine(
+        pickLine(card, revealed),
+        startOver ? `${startOverNote(card)}\n\n${turn.text}` : turn.text,
+      );
+      if (resume) {
+        await this.store.updateEntry(key, (e) => ({
+          ...e,
+          session,
+          ...(revealed ? { revealed } : {}),
+        }));
+      }
+      return this.#run(
+        {
+          cwd: project.path,
+          session: resume ? { resume: session } : { start: session },
+          message,
+          appendSystemPrompt: resume ? undefined : sessionInstructions(card),
+          jsonSchema: turn.jsonSchema,
+        },
+        {
+          // A new session replaces this machine's entry once Claude Code has it; a new
+          // conversation starts neutral about the pick (it hasn't named it).
+          onStarted: () => {
+            if (resume) return;
+            entryWrite = this.store
+              .updateEntry(key, (e) => {
+                const next: SessionEntry = { ...e, session };
+                if (revealed) next.revealed = revealed;
+                else delete next.revealed;
+                return next;
+              })
+              .catch((error) => console.error("[chat]", error));
+          },
+          ...(turn.onText ? { onText: turn.onText } : {}),
+          ...(turn.onActivity ? { onActivity: turn.onActivity } : {}),
+        },
+      );
+    };
+
+    let result = await attempt();
+    if (!result.ok && resume && result.sessionNotFound) {
+      // Claude Code deleted it between the check and the run.
+      resume = false;
+      revealed = turn.revealedNow;
+      startOver = true;
+      await turn.notice(this.#startOverNotice());
+      result = await attempt();
+    }
+    // The new session's entry is written before the run is reported done.
+    await entryWrite;
+    return result;
+  }
+
+  /**
+   * The human said "neither" and asked for new options (#0007): the hub records the run as
+   * "to start" (20261112160s). Nothing reaches the session until a page starts it.
+   */
+  async newOptionsAsked(project: Project, card: LoadedCard): Promise<void> {
+    const note = lastNeither(card);
+    if (!note) return;
+    const key = { project: project.name, id: card.id };
+    await this.#runLock.run(keyName(key), () =>
+      this.store.updateEntry(key, (e) => ({
+        ...e,
+        newOptions: { note: note.at, state: "to-start" },
+      })),
+    );
+    this.#changed(key);
+  }
+
+  /**
+   * Undoes a card action (`undo`, given the check to pass to undoLastAction) one after the
+   * other with starting runs: a "neither" whose run already started is refused (20261112dfik
+   * `refuse-undo`), and one undone in time loses its "to start" record, so no run ever starts
+   * for it.
+   */
+  async undoing<T>(
+    project: Project,
+    id: string,
+    undo: (check: (action: CardActionType) => void) => Promise<T>,
+  ): Promise<T> {
+    const key = { project: project.name, id };
+    return this.#runLock.run(keyName(key), async () => {
+      const record = (await this.store.entry(key))?.newOptions;
+      let neither = false;
+      const result = await undo((action) => {
+        if (action !== "neither") return;
+        neither = true;
+        if (record && record.state !== "to-start") {
+          throw new UserError("the run for this note already started from another tab", {
+            status: 409,
+            code: "run_started",
+          });
+        }
+      });
+      if (neither && record) {
+        await this.store.updateEntry(key, (e) => {
+          if (!e) return e;
+          const { newOptions: _, ...rest } = e;
+          return rest;
+        });
+        this.#changed(key);
+      }
+      return result;
+    });
+  }
+
+  /**
+   * Starts the run that writes new options from the note recorded at `input.note`: when the
+   * page's Undo notice closes, on Start now in another page (20261112dfik), or on Try again
+   * after a failed run (202611111gpm). Starts at most one run per note, and none for a note
+   * undone or no longer the one the card waits on; `started: false` then. The run itself goes
+   * on after this returns.
+   */
+  async startNewOptions(
+    project: Project,
+    id: string,
+    input: { note: string; revealed?: boolean | undefined; revision?: string | undefined },
+  ): Promise<StartNewOptionsResponse> {
+    const card = await this.#card(project, id);
+    const key = { project: project.name, id: card.id };
+    const k = keyName(key);
+    return this.#runLock.run(k, async () => {
+      const current = await this.#card(project, id);
+      const entry = await this.store.entry(key);
+      const record = entry?.newOptions;
+      if (
+        !record ||
+        record.note !== input.note ||
+        record.state === "written" ||
+        // Going on now. A "started" record without a run is one president was shut down
+        // during: it can be tried again.
+        this.#newOptions.has(k) ||
+        !waitsOn(current, record.note)
+      ) {
+        return { started: false };
+      }
+      const revealedNow =
+        input.revealed && input.revision === current.revision ? pickHash(current) : undefined;
+      const retry =
+        record.state === "failed"
+          ? record.error
+          : record.state === "started"
+            ? "the run stopped when president was shut down"
+            : undefined;
+      let done!: () => void;
+      this.#newOptions.set(
+        k,
+        new Promise<void>((resolve) => {
+          done = resolve;
+        }),
+      );
+      try {
+        await this.store.updateEntry(key, (e) => ({
+          ...e,
+          newOptions: { note: record.note, state: "started" },
+        }));
+      } catch (error) {
+        this.#newOptions.delete(k);
+        done();
+        throw error;
+      }
+      void this.#writeNewOptions(project, key, record.note, retry, revealedNow)
+        .catch(async (error: unknown) => {
+          console.error("[chat]", error);
+          await this.#newOptionsFailed(key, record.note, "internal error; see the server log");
+        })
+        .finally(() => {
+          this.#newOptions.delete(k);
+          done();
+          this.#changed(key);
+        });
+      this.#changed(key);
+      return { started: true };
+    });
+  }
+
+  async #writeNewOptions(
+    project: Project,
+    key: CardKey,
+    note: string,
+    retry: string | undefined,
+    revealedNow: string | undefined,
+  ): Promise<void> {
+    await this.#whenIdle(key);
+    const run = new ChatRun();
+    this.#reserve(key, run);
+    try {
+      const card = await this.#card(project, key.id);
+      const neither = lastNeither(card);
+      // Decided, undone or rewritten by an agent while the run waited: nothing to write.
+      if (!neither || !waitsOn(card, note)) {
+        await this.#clearRecord(key, note);
+        return;
+      }
+      const entry = await this.store.entry(key);
+      const save = async (message: ChatMessageDto) => {
+        await this.store.append(key, message);
+        this.#changed(key);
+      };
+      const result = await this.#converse(project, card, key, entry, {
+        text: newOptionsRequest(card, neither, retry),
+        revealedNow,
+        jsonSchema: JSON.stringify(newOptionsSchema(card)),
+        notice: save,
+        first: () =>
+          save(
+            retry
+              ? this.#message(
+                  "hub",
+                  `Trying again to write new options from your note at ${neither.at}.`,
+                )
+              : this.#message("you", `Neither: ${neither.note}`),
+          ),
+      });
+
+      let failure: string | undefined;
+      let written: LoadedCard | undefined;
+      let message = "";
+      if (!result.ok) {
+        failure = clause(result.error ?? "the run failed");
+      } else {
+        const answer = NewOptionsAnswer.safeParse(result.structured);
+        if (!answer.success) {
+          failure =
+            result.structured === undefined
+              ? "the agent answered without the options"
+              : "the agent's answer wasn't in the expected form";
+        } else {
+          message = answer.data.message.trim();
+          try {
+            written = await this.#writeCard(project, () =>
+              rewriteCard(project, key.id, card, newCardContent(card, answer.data)),
+            );
+          } catch (error) {
+            if (!(error instanceof UserError)) throw error;
+            failure = clause(error.message);
+          }
+        }
+      }
+
+      if (written) {
+        const hash = optionsHash(written.frontmatter);
+        await this.store.append(
+          key,
+          this.#message("agent", `${message}\n\n(The options are now on the card.)`),
+        );
+        // A run doesn't make the conversation "not summarized" (202611111gpm
+        // `shown-no-reminder`), and a pick revealed before is not the new one (2026111272fu).
+        await this.store.updateEntry(key, (e) => ({
+          ...e,
+          ...(e?.revealed ? { revealed: "replaced" } : {}),
+          newOptions: { note, state: "written", options: hash },
+        }));
+        this.#bus.emit({ type: "cards", project: project.name });
+      } else {
+        await this.#newOptionsFailed(key, note, failure ?? "the run failed");
+      }
+    } finally {
+      run.emit({ type: "done", message: undefined });
+      this.#release(key);
+    }
+  }
+
+  async #newOptionsFailed(key: CardKey, note: string, error: string): Promise<void> {
+    await this.store.append(key, this.#message("hub", newOptionsFailure(error)));
+    await this.store.updateEntry(key, (e) =>
+      e?.newOptions?.note === note ? { ...e, newOptions: { note, state: "failed", error } } : e,
+    );
+  }
+
+  async #clearRecord(key: CardKey, note: string): Promise<void> {
+    await this.store.updateEntry(key, (e) => {
+      if (e?.newOptions?.note !== note) return e;
+      const { newOptions: _, ...rest } = e;
+      return rest;
+    });
   }
 
   /**
@@ -359,7 +744,7 @@ export class ChatService {
       this.#offered.set(keyName(key), messages.length);
       return { summary, fromCopy };
     } finally {
-      this.#running.delete(keyName(key));
+      this.#release(key);
       this.#changed(key);
     }
   }
@@ -457,8 +842,27 @@ export class ChatService {
     this.#running.set(keyName(key), run);
   }
 
+  /** The card's run (a reply, a summary) ended: the next one may start. */
+  #release(key: CardKey): void {
+    this.#running.delete(keyName(key));
+    const waiting = this.#waiters.get(keyName(key)) ?? [];
+    this.#waiters.delete(keyName(key));
+    for (const wake of waiting) wake();
+  }
+
+  /** Waits until no run is going on for the card; reserve right after, with no await between. */
+  async #whenIdle(key: CardKey): Promise<void> {
+    while (this.#running.has(keyName(key))) {
+      await new Promise<void>((resolve) => {
+        const list = this.#waiters.get(keyName(key)) ?? [];
+        list.push(resolve);
+        this.#waiters.set(keyName(key), list);
+      });
+    }
+  }
+
   #run(
-    request: Pick<RunRequest, "cwd" | "session" | "message" | "appendSystemPrompt">,
+    request: Pick<RunRequest, "cwd" | "session" | "message" | "appendSystemPrompt" | "jsonSchema">,
     handlers: Parameters<typeof runClaude>[1] = {},
   ): Promise<RunResult> {
     return runClaude(
@@ -506,4 +910,35 @@ async function cardIds(project: Project): Promise<Set<string> | "unknown" | unde
   } catch (error) {
     return isNotFound(error) ? undefined : "unknown";
   }
+}
+
+/**
+ * The card with the run's options (#0007): `options`, their `## Option` sections and
+ * `recommendation` replaced, `needs_new_options` removed; everything else as the run read it.
+ */
+function newCardContent(
+  card: LoadedCard,
+  answer: z.output<typeof NewOptionsAnswer>,
+): { raw: RawFrontmatter; body: string } {
+  const raw: RawFrontmatter = {
+    ...card.raw,
+    options: answer.options.map(({ id, title, summary, pros, cons }) => ({
+      id,
+      title,
+      summary,
+      pros,
+      cons,
+    })),
+    recommendation: answer.recommendation,
+  };
+  delete raw.needs_new_options;
+  const body = replaceOptionSections(
+    card.body,
+    answer.options.map((option) => ({
+      id: option.id,
+      title: option.title,
+      markdown: option.details,
+    })),
+  );
+  return { raw, body };
 }

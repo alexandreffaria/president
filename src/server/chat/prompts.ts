@@ -9,9 +9,15 @@
  *   Claude Code records once per conversation and reuses on every resume.
  * - The summary request (#0003, #0024) and, when Claude Code no longer has the session, the
  *   hub's copy it is written from (20261111paot).
+ * - The new-options request after "neither" (#0007), with the `--json-schema` its answer
+ *   follows: a message for the conversation next to the options (202611111gpm), which never
+ *   names the new pick (2026111272fu `reset`).
  */
 import { createHash } from "node:crypto";
 import type { ChatMessageDto } from "../../core/api.ts";
+import { CUSTOM_CHOICE, OPTION_ID_PATTERN } from "../../core/model.ts";
+import { unseenFeedback } from "../../core/pending.ts";
+import type { FeedbackEntry, Frontmatter } from "../../core/schema.ts";
 import type { LoadedCard } from "../cards.ts";
 
 export function sessionInstructions(card: LoadedCard): string {
@@ -106,5 +112,111 @@ export function summaryFromCopy(
     summaryRequest(sinceLastSummary),
     "The conversation:",
     ...lines,
+  ].join("\n\n");
+}
+
+/** The card's latest "neither" note, the one a new-options run answers. */
+export function lastNeither(card: Pick<LoadedCard, "frontmatter">): FeedbackEntry | undefined {
+  return card.frontmatter.feedback.findLast((entry) => entry.type === "neither");
+}
+
+/** Which options and pick a card has, to tell the ones the hub wrote from later ones. */
+export function optionsHash(frontmatter: Pick<Frontmatter, "options" | "recommendation">): string {
+  return createHash("sha256")
+    .update(JSON.stringify([frontmatter.options, frontmatter.recommendation ?? null]))
+    .digest("hex")
+    .slice(0, 16);
+}
+
+/** How many options a card of this kind takes (the card checks, schema.ts; keys 1 to 9). */
+function optionCount(card: Pick<LoadedCard, "frontmatter">): { min: number; max: number } {
+  switch (card.frontmatter.kind) {
+    case "ab":
+      return { min: 2, max: 2 };
+    case "choice":
+      return { min: 2, max: 9 };
+    default:
+      return { min: 1, max: 9 };
+  }
+}
+
+/**
+ * The `--json-schema` of a new-options run: the message shown in the conversation, the
+ * options (each with its `## Option` section) and the new pick (202611111gpm).
+ */
+export function newOptionsSchema(card: Pick<LoadedCard, "frontmatter">): object {
+  const { min, max } = optionCount(card);
+  const text = { type: "string", minLength: 1 };
+  return {
+    type: "object",
+    properties: {
+      message: {
+        ...text,
+        description:
+          "For the human, shown in the conversation: how the new options answer their note. Never say which option you recommend.",
+      },
+      options: {
+        type: "array",
+        minItems: min,
+        maxItems: max,
+        items: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              pattern: OPTION_ID_PATTERN.source,
+              description: `A short lowercase slug such as "on-device"; not "${CUSTOM_CHOICE}".`,
+            },
+            title: text,
+            summary: { ...text, description: "One sentence." },
+            pros: { type: "array", items: text },
+            cons: { type: "array", items: text },
+            details: {
+              ...text,
+              description:
+                "Markdown for the option's own section on the card: what choosing it looks like in practice (an example, code, a sketch).",
+            },
+          },
+          required: ["id", "title", "summary", "pros", "cons", "details"],
+          additionalProperties: false,
+        },
+      },
+      recommendation: {
+        type: "object",
+        properties: {
+          option: { type: "string", description: "The id of the option you recommend." },
+          why: { ...text, description: "Why, in a few sentences." },
+        },
+        required: ["option", "why"],
+        additionalProperties: false,
+      },
+    },
+    required: ["message", "options", "recommendation"],
+    additionalProperties: false,
+  };
+}
+
+/**
+ * What a new-options run is asked (#0007): new options from the card and its unseen feedback,
+ * the "neither" note first. `retry` is why the previous attempt couldn't be written.
+ */
+export function newOptionsRequest(card: LoadedCard, note: FeedbackEntry, retry?: string): string {
+  const others = unseenFeedback(card.frontmatter).filter((entry) => entry !== note);
+  const { min, max } = optionCount(card);
+  const count = min === max ? `exactly ${min}` : `${min} to ${max}`;
+  return [
+    `Neither: the human rejected every option on this card and asked for new ones. Their note, at ${note.at}:`,
+    note.note,
+    ...(others.length > 0
+      ? [
+          "Their other notes since an agent last read the card:",
+          others.map((entry) => `- ${entry.type ?? "note"}, ${entry.at}: ${entry.note}`).join("\n"),
+        ]
+      : []),
+    ...(retry
+      ? [`Your previous answer couldn't be written to the card: ${retry}. Fix that this time.`]
+      : []),
+    `Read the card again (decisions/${card.fileName}), research what you need, and write new options that answer the note: ${count} options (the card's kind is "${card.frontmatter.kind}"), each with its own section, and your pick among them. They replace the card's options, their sections and its recommendation. president writes them to the card; you change nothing yourself.`,
+    "Your `message` is shown to the human in this conversation: explain how the new options answer the note; don't say which you recommend. Your pick goes only in `recommendation`, which the human sees only when they ask for it.",
   ].join("\n\n");
 }

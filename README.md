@@ -131,7 +131,7 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
    |---|---|
    | `1`–`9` (`a`/`b` on A/B cards) | select an option, then `Enter` to decide (optionally type why first) |
    | `r` | show the agent's pick (hidden until you ask, and again each time you come back to the card) |
-   | `n` | neither: reject all options with a note; an agent writes new ones. The same panel can also decide the card with what you typed as your own answer |
+   | `n` | neither: reject all options with a note; the card's own agent writes new ones right away, once the Undo notice closes. The same panel can also decide the card with what you typed as your own answer |
    | `m` | add a note without deciding; also works on a decided card (the decision stays) |
    | `c` | show or hide the conversation with the card's agent |
    | `d` | defer for a week: the card leaves the queue and comes back, marked "back from deferral", when the week is over |
@@ -168,6 +168,18 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
    project. When you're done, **Write summary**: the agent drafts a summary, you edit it, and
    what you save is added to the card's history as a conversation summary, which the project's
    working agent reads like a note. Until then the card reminds you it isn't summarized.
+
+   **Ask for new options** (the Neither panel) records your note, then, once its Undo notice
+   has closed, sends it to the card's agent as a message in that conversation: "Neither: ...",
+   marked "Sending when Undo closes" until then, so an Undo takes it back before the agent
+   ever sees it. The agent reads the project, researches, and answers with new options, which
+   president writes to the card with the same checks as `preside update` (nothing is written
+   if you changed the card meanwhile or the options don't pass the checks; the page says why
+   and offers **Try again**). The card then says "New options, written from your note at
+   21:00", with the new pick hidden like any other until you press `r`, also in the
+   conversation. The card stays in `preside pending` for the project's working agent, who
+   reads your note and options it didn't write. The same card open in another tab while the
+   Undo notice waits offers **Start now**; pressing it takes Undo away from the first tab.
 
    Notes (`m`) reach agents through `preside pending`, which lists notes they haven't read yet.
    An agent marks a card handled with a token from `pending` that records what it was shown, so

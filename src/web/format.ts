@@ -26,6 +26,14 @@ export function timeAgo(iso: string, now = Date.now()): string {
   return "just now";
 }
 
+const clock = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
+
+/** "21:00": the time of day, as in "your note at 21:00". */
+export function clockTime(iso: string): string {
+  const time = Date.parse(iso);
+  return Number.isNaN(time) ? iso : clock.format(time);
+}
+
 /** Full date (and time when the value has one), for tooltips. */
 export function fullDate(iso: string): string {
   const time = Date.parse(iso);

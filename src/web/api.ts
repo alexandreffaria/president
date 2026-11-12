@@ -12,6 +12,7 @@ import type {
   ChatDto,
   ChatStreamEvent,
   ChatSummaryResponse,
+  StartNewOptionsResponse,
   SyncRunResponse,
   SyncStatusResponse,
 } from "../core/api.ts";
@@ -146,6 +147,15 @@ export const api = {
     call<ChatSummaryResponse>(`/api/chats/${segment(project)}/${segment(id)}/summary`, {
       method: "POST",
       body: JSON.stringify(context),
+    }),
+  /**
+   * Starts the run that writes new options from the "neither" note recorded at `note`
+   * (#0007): when this page's Undo notice closes, Start now, Try again.
+   */
+  startNewOptions: (project: string, id: string, body: { note: string } & Partial<ChatContext>) =>
+    call<StartNewOptionsResponse>(`/api/chats/${segment(project)}/${segment(id)}/new-options`, {
+      method: "POST",
+      body: JSON.stringify(body),
     }),
   addProject: (input: AddProjectRequest) =>
     call<AddProjectResponse>("/api/projects", { method: "POST", body: JSON.stringify(input) }),

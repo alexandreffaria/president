@@ -22,6 +22,8 @@ import {
   UNDO_WINDOW_MS,
 } from "../../src/web/app-writes.ts";
 import { clearDrafts } from "../../src/web/drafts.ts";
+import { clearHeldUndos } from "../../src/web/new-options.ts";
+import { navigate } from "../../src/web/router.tsx";
 import { copyDemoProject, tempDir } from "../helpers.ts";
 
 // Not an act() environment: a reply streams in from a child process and the page refetches
@@ -343,5 +345,119 @@ describe("summaries", () => {
     expect(decidedRecently("demo", "0002", 1000 + UNDO_WINDOW_MS - 1)).toBe(true);
     expect(decidedRecently("demo", "0002", 1000 + UNDO_WINDOW_MS)).toBe(false);
     expect(decidedRecently("demo", "0001", 1000)).toBe(false);
+  });
+});
+
+describe("Neither: new options right away (#0007, 202611111gpm, 20261112160s, 20261112dfik)", () => {
+  const NOTE = "Both assume a server. Compare on-device storage only.";
+  const ANSWER = {
+    message: "Here are two on-device options.",
+    options: [
+      {
+        id: "indexeddb",
+        title: "IndexedDB",
+        summary: "In the browser's database.",
+        pros: ["No setup"],
+        cons: ["Can be cleared"],
+        details: "Uses `idb`.",
+      },
+      {
+        id: "files",
+        title: "Plain files",
+        summary: "One file per error.",
+        pros: ["Easy to back up"],
+        cons: ["No search"],
+        details: "Writes `errors/<time>.json`.",
+      },
+    ],
+    recommendation: { option: "files", why: "Simplest to back up." },
+  };
+  const script = (steps: object[]) =>
+    io(() => writeFile(join(fakeDir, "script.json"), JSON.stringify(steps)));
+  const dismissToast = () => {
+    const close = host.querySelector<HTMLButtonElement>(".toast-close");
+    if (!close) throw new Error(`no toast: ${text().slice(0, 600)}`);
+    close.click();
+  };
+
+  async function askForNewOptions() {
+    await open("/card/demo/0002");
+    await press("n");
+    await typeInto(host.querySelector("#panel-text"), NOTE);
+    await click("Ask for new options");
+    await until(() => text().includes("Asked for new options on #0002."), "the Undo notice");
+  }
+
+  beforeEach(() => clearHeldUndos());
+
+  it("shows the message as pending while Undo is offered, and runs when the notice closes", async () => {
+    await script([{ structured: ANSWER }]);
+    await askForNewOptions();
+    // Back on the card while the notice is still shown: nothing has reached the agent.
+    navigate("/card/demo/0002");
+    await until(() => text().includes(`Neither: ${NOTE}`), "the pending message");
+    expect(text()).toContain("Sending when Undo closes");
+    expect(button("Start now")).toBeUndefined();
+    expect(await calls()).toEqual([]);
+
+    dismissToast();
+    await until(() => text().includes("(The options are now on the card.)"), "the run's reply");
+    await until(() => text().includes("Plain files"), "the new options");
+    expect(text()).toMatch(/New options, written from your note at /);
+    expect(text()).not.toContain("Sending when Undo closes");
+    // The new pick stays hidden (#0008, 2026111272fu).
+    expect(button("Show the agent's pick")).toBeDefined();
+    expect((await calls())[0]?.args).toContain("--json-schema");
+  });
+
+  it("an Undo takes the message back, and nothing reaches the agent", async () => {
+    await askForNewOptions();
+    await press("u");
+    await until(() => text().includes("Undone. #0002 is back as it was"), "the undo");
+    await until(() => !text().includes(`Neither: ${NOTE}`), "the message to leave");
+    await until(
+      () => (host.querySelector("#panel-text") as HTMLTextAreaElement | null)?.value === NOTE,
+      "the note back in the Neither panel",
+    );
+    await pause();
+    expect(await calls()).toEqual([]);
+  });
+
+  it("another page offers Start now, and a failed run offers Try again", async () => {
+    await script([
+      { lines: [{ type: "result", subtype: "error_max_budget_usd", is_error: true }] },
+      { structured: ANSWER },
+    ]);
+    await askForNewOptions();
+    // A reload is another page: it doesn't hold the Undo notice.
+    clearHeldUndos();
+    await reload("/card/demo/0002");
+    await until(() => text().includes("hasn't started"), "the second-tab message");
+    expect(text()).toMatch(
+      /The run for your note at .+ hasn't started\. If another tab still shows its Undo notice, it starts when that closes\./,
+    );
+    await click("Start now");
+    await until(() => !!button("Try again"), "Try again");
+    expect(text()).toContain(
+      "Couldn't write new options: the run stopped at its spending cap ($1). The card waits for the project's agent, as before.",
+    );
+    await click("Try again");
+    await until(() => text().includes("(The options are now on the card.)"), "the run's reply");
+  });
+
+  it("holds a message sent while the Neither message waits, and sends it after", async () => {
+    await script([{ structured: ANSWER }, {}]);
+    await askForNewOptions();
+    navigate("/card/demo/0002");
+    await until(() => text().includes("Sending when Undo closes"), "the pending message");
+    await typeInto(messageBox(), "Why drop the server?");
+    await press("Enter", messageBox() as Element);
+    await until(() => text().includes("Sent after your Neither message"), "the held message");
+    expect(await calls()).toEqual([]);
+    dismissToast();
+    await until(() => text().includes("Echo: Why drop the server?"), "the held message's reply");
+    const stdin = (await calls()).map((c) => c.stdin);
+    expect(stdin[0]).toContain(NOTE);
+    expect(stdin[1]).toContain("Why drop the server?");
   });
 });

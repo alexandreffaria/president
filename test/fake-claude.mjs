@@ -8,7 +8,9 @@
  *   $CLAUDE_CONFIG_DIR/projects/<folder>/<session>.jsonl (empty: only its existence counts),
  *   and refuses `--resume` of a session without one ("No conversation found ...");
  * - answers with the next entry of $FAKE_CLAUDE_DIR/script.json when there is one
- *   ({ lines?: object[], text?: string, stderr?: string, exit?: number, delayMs?: number }),
+ *   ({ lines?: object[], text?: string, structured?: object, stderr?: string, exit?: number,
+ *   delayMs?: number }; `structured` is the `--json-schema` answer, given as the result's
+ *   `structured_output` the way Claude Code reports structured output),
  *   otherwise with "Echo: " and the last line of its standard input.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -71,7 +73,14 @@ const lines = step.lines ?? [
     },
   },
   { type: "assistant", message: { content: [{ type: "text", text }] } },
-  { type: "result", subtype: "success", is_error: false, result: text, session_id: session },
+  {
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    result: text,
+    session_id: session,
+    ...(step.structured !== undefined ? { structured_output: step.structured } : {}),
+  },
 ];
 for (const line of lines) out(line);
 process.exit(step.exit ?? 0);

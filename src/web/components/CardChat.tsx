@@ -10,14 +10,21 @@
  * - Summaries: "Conversation not summarized yet. [Write summary]" while messages aren't
  *   covered by a saved summary (#0024, 202611111ky9); the agent writes one, the human edits
  *   it, and only what they save is added to the card as a `chat` entry (#0003, #0023).
+ * - Neither's new options (#0007): the run is a turn here (202611111gpm). Your "Neither"
+ *   message waits, "Sending when Undo closes" in the tab whose Undo notice will start it
+ *   (20261112160s), with Start now in any other page (20261112dfik); then "Writing new
+ *   options…", and when it fails, why and Try again. A message sent meanwhile is held and
+ *   sent after the run.
  */
 import { useEffect, useRef, useState } from "react";
 import type { CardDetailDto, ChatMessageDto } from "../../core/api.ts";
-import type { ChatContext } from "../api.ts";
+import { newOptionsFailure } from "../../core/new-options.ts";
+import { api, type ChatContext } from "../api.ts";
 import type { CardChat as ChatState } from "../chat.ts";
 import type { Draft } from "../drafts.ts";
-import { fullDate, timeAgo } from "../format.ts";
+import { clockTime, fullDate, timeAgo } from "../format.ts";
 import { useKeyLayer } from "../keyboard.ts";
+import { useHoldsUndo } from "../new-options.ts";
 import { useToast } from "../toast.tsx";
 import { Markdown } from "./Markdown.tsx";
 
@@ -47,6 +54,43 @@ export function CardChat(props: {
   const unsummarized = chat.chat?.unsummarized === true;
   const summaryShown = boxOpen || draft.summary.trim() !== "";
 
+  // Neither's new-options run (#0007): your "Neither" message is pending until the run
+  // starts (20261112160s); this tab sends it when its Undo notice closes, any other page
+  // offers Start now (20261112dfik).
+  const run = chat.chat?.newOptions;
+  const pending = run?.state === "to-start" ? run : undefined;
+  const pendingNote = pending
+    ? card.frontmatter.feedback.find((f) => f.type === "neither" && f.at === pending.note)
+    : undefined;
+  const holdsUndo = useHoldsUndo(card.project, card.id, pending?.note);
+  const [starting, setStarting] = useState(false);
+  /** A message sent while the "Neither" message waits: sent once the run has started. */
+  const [held, setHeld] = useState<string>();
+  const heldRef = useRef(held);
+  heldRef.current = held;
+  const onDraft = useRef(props.onDraft);
+  onDraft.current = props.onDraft;
+
+  const startRun = async () => {
+    if (!run || starting) return;
+    setStarting(true);
+    try {
+      await api.startNewOptions(card.project, card.id, { note: run.note, ...context });
+    } catch (error) {
+      toast((error as Error).message, { tone: "error" });
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  // Leaving the card with a held message keeps it as unsent text.
+  useEffect(
+    () => () => {
+      if (heldRef.current) onDraft.current({ chat: heldRef.current });
+    },
+    [],
+  );
+
   // Keep the newest message in view as the conversation grows (the panel scrolls itself).
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when anything is added
   useEffect(() => {
@@ -56,8 +100,17 @@ export function CardChat(props: {
 
   const send = async () => {
     const text = draft.chat.trim();
-    if (!text || running) return;
+    if (!text || running || held) return;
     props.onDraft({ chat: "" });
+    // Held until the run has started, so it reaches the session after the "Neither" message.
+    if (pending) {
+      setHeld(text);
+      return;
+    }
+    await deliver(text);
+  };
+
+  const deliver = async (text: string) => {
     const failure = await chat.send(text, context);
     if (failure) {
       toast(failure, { tone: "error" });
@@ -65,6 +118,15 @@ export function CardChat(props: {
       if (!failure.startsWith("No reply")) props.onDraft({ chat: text });
     }
   };
+
+  // The run is over (or the note was undone): the held message goes now, after it.
+  const waiting = pending !== undefined || run?.state === "started" || chat.chat?.running;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only when the wait ends
+  useEffect(() => {
+    if (held === undefined || waiting) return;
+    setHeld(undefined);
+    void deliver(held);
+  }, [held, waiting]);
 
   const writeSummary = async () => {
     setWriting(true);
@@ -110,7 +172,7 @@ export function CardChat(props: {
       </header>
 
       <ol className="chat-messages" ref={list} aria-live="polite">
-        {shown.length === 0 && !live && (
+        {shown.length === 0 && !live && !pending && held === undefined && (
           <li className="chat-empty muted">
             Ask the card's agent about this card. It reads the project and searches the web; it
             can't change anything.
@@ -127,10 +189,61 @@ export function CardChat(props: {
             <Markdown className="chat-text">{live.text.join("\n\n")}</Markdown>
           </li>
         )}
+        {pending && pendingNote && (
+          <li className="chat-message chat-you chat-pending">
+            <p className="chat-meta">
+              you,{" "}
+              <time dateTime={pendingNote.at} title={fullDate(pendingNote.at)}>
+                {timeAgo(pendingNote.at)}
+              </time>
+            </p>
+            <p className="chat-text">Neither: {pendingNote.note}</p>
+            {holdsUndo ? (
+              <p className="chat-pending-note muted small">Sending when Undo closes</p>
+            ) : (
+              <p className="chat-pending-note small">
+                The run for your note at {clockTime(pendingNote.at)} hasn't started. If another tab
+                still shows its Undo notice, it starts when that closes.{" "}
+                <button
+                  type="button"
+                  className="button"
+                  disabled={starting}
+                  onClick={() => void startRun()}
+                >
+                  Start now
+                </button>
+              </p>
+            )}
+          </li>
+        )}
+        {held !== undefined && (
+          <li className="chat-message chat-you chat-pending">
+            <p className="chat-meta">you</p>
+            <p className="chat-text">{held}</p>
+            <p className="chat-pending-note muted small">Sent after your Neither message</p>
+          </li>
+        )}
         {running && (
-          <li className="chat-status muted">{live?.activity ?? "The agent is answering…"}</li>
+          <li className="chat-status muted">
+            {live?.activity ??
+              (run?.state === "started" ? "Writing new options…" : "The agent is answering…")}
+          </li>
         )}
       </ol>
+
+      {run?.state === "failed" && (
+        <p className="chat-note">
+          {newOptionsFailure(run.error ?? "the run failed")}{" "}
+          <button
+            type="button"
+            className="button"
+            disabled={starting || running}
+            onClick={() => void startRun()}
+          >
+            Try again
+          </button>
+        </p>
+      )}
 
       {!remembers && shown.length > 0 && (
         <p className="chat-note muted">

@@ -24,6 +24,7 @@ interface Toast {
   action: ToastAction | undefined;
   durationMs: number;
   group: string | undefined;
+  onClose: (() => void) | undefined;
 }
 
 type ShowToast = (
@@ -34,6 +35,12 @@ type ShowToast = (
     durationMs?: number;
     /** Lets {@link useDismissToasts} remove it, e.g. "undo:demo/0001". */
     group?: string;
+    /**
+     * Called once when the toast goes away without its action being used: its time is up,
+     * it was dismissed (×, or with its group), or newer toasts pushed it out. Ask for new
+     * options starts its run then (20261112160s `wait-out`).
+     */
+    onClose?: () => void;
   },
 ) => void;
 
@@ -50,27 +57,50 @@ const ToastContext = createContext<{
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextId = useRef(1);
+  // The toasts shown, read when one goes away (its onClose runs outside a state update).
+  const current = useRef<Toast[]>([]);
 
-  const dismiss = useCallback((id: number) => {
-    setToasts((all) => all.filter((t) => t.id !== id));
+  /** Shows `next`; the toasts it leaves out are closed, without their action if `used`. */
+  const replace = useCallback((next: Toast[], used?: number) => {
+    const gone = current.current.filter((t) => !next.includes(t));
+    current.current = next;
+    setToasts(next);
+    for (const toast of gone) if (toast.id !== used) toast.onClose?.();
   }, []);
 
-  const show = useCallback<ShowToast>((message, options = {}) => {
-    const id = nextId.current++;
-    const toast: Toast = {
-      id,
-      message,
-      tone: options.tone ?? "info",
-      action: options.action,
-      durationMs: options.durationMs ?? (options.action ? 10_000 : 5000),
-      group: options.group,
-    };
-    setToasts((all) => [...all.slice(-2), toast]);
-  }, []);
+  const dismiss = useCallback(
+    (id: number, used = false) => {
+      replace(
+        current.current.filter((t) => t.id !== id),
+        used ? id : undefined,
+      );
+    },
+    [replace],
+  );
 
-  const dismissGroup = useCallback((group: string) => {
-    setToasts((all) => all.filter((t) => t.group !== group));
-  }, []);
+  const show = useCallback<ShowToast>(
+    (message, options = {}) => {
+      const id = nextId.current++;
+      const toast: Toast = {
+        id,
+        message,
+        tone: options.tone ?? "info",
+        action: options.action,
+        durationMs: options.durationMs ?? (options.action ? 10_000 : 5000),
+        group: options.group,
+        onClose: options.onClose,
+      };
+      replace([...current.current.slice(-2), toast]);
+    },
+    [replace],
+  );
+
+  const dismissGroup = useCallback(
+    (group: string) => {
+      replace(current.current.filter((t) => t.group !== group));
+    },
+    [replace],
+  );
 
   const context = useMemo(() => ({ show, dismissGroup }), [show, dismissGroup]);
 
@@ -81,7 +111,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     if (action?.key) {
       keys[action.key] = () => {
         action.run();
-        dismiss(toast.id);
+        dismiss(toast.id, true);
       };
     }
   }
@@ -92,14 +122,28 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div className="toasts" role="status" aria-live="polite">
         {toasts.map((toast) => (
-          <ToastItem key={toast.id} toast={toast} onDismiss={() => dismiss(toast.id)} />
+          <ToastItem
+            key={toast.id}
+            toast={toast}
+            onDismiss={() => dismiss(toast.id)}
+            onUsed={() => dismiss(toast.id, true)}
+          />
         ))}
       </div>
     </ToastContext.Provider>
   );
 }
 
-function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
+function ToastItem({
+  toast,
+  onDismiss,
+  onUsed,
+}: {
+  toast: Toast;
+  onDismiss: () => void;
+  /** The action was used: the toast goes, without its onClose. */
+  onUsed: () => void;
+}) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const remaining = useRef(toast.durationMs);
@@ -135,7 +179,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
           className="button-link"
           onClick={() => {
             toast.action?.run();
-            onDismiss();
+            onUsed();
           }}
         >
           {toast.action.label}

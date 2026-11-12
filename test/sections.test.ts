@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { splitSections } from "../src/core/sections.ts";
+import { replaceOptionSections, splitSections } from "../src/core/sections.ts";
 
 describe("splitSections", () => {
   it("splits context, option sections and appendix", () => {
@@ -79,5 +79,50 @@ describe("splitSections follows CommonMark", () => {
   it("ignores headings in a backtick fence whose info string has backticks", () => {
     // "```a`b" is not a fence opener, so the heading below it is real.
     expect(splitSections("```a`b\n## Option a\n").options.map((o) => o.id)).toEqual(["a"]);
+  });
+});
+
+describe("replaceOptionSections (#0007's new options)", () => {
+  const sections = [
+    { id: "x", title: "Ex", markdown: "X is new." },
+    { id: "y", title: "Why", markdown: "```\n## Option z\n```" },
+  ];
+
+  it("replaces the option sections and keeps the context and the appendix", () => {
+    const body = [
+      "",
+      "## Context",
+      "",
+      "Background.",
+      "",
+      "## Option a: Red",
+      "",
+      "```md",
+      "## Sources (in a fence)",
+      "```",
+      "",
+      "## Option b",
+      "Blue.",
+      "",
+      "## Sources",
+      "",
+      "- a link",
+      "",
+    ].join("\n");
+    const next = replaceOptionSections(body, sections);
+    const split = splitSections(next);
+    expect(split.context).toBe("## Context\n\nBackground.");
+    expect(split.options.map((o) => [o.id, o.heading, o.markdown])).toEqual([
+      ["x", "Ex", "X is new."],
+      ["y", "Why", "```\n## Option z\n```"],
+    ]);
+    expect(split.appendix).toBe("## Sources\n\n- a link");
+    expect(next).not.toContain("Blue.");
+  });
+
+  it("adds the sections at the end of a body without any, and keeps CRLF", () => {
+    const next = replaceOptionSections("## Context\r\n\r\nWhy.\r\n", sections);
+    expect(next).toMatch(/^## Context\r\n\r\nWhy\.\r\n\r\n## Option x: Ex\r\n/);
+    expect(splitSections(next).options.map((o) => o.id)).toEqual(["x", "y"]);
   });
 });

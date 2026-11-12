@@ -6,7 +6,7 @@ import type { Stats } from "node:fs";
 import { cp, lstat, mkdtemp, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import { isDeepStrictEqual, parseArgs } from "node:util";
+import { parseArgs } from "node:util";
 import type { CardAction } from "../core/actions.ts";
 import { parseCard, parseCardFileName } from "../core/card-file.ts";
 import {
@@ -16,6 +16,7 @@ import {
   needsApplying,
   unseenFeedback,
 } from "../core/pending.ts";
+import { continued, HUMAN_FIELDS, humanChanges } from "../core/rewrite.ts";
 import { CUSTOM_CHOICE, type Frontmatter, withdrawalOf } from "../core/schema.ts";
 import {
   actOnCard,
@@ -423,17 +424,6 @@ function describeDecision(resolution: unknown): string {
   return choice === CUSTOM_CHOICE ? `custom${said}` : `"${String(choice)}"${said}`;
 }
 
-/**
- * Text that may span lines, with each line after the first indented to where a card's
- * notes start, so a note's own lines can't be mistaken for the output's structure.
- */
-function continued(text: string, indent = "      "): string {
-  return text
-    .split(/\r?\n/)
-    .map((line, i) => (i === 0 || line === "" ? line : indent + line))
-    .join("\n");
-}
-
 export async function applied(args: string[], out: Output): Promise<number> {
   const { project, card, token } = await cardFromFile(
     args,
@@ -485,16 +475,6 @@ export async function seen(args: string[], out: Output): Promise<number> {
   reportUnread(after, out);
   return 0;
 }
-
-/** What the human (and president) own in a card; an agent's rewrite keeps these as they are. */
-const HUMAN_FIELDS = [
-  "status",
-  "resolution",
-  "feedback",
-  "applied_at",
-  "seen_at",
-  "defer_until",
-] as const;
 
 /** Why `update` refuses a decided card, or one whose decision changed. */
 const DONT_REWRITE =
@@ -573,44 +553,6 @@ export async function update(args: string[], out: Output): Promise<number> {
     );
   }
   return 0;
-}
-
-/** How what the human owns differs from the card (`now`) to an agent's rewrite (`mine`). */
-function humanChanges(now: Frontmatter, mine: Frontmatter): string[] {
-  const changes: string[] = [];
-  const isPrefix = (short: Frontmatter["feedback"], long: Frontmatter["feedback"]) =>
-    isDeepStrictEqual(long.slice(0, short.length), short);
-  const entries = (list: Frontmatter["feedback"]) =>
-    list.map((f) => `${f.type ?? "note"} ${f.at}: ${continued(f.note, "    ")}`);
-  if (now.feedback.length > mine.feedback.length && isPrefix(mine.feedback, now.feedback)) {
-    const added = now.feedback.slice(mine.feedback.length);
-    changes.push(
-      `feedback: the human added ${added.length} ${added.length === 1 ? "entry" : "entries"} since you read the card:`,
-      ...entries(added),
-    );
-  } else if (now.feedback.length < mine.feedback.length && isPrefix(now.feedback, mine.feedback)) {
-    const gone = mine.feedback.slice(now.feedback.length);
-    changes.push(
-      `feedback: the human took back ${gone.length} ${gone.length === 1 ? "entry" : "entries"} since you read the card; drop ${gone.length === 1 ? "it" : "them"} from your version, and undo anything you changed for ${gone.length === 1 ? "it" : "them"}:`,
-      ...entries(gone),
-    );
-  } else if (!isDeepStrictEqual(now.feedback, mine.feedback)) {
-    changes.push("feedback: your version's entries are not the card's; copy them unchanged");
-  }
-  for (const field of HUMAN_FIELDS) {
-    if (field === "feedback" || isDeepStrictEqual(now[field], mine[field])) continue;
-    changes.push(
-      `${field}: the card has ${describe(now[field])}, your version ${describe(mine[field])}`,
-    );
-  }
-  return changes;
-}
-
-function describe(value: unknown): string {
-  if (value === undefined) return "none";
-  if (typeof value === "string") return `"${value}"`;
-  const choice = (value as { choice?: unknown }).choice;
-  return choice === undefined ? JSON.stringify(value) : `a decision ("${String(choice)}")`;
 }
 
 /** Feedback that arrived after the agent ran `pending` stays unread; say so. */

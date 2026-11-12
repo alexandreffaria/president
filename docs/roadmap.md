@@ -55,6 +55,14 @@ panel on the card page (#0002, 20261111sblu), the conversation shown again from 
 saving a summary outside a decision's Undo window (#0020). Teach me, More info, deciding while a
 conversation is open (#0019) and Neither's run (#0007) follow in the next pull requests.
 
+Then (2026-11-12): "Card chat (E2): Neither's new options" (branch `feat/card-chat-neither`,
+stacked on E1b) builds [Neither: new options right away](#neither-new-options-right-away-0007):
+the run as a turn in the card's conversation without the reminder (202611111gpm), the new pick
+hidden again (2026111272fu), the run starting when the Undo notice closes with the "to start /
+started" record and the held messages (20261112160s), Start now and the `run_started` undo
+refusal (20261112dfik), and the README `n` row. Teach me, More info and deciding while a
+conversation is open (#0019) are still to come (E1c).
+
 ## Build plan
 
 Each row is one pull request (PR 2 may be split, see its section). The order is a suggestion;
@@ -68,7 +76,7 @@ Each row is one pull request (PR 2 may be split, see its section). The order is 
 | B2 | [Sync: count a skipped project's answers apart](#b2-sync-count-a-skipped-projects-answers-apart-20261112l9vh) | 20261112l9vh | B (PR #12) merged | **Built** in the follow-up pull request (PR #18, branch `feat/sync-followups`) |
 | C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | **Built** in the pull request "Queue and card UX (C)" (PR #21, branch `feat/queue-card-ux-c`), except the [Withdrawn section](#withdrawn-cards-in-the-hub-0014) (#0014's and 202611116ff6's hub part), a follow-up now that D is merged (PR #20) |
 | D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part), 202611116ff6 (`pending` and `validate`) | PR #7 (it edits `card-format.md` and `SKILL.md`) | **Built** in the pull request "Card format and CLI (D)" (PR #20, branch `feat/card-format-d`) |
-| E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s, 20261112dfik | C (#0010's panel, #0011's notes on decided cards), D (`chat` type) | **In progress**, as a stack of pull requests: E1a (the session, the per-machine stores, the API and summaries on the server) in "Card chat (E1a)" (branch `feat/card-chat`); E1b (the panel, Write summary, the reminder) in "Card chat (E1b)" (branch `feat/card-chat-panel`); Teach me, deciding while open and Neither's run follow |
+| E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s, 20261112dfik | C (#0010's panel, #0011's notes on decided cards), D (`chat` type) | **In progress**, as a stack of pull requests: E1a (the session, the per-machine stores, the API and summaries on the server) in "Card chat (E1a)" (branch `feat/card-chat`); E1b (the panel, Write summary, the reminder) in "Card chat (E1b)" (branch `feat/card-chat-panel`); E2 (Neither's new options: #0007, 202611111gpm, 2026111272fu, 20261112160s, 20261112dfik) in "Card chat (E2)" (branch `feat/card-chat-neither`, stacked on E1b); Teach me, More info and deciding while open (E1c) follow |
 | F | [Rename the command to `preside`](#f-rename-the-command-to-preside-0016-20261111dmvt) (agent-facing: the CLI, the skill and every printed command) | #0016, 20261111dmvt | A2 (both edit `SKILL.md`). The npm placeholder is published by the human (an agent prepares it). No card orders it against F; suggested: publish it before F merges (after repeating the name check), so the name F writes everywhere can't be taken meanwhile | **Built** in the pull request "Rename the command to preside (F)" (PR #19, branch `feat/rename-preside`) |
 | F2 | [Remove the `president` alias](#the-president-alias-and-when-it-ends) | 20261111dmvt | F | One month after F ships, or once every registered project's own docs and agent instructions use `preside`, whichever is later |
 
@@ -1497,7 +1505,8 @@ only); the build PR named in brackets fixes each.
 
 - `docs/card-format.md` and the skill, picking an id ("add one to the highest number"):
   replaced by #0013's dated ids [D; fixed in PR #20].
-- `docs/card-format.md`, `session_id` "Reserved for the per-card chat": unused under #0021 [E].
+- `docs/card-format.md`, `session_id` "Reserved for the per-card chat": unused under #0021 [E;
+  fixed in "Card chat (E1a)"].
 - `docs/card-format.md`, feedback types (`neither | note | defer | reopen | undo`): gains `chat`
   (#0023) [D; fixed in PR #20]; fields: gains `withdrawn` (#0014) [D; fixed in PR #20] and
   `defer_until` (#0017) [C or D; fixed by C in PR #21].
@@ -1507,7 +1516,8 @@ only); the build PR named in brackets fixes each.
 - The card-format Lifecycle (`deferred ──reopen──▶ open` is the only way back): under #0017 a
   deferred card also returns when `defer_until` passes [C; fixed in PR #21].
 - README, the `n` row ("an agent writes new ones"): under #0007 the hub starts the card's
-  session at once [E].
+  session at once [E; fixed in "Card chat (E2)", which says it starts once the Undo notice
+  closes (20261112160s)].
 - README and the skill, "Use `president`, not `npx president`": #0016 renames the command, to
   `preside` (20261111dmvt) [F; fixed in PR #19, where the warning is about `npx preside`].
 - The skill's "Not decided yet" paragraph (card changes outside an apply), its interim rule to
