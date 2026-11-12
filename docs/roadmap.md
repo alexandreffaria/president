@@ -444,8 +444,8 @@ The same pull request carries three follow-ups from PR #12's review:
   named " "), so check 3 never saw it; it now drops only empty entries.
 - **S4-6.** The summary next to the Sync button is no longer hidden below a fixed 66rem: the
   top bar measures whether, with it shown, the end group still fits on the nav's line, and
-  if not hides it and puts the count on the button (`data-squeezed`, re-measured when the bar
-  or the end group changes size and when the text changes). "1 answer not synced" now shows
+  if not hides it and puts the count on the button (`data-squeezed`, re-measured when the bar,
+  the end group or the nav changes size and when the text changes). "1 answer not synced" now shows
   from 480 px up.
 - **S8-1.** The README and B above said Sync refuses before changing anything for every list
   it reads "before committing"; it is "before its first change (the `git add` of the cards)",
