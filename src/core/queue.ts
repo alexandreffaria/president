@@ -15,9 +15,15 @@ export function compareQueue(a: CardDto, b: CardDto): number {
   return a.project.localeCompare(b.project) || a.id.localeCompare(b.id);
 }
 
-/** True when an agent still has to come back with new options (the human said "neither"). */
-export function isWaitingOnAgent(card: CardDto): boolean {
-  return card.frontmatter.status === "open" && card.frontmatter.needs_new_options === true;
+/**
+ * True when an agent still has to come back with new options (the human said "neither"):
+ * an open card, or a deferred one back from deferral (it counts as open again). A snoozed
+ * card stays in the Deferred list until its date.
+ */
+export function isWaitingOnAgent(card: CardDto, now: number = Date.now()): boolean {
+  const { status, needs_new_options } = card.frontmatter;
+  if (needs_new_options !== true) return false;
+  return status === "open" || isBackFromDeferral(card, now);
 }
 
 /**
@@ -52,8 +58,8 @@ export function buildQueue(
   const sunk: CardDto[] = [];
   for (const card of cards) {
     if (project && card.project !== project) continue;
-    const open = card.frontmatter.status === "open" && !isWaitingOnAgent(card);
-    if (!open && !isBackFromDeferral(card, now)) continue;
+    const due = card.frontmatter.status === "open" || isBackFromDeferral(card, now);
+    if (!due || isWaitingOnAgent(card, now)) continue;
     (openDependencies(card, cards).length > 0 ? sunk : ready).push(card);
   }
   return [...ready.sort(compareQueue), ...sunk.sort(compareQueue)];

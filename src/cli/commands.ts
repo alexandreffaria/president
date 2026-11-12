@@ -238,8 +238,9 @@ export async function pending(args: string[], out: Output): Promise<number> {
   const { cards, broken, warnings, error } = await loadProjectCards(project);
   if (error) throw new UserError(error);
   const toApply = cards.filter((c) => needsApplying(c.frontmatter));
+  // Deferred cards too: the agent can rewrite the options while the card is snoozed.
   const needOptions = cards.filter(
-    (c) => c.frontmatter.status === "open" && c.frontmatter.needs_new_options === true,
+    (c) => c.frontmatter.status !== "resolved" && c.frontmatter.needs_new_options === true,
   );
   // Notes are listed whatever the card's status; cards in the two lists above show their
   // new notes there.

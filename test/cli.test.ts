@@ -942,6 +942,14 @@ describe("preside CLI", () => {
     expect((await cli("pending", demo)).out).toBe("Nothing pending.");
   });
 
+  it("asks for new options on a card deferred after neither (R1-1 of PR #21)", async () => {
+    const demo = await copyDemoProject();
+    await human(demo, "0002", { type: "neither", note: "both assume a server" });
+    await human(demo, "0002", { type: "defer" });
+    const out = (await cli("pending", demo)).out;
+    expect(out).toMatch(/remove `needs_new_options`[\s\S]*0002-api-errors\.md/);
+  });
+
   it("shows every unread note, whatever section the card is in (R2-4)", async () => {
     const demo = await copyDemoProject();
     await human(demo, "0002", { type: "neither", note: "both assume a server" });

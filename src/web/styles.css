@@ -1441,8 +1441,9 @@ body:has(.action-bar-open) .toasts {
     margin: 1rem 0.9rem 0;
   }
 
+  /* Room below for the fixed action bar, whose tallest form is 215 px at 320 px (R1-3). */
   .main {
-    padding: 1.25rem 0.9rem 12rem;
+    padding: 1.25rem 0.9rem 15rem;
   }
 
   .card-nav {
@@ -1467,7 +1468,8 @@ body:has(.action-bar-open) .toasts {
     flex: 1;
   }
 
+  /* Above that bar. */
   .toasts {
-    bottom: 11rem;
+    bottom: 14rem;
   }
 }

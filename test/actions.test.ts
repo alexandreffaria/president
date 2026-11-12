@@ -156,6 +156,14 @@ describe("defer", () => {
     expect(CardActionSchema.safeParse({ type: "defer", until: "next week" }).success).toBe(false);
   });
 
+  it("accepts a plain date as midnight UTC, as its error message says (R1-4)", () => {
+    expect(act(card(), { type: "defer", until: "2026-12-01" }).raw.defer_until).toBe(
+      "2026-12-01T00:00:00Z",
+    );
+    const bad = CardActionSchema.safeParse({ type: "defer", until: "next week" });
+    expect(bad.error?.issues[0]?.message).toMatch(/or a date, like 2026-11-18 \(midnight UTC\)/);
+  });
+
   it("snoozes a deferred card again with a new date (a card back from deferral)", () => {
     const back = card({ status: "deferred", defer_until: "2026-11-09T08:00:00Z" });
     expect(act(back, { type: "defer" }).raw.defer_until).toBe("2026-11-17T12:00:00Z");

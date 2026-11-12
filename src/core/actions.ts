@@ -53,7 +53,8 @@ export const CardActionSchema = z.discriminatedUnion("type", [
     until: z
       .string()
       .refine(isIsoDateOrDateTime, {
-        error: "expected a timestamp with a timezone, like 2026-11-18T13:00:00Z",
+        error:
+          "expected a timestamp with a timezone, like 2026-11-18T13:00:00Z, or a date, like 2026-11-18 (midnight UTC)",
       })
       .optional(),
   }),

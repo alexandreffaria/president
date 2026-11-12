@@ -90,6 +90,30 @@ describe("buildQueue", () => {
     ]);
   });
 
+  it("keeps a card back from deferral out while it waits on an agent, like an open one (R1-1)", () => {
+    const back = card("0006", { status: "deferred", needs_new_options: true });
+    const dated = card("0007", {
+      status: "deferred",
+      needs_new_options: true,
+      defer_until: "2026-11-19T12:00:00Z",
+    });
+    const later = Date.parse("2026-11-19T12:00:00Z");
+    expect(buildQueue([...cards, back, dated], undefined, NOW).map((c) => c.id)).toEqual([
+      "0005",
+      "0001",
+    ]);
+    expect(buildQueue([...cards, back, dated], undefined, later).map((c) => c.id)).toEqual([
+      "0005",
+      "0001",
+      "0002",
+    ]);
+    expect(isWaitingOnAgent(back, NOW)).toBe(true);
+    // Still snoozed: it stays in the Deferred list until its date, then waits on the agent.
+    expect(isWaitingOnAgent(dated, later - 1)).toBe(false);
+    expect(isSnoozed(dated, later - 1)).toBe(true);
+    expect(isWaitingOnAgent(dated, later)).toBe(true);
+  });
+
   it("sinks cards with an undecided dependency below the ready ones (#0009)", () => {
     const all = [
       card("0001", { priority: "high", depends_on: ["0002"] }),

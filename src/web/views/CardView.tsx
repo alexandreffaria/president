@@ -5,6 +5,7 @@ import { CUSTOM_CHOICE } from "../../core/model.ts";
 import {
   buildQueue,
   isBackFromDeferral,
+  isWaitingOnAgent,
   openDependencies,
   unknownDependencies,
 } from "../../core/queue.ts";
@@ -90,6 +91,19 @@ export function CardView({ project, id }: { project: string; id: string }) {
    * card (20261111nsaj, visit): the view is mounted per card, and nothing is stored.
    */
   const [revealed, setRevealed] = useState(false);
+  const revealButton = useRef<HTMLButtonElement>(null);
+  const agentsTake = useRef<HTMLElement>(null);
+  /** Set when the reveal removes the focused button: focus then goes to the agent's take. */
+  const focusTake = useRef(false);
+  const reveal = (fromButton: boolean) => {
+    focusTake.current = fromButton || document.activeElement === revealButton.current;
+    setRevealed(true);
+  };
+  useEffect(() => {
+    if (!revealed || !focusTake.current) return;
+    focusTake.current = false;
+    agentsTake.current?.focus();
+  }, [revealed]);
   const [busy, setBusy] = useState(false);
   const [changedBy, setChangedBy] = useState<ChangedBy | null>(null);
   /** Set when a change on disk cleared the option the human had picked. */
@@ -199,6 +213,11 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const card = loaded.state === "ok" ? loaded.card : undefined;
   const fm = card?.frontmatter;
   const seen = draft.seen;
+  /**
+   * The panel shown. A card decided elsewhere (another tab, Sync) while the Neither panel is
+   * open can't take its actions any more, so it isn't shown; the text stays as a draft.
+   */
+  const shownPanel: Panel = fm?.status === "resolved" && panel === "neither" ? null : panel;
   const changes = card && seen && changedBy ? describeChanges(seen, card) : [];
 
   // Forget a selection whose option an agent removed.
@@ -423,7 +442,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
     },
     r: () => {
       if (!fm?.recommendation || revealed) return false;
-      setRevealed(true);
+      reveal(false);
     },
     escape: () => navigate("/"),
   };
@@ -439,9 +458,9 @@ export function CardView({ project, id }: { project: string; id: string }) {
   }
   useKeyboard(keys, loaded.state !== "loading");
   // While the Neither/Note panel is open, nothing else on the page reacts to keys.
-  useKeyLayer({ escape: closePanel }, panel !== null);
+  useKeyLayer({ escape: closePanel }, shownPanel !== null);
   // The same for the Defer menu (it holds no text, so Esc just closes it).
-  useKeyLayer({ escape: () => setDeferMenu(false) }, deferMenu && canDefer && panel === null);
+  useKeyLayer({ escape: () => setDeferMenu(false) }, deferMenu && canDefer && shownPanel === null);
 
   if (loaded.state === "loading") return <p className="muted">Loading…</p>;
   if (loaded.state === "error") {
@@ -607,7 +626,12 @@ export function CardView({ project, id }: { project: string; id: string }) {
       {fm.recommendation &&
         recommended !== -1 &&
         (revealed ? (
-          <aside className="recommendation" aria-label="Agent recommendation">
+          <aside
+            className="recommendation"
+            aria-label="Agent recommendation"
+            ref={agentsTake}
+            tabIndex={-1}
+          >
             <h2 className="section-heading">The agent's take</h2>
             <p>
               <strong>
@@ -620,7 +644,12 @@ export function CardView({ project, id }: { project: string; id: string }) {
         ) : (
           // #0008: hidden until asked, so the human forms a view of their own first.
           <p className="recommendation-reveal">
-            <button type="button" className="button button-quiet" onClick={() => setRevealed(true)}>
+            <button
+              type="button"
+              className="button button-quiet"
+              ref={revealButton}
+              onClick={() => reveal(true)}
+            >
               Show the agent's pick <kbd>r</kbd>
             </button>
           </p>
@@ -640,7 +669,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
         busy={busy}
         draft={draft}
         onDraft={updateDraft}
-        panel={panel}
+        panel={shownPanel}
         onPanel={(next) => (next ? openPanel(next) : closePanel())}
         onDiscard={() => {
           if (panel) updateDraft({ [panel]: "" });
@@ -683,7 +712,8 @@ function StatusNotice({ card }: { card: CardDetailDto }) {
       </div>
     );
   }
-  if (fm.status === "open" && fm.needs_new_options) {
+  // Open, or back from deferral (R1-1): either way it waits on the agent.
+  if (isWaitingOnAgent(card)) {
     return (
       <p className="notice notice-info">
         You asked for different options. An agent will rewrite this card; you can still pick one of

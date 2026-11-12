@@ -883,6 +883,21 @@ describe("the agent's pick, hidden until asked (#0008, 20261111nsaj)", () => {
     expect(text()).toContain("The agent's take");
     expect(posts).toEqual([]);
   });
+
+  it("moves focus to the agent's take once the button is gone (R1-2)", async () => {
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await act(async () => button("Show the agent's pick")?.click());
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Agent recommendation");
+    // r with the button focused, on the next visit, does the same.
+    await press("j", document.body);
+    await until(() => text().includes("report errors"), "the next card");
+    await press("k", document.body);
+    await until(() => button("Show the agent's pick") !== undefined, "back");
+    const reveal = button("Show the agent's pick") as HTMLButtonElement;
+    reveal.focus();
+    await press("r", reveal);
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Agent recommendation");
+  });
 });
 
 describe("your own answer from the Neither panel (#0010)", () => {
@@ -906,6 +921,26 @@ describe("your own answer from the Neither panel (#0010)", () => {
           "Plain JSON files, one per trip.",
       "the Neither panel with the text",
     );
+  });
+});
+
+describe("the Neither panel on a card decided elsewhere (R1-5)", () => {
+  it("hides the panel's actions once the card is resolved, keeping the text as a draft", async () => {
+    const file = join(demo, "decisions", "0001-offline-storage.md");
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await press("n", document.body);
+    await typeInto(host.querySelector("#panel-text"), "Something else.");
+    expect(button("Decide this as my answer")).toBeDefined();
+    await editFile(
+      file,
+      "status: open\n",
+      "status: resolved\nresolution:\n  choice: dexie\n  resolved_at: 2026-11-12T10:00:00Z\n",
+    );
+    socket()?.emit({ type: "cards", project: "demo" } satisfies HubEvent);
+    await until(() => text().includes("This decision is made."), "the decided bar");
+    expect(button("Ask for new options")).toBeUndefined();
+    expect(button("Decide this as my answer")).toBeUndefined();
+    expect(host.querySelector("#panel-text")).toBeNull();
   });
 });
 
@@ -1003,6 +1038,28 @@ describe("snooze (#0017, 202611112hzh) and the queue order (#0009, #0015)", () =
     expect(queueIds()).not.toContain("0002");
     await until(() => queueIds().includes("0002"), "the card back");
     expect(text()).not.toContain("Deferred (");
+  });
+
+  it("brings a card due during sleep back when the window regains focus (R1-7)", async () => {
+    const inAnHour = new Date(Date.now() + 3_600_000).toISOString();
+    await editFile(
+      join(demo, "decisions", "0002-api-errors.md"),
+      "status: open\n",
+      `status: deferred\ndefer_until: ${inAnHour}\n`,
+    );
+    await open("/", () => text().includes("Deferred (1)"), "the Deferred list");
+    // The machine slept two hours; its timer hasn't fired.
+    const woke = Date.now() + 7_200_000;
+    const now = vi.spyOn(Date, "now").mockImplementation(() => woke);
+    try {
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+      });
+      expect(queueIds()).toContain("0002");
+      expect(text()).not.toContain("Deferred (");
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("sinks a card whose dependency isn't decided below the ready ones", async () => {

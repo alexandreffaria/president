@@ -75,3 +75,23 @@ describe("the top bar (S-11, S2-3)", () => {
     expect(rule(".brand", "48rem").display).toBe("none");
   });
 });
+
+/**
+ * The fixed action bar below 40rem (R1-3). Measured in headless Chrome with the built CSS:
+ * its tallest form is an open-question card back from deferral (answer field, Decide, and
+ * Neither, Note, Defer a week and Defer until… on two more rows), 215 px at 320 px; a choice
+ * card's bar is at most 194 px at 320-414 px. The open Neither/Note panel and the Defer menu
+ * cover the page on purpose and aren't counted.
+ */
+describe("the action bar below 40rem (R1-3)", () => {
+  const px = (rem: string | undefined) => Number.parseFloat(rem ?? "") * 16;
+
+  it("leaves room under the page for the tallest bar", () => {
+    const [, , bottom] = (rule(".main", "40rem").padding ?? "").split(/\s+/);
+    expect(px(bottom)).toBeGreaterThanOrEqual(215 + 16);
+  });
+
+  it("keeps toasts above it", () => {
+    expect(px(rule(".toasts", "40rem").bottom)).toBeGreaterThanOrEqual(215);
+  });
+});

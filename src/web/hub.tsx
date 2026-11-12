@@ -139,7 +139,17 @@ export function HubProvider({ children }: { children: ReactNode }) {
     if (next === undefined) return;
     const delay = Math.min(Math.max(next - Date.now(), 0) + 50, 2 ** 31 - 1);
     const timer = setTimeout(() => setClock((n) => n + 1), delay);
-    return () => clearTimeout(timer);
+    // setTimeout may not count time the machine was asleep: look again on wake (R1-7).
+    const wake = () => {
+      if (document.visibilityState !== "hidden" && Date.now() >= next) setClock((n) => n + 1);
+    };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", wake);
+    };
   }, [cards, clock]);
 
   const setProjectFilter = useCallback((project: string | undefined) => {
