@@ -115,6 +115,11 @@ export const FrontmatterSchema = z
     applied_at: Timestamp.optional(),
     /** When an agent last read the human's feedback (`preside seen`, `preside applied`). */
     seen_at: Timestamp.optional(),
+    /**
+     * When a deferred card comes back to the queue (#0017, snooze). The queue works it out;
+     * the file isn't rewritten when the date passes.
+     */
+    defer_until: Timestamp.optional(),
     /** Set by an agent that retracts the card (#0014); see {@link WithdrawnSchema}. */
     withdrawn: WithdrawnSchema.optional(),
     /** Reserved for the chat panel (headless Claude Code session per card). */

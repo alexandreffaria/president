@@ -1,6 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { BrokenCardDto, CardDto } from "../../core/api.ts";
-import { buildQueue, isWaitingOnAgent, openDependencies } from "../../core/queue.ts";
+import {
+  buildQueue,
+  isBackFromDeferral,
+  isSnoozed,
+  isWaitingOnAgent,
+  openDependencies,
+} from "../../core/queue.ts";
 import { CardId } from "../components/CardId.tsx";
 import { useHeadingFocus } from "../focus.ts";
 import { fullDate, KIND_LABEL, PRIORITY_LABEL, timeAgo } from "../format.ts";
@@ -14,7 +20,8 @@ export function QueueView() {
   const queue = buildQueue(cards, projectFilter);
   const inFilter = (c: { project: string }) => !projectFilter || c.project === projectFilter;
   const waiting = cards.filter((c) => isWaitingOnAgent(c) && inFilter(c));
-  const deferred = cards.filter((c) => c.frontmatter.status === "deferred" && inFilter(c));
+  // Deferred cards whose date hasn't passed; the others are back in the queue (#0017).
+  const deferred = cards.filter((c) => isSnoozed(c) && inFilter(c));
   const brokenHere = broken.filter(inFilter);
   const [selected, setSelected] = useState(0);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -136,7 +143,11 @@ export function QueueView() {
           <summary className="section-heading">Deferred ({deferred.length})</summary>
           <ul className="compact-list">
             {deferred.map((card) => (
-              <CompactItem key={`${card.project}/${card.id}`} card={card} />
+              <CompactItem
+                key={`${card.project}/${card.id}`}
+                card={card}
+                note={backOn(card.frontmatter.defer_until)}
+              />
             ))}
           </ul>
         </details>
@@ -187,6 +198,7 @@ function QueueItem(props: {
                 {fm.feedback.length} {fm.feedback.length === 1 ? "note" : "notes"}
               </span>
             )}
+            {isBackFromDeferral(card) && <span className="back">back from deferral</span>}
             {props.blockers.length > 0 && (
               <span className="blocked">
                 depends on {props.blockers.map((id) => `#${id}`).join(", ")}
@@ -209,14 +221,28 @@ function QueueItem(props: {
   );
 }
 
-function CompactItem({ card }: { card: CardDto }) {
+function CompactItem({ card, note }: { card: CardDto; note?: ReactNode }) {
   return (
     <li>
       <Link to={cardPath(card.project, card.id)}>{card.frontmatter.title}</Link>{" "}
       <span className="muted small">
         {card.project} <CardId id={card.id} withDate />
+        {note && <> · {note}</>}
       </span>
     </li>
+  );
+}
+
+/** "back in 5 days", for a snoozed card in the Deferred list. */
+function backOn(until: string | undefined): ReactNode {
+  if (!until) return undefined;
+  return (
+    <>
+      back{" "}
+      <time dateTime={until} title={fullDate(until)}>
+        {timeAgo(until)}
+      </time>
+    </>
   );
 }
 

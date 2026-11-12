@@ -820,7 +820,9 @@ describe("skills/decision-cards/SKILL.md", async () => {
 
   // A rewrite made again from a card deferred meanwhile keeps "deferred" (R8-5).
   it("says to keep a rewritten card's status as it is, not to set one", () => {
-    expect(skill).toContain("Keep `feedback`, `id`, `created` and `status` as they are.");
+    expect(skill).toContain(
+      "Keep `feedback`, `id`, `created`, `status` and `defer_until` as they are.",
+    );
     expect(skill).not.toMatch(/Keep [^.]*`status: \w+`/);
   });
 

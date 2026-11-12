@@ -157,7 +157,7 @@ Body.
     const { out } = write(card, { type: "defer" });
     expect(diffLines(card, out)).toEqual({
       removed: [{ line: 5, text: "status: open   # agents: keep open" }],
-      added: ["status: deferred   # agents: keep open"],
+      added: ["status: deferred   # agents: keep open", "defer_until: 2026-11-17T12:00:00Z"],
     });
   });
 

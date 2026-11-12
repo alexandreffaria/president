@@ -13,6 +13,7 @@ import {
   useState,
 } from "react";
 import type { BrokenCardDto, CardDto, ProjectDto } from "../core/api.ts";
+import { nextReturn } from "../core/queue.ts";
 import { api } from "./api.ts";
 import { connectLive, type LiveState } from "./live.ts";
 
@@ -35,6 +36,11 @@ interface HubState {
   reconnects: number;
   /** Bumped when a Sync starts or finishes (in any tab); the Sync control refetches. */
   syncEvents: number;
+  /**
+   * Bumped when a deferred card's `defer_until` passes, so views that build the queue
+   * (which reads the clock) render again and show it back from deferral (#0017).
+   */
+  clock: number;
   projectFilter: string | undefined;
   setProjectFilter: (project: string | undefined) => void;
   refresh: () => Promise<void>;
@@ -65,6 +71,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const [versions, setVersions] = useState<Record<string, number>>({});
   const [reconnects, setReconnects] = useState(0);
   const [syncEvents, setSyncEvents] = useState(0);
+  const [clock, setClock] = useState(0);
   const [projectFilter, setFilterState] = useState<string | undefined>(readStoredFilter);
   const inFlight = useRef<Promise<void> | null>(null);
   const again = useRef(false);
@@ -124,6 +131,27 @@ export function HubProvider({ children }: { children: ReactNode }) {
     });
   }, [refresh, cardsChanged]);
 
+  // Wake up when the next snoozed card is due. Timers longer than setTimeout's limit
+  // (about 24 days) just wake up early and set the next one.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `clock` re-arms the timer
+  useEffect(() => {
+    const next = nextReturn(cards);
+    if (next === undefined) return;
+    const delay = Math.min(Math.max(next - Date.now(), 0) + 50, 2 ** 31 - 1);
+    const timer = setTimeout(() => setClock((n) => n + 1), delay);
+    // setTimeout may not count time the machine was asleep: look again on wake (R1-7).
+    const wake = () => {
+      if (document.visibilityState !== "hidden" && Date.now() >= next) setClock((n) => n + 1);
+    };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", wake);
+    };
+  }, [cards, clock]);
+
   const setProjectFilter = useCallback((project: string | undefined) => {
     setFilterState(project);
     try {
@@ -153,6 +181,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
       versions,
       reconnects,
       syncEvents,
+      clock,
       projectFilter,
       setProjectFilter,
       refresh,
@@ -169,6 +198,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
       versions,
       reconnects,
       syncEvents,
+      clock,
       projectFilter,
       setProjectFilter,
       refresh,

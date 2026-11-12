@@ -80,6 +80,7 @@ title: How should the API client report errors?
 | `needs_new_options` | no | boolean | Set by president when the human rejects every option ("neither"). An agent should write new options that answer all feedback newer than `seen_at` (all of it if there is no `seen_at`), then remove the flag. Not allowed on a resolved card. |
 | `resolution` | when resolved | `{choice, note?, resolved_at}` | The human's answer. `choice` is an option id, or `custom` with the answer in `note`. |
 | `applied_at` | no | timestamp | Set by an agent after it has acted on the resolution (updated the docs): `preside applied <file> --token <token>`. Only on resolved cards. |
+| `defer_until` | no | timestamp | Set by president when the human defers the card: when it comes back to the queue (UTC; a week after deferring unless the human picked another date). Only meaningful while `status` is `deferred`: once the time passes, the queue shows the card again, marked "back from deferral", without rewriting the file; a deferred card without `defer_until` counts as already back. Resolving, rejecting ("neither") or reopening the card removes it. Agents keep it as it is. |
 | `seen_at` | no | timestamp | The `at` of the newest feedback entry an agent has read. `preside seen` and `preside applied` set it to the newest entry `preside pending` showed. Feedback newer than this is listed by `preside pending`. |
 | `withdrawn` | no | `{at, reason}` | Set by an agent that retracts an open or deferred card that no longer matters: `at` is a timestamp, `reason` says why. `status` doesn't change. See [withdrawing a card](#withdrawing-a-card). |
 | `session_id` | no | string | Reserved for the per-card chat (a later version): the id of the card's Claude Code session, whose full log stays on the machine that ran it. What travels with the card is a summary in `feedback` (decision #0003, see `docs/roadmap.md`). |
@@ -218,14 +219,20 @@ The body is markdown. It is shown in full, so write it for a human who has not s
 
 ```
 open ──resolve──▶ resolved ──(agent applies it)──▶ resolved + applied_at
- │ ▲                  │
- │ └──────reopen──────┘
+ │ ▲                  │ ▲
+ │ └──────reopen──────┘ └──note (feedback appended; the decision and applied_at stay)
  ├──neither──▶ open + needs_new_options (feedback appended)
  ├──note─────▶ open (feedback appended)
- └──defer────▶ deferred ──reopen──▶ open
+ └──defer────▶ deferred + defer_until ──reopen──▶ open
+                   │
+                   └──(defer_until passes)──▶ back in the queue, still deferred
 ```
 
-Deferred cards can also be resolved, rejected ("neither") or noted directly.
+Deferred cards can also be resolved, rejected ("neither") or noted directly. A deferred card
+comes back to the human's queue on its own once `defer_until` passes (at once when it has
+none); its `status` stays `deferred` until the human acts on it, and deferring it again sets a
+new `defer_until`. Decided cards can also be noted: the note is appended to `feedback`, and
+`resolution` and `applied_at` stay, so `preside pending` lists it with the other new notes.
 
 What agents do (`preside pending` lists all of these, each with the unread feedback and a
 `done:` line to run once the card is handled):
@@ -252,7 +259,8 @@ the command refuses: run `preside pending` again.
 
 Agents change an existing card only with `preside update <card-file> <new-version-file>`: the
 new version is the card as the agent read it, with its changes, and it replaces the card only if
-`status`, `resolution`, `feedback`, `seen_at` and `applied_at` are still the same in both. A note
+`status`, `resolution`, `feedback`, `seen_at`, `applied_at` and `defer_until` are still the same
+in both. A note
 the human added in the meantime is then reported instead of being overwritten. A decided card
 (`status: resolved`) is never replaced, and the new-version file is left for the agent to remove.
 A broken card can't be updated (president never writes one): fix it by editing the file.

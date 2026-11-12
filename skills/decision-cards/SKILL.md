@@ -332,18 +332,18 @@ When the human rejects all options, president appends their note to `feedback` (
 3. Change the card with `preside update` (see **Changing a card** below): replace `options`
    with new ones that answer the feedback (new ids are fine), rewrite the `## Option <id>`
    sections in the body to match, update `recommendation`, and remove `needs_new_options`.
-   Keep `feedback`, `id`, `created` and `status` as they are.
+   Keep `feedback`, `id`, `created`, `status` and `defer_until` as they are.
 4. Once `preside update` has replaced the card, run the card's `done:` line from `pending`.
 
 ## New notes from the human
 
-The human can add a note to an open or deferred card without deciding, give a reason when
-deferring, reopen a decided card, take back a decision with Undo, or save the summary of a
-conversation they had with an agent about the card. These land in `feedback` (`type: note`,
-`defer`, `reopen`, `undo` or `chat`), and `preside pending` lists every card with feedback
-newer than its `seen_at`. A `chat` entry (printed `chat <time>: <text>`) is a conversation
-summary the human edited: read it as a note from them about a conversation you didn't see.
-Two of them need care:
+The human can add a note to a card without deciding (also to one already decided: the
+decision stands; judge whether the note changes your work), give a reason when deferring,
+reopen a decided card, take back a decision with Undo, or save the summary of a conversation
+they had with an agent about the card. These land in `feedback` (`type: note`, `defer`,
+`reopen`, `undo` or `chat`), and `preside pending` lists every card with feedback newer than its
+`seen_at`. A `chat` entry (printed `chat <time>: <text>`) is a conversation summary the human
+edited: read it as a note from them about a conversation you didn't see. Two of them need care:
 
 - **`undo`**: the human took back a decision right after making it (`previous_resolution` is
   the decision). If you recorded it in the docs or changed code for it, revert that. If you
@@ -401,8 +401,8 @@ what the human added since, without any sign. Instead:
 1. Read the card.
 2. Write your whole new version of it to a file next to it whose name starts with `.` (president
    ignores those), for example `<main>/decisions/.20261110q4m8-empty-state-copy.md.new`: the card as
-   you read it, with your changes. Keep `status`, `resolution`, `feedback`, `seen_at` and
-   `applied_at` exactly as they were.
+   you read it, with your changes. Keep `status`, `resolution`, `feedback`, `seen_at`,
+   `applied_at` and `defer_until` exactly as they were.
 3. Replace the card with it, then remove your file:
 
    ```sh

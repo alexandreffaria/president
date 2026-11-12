@@ -475,7 +475,7 @@ describe("panels holding unsent text (R2-3)", () => {
     expect((host.querySelector("#panel-text") as HTMLTextAreaElement).value).toBe(
       "None of these: we need sync",
     );
-    expect(text()).toContain("None of these. What's wrong with them");
+    expect(text()).toContain("None of these. What would you rather see, or what is your answer?");
   });
 
   it("close on Esc and keep what was typed as a draft", async () => {
@@ -845,5 +845,237 @@ describe("errors", () => {
 describe("routing", () => {
   it("shows a not-found page for a malformed address instead of crashing", async () => {
     await open("/card/%E0%A4%A/x", () => text().includes("nothing at this address"), "not found");
+  });
+});
+
+const panelCtrlEnter = () =>
+  act(async () => {
+    host
+      .querySelector("#panel-text")
+      ?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }));
+  });
+
+const queueIds = () =>
+  [...host.querySelectorAll<HTMLAnchorElement>(".queue-link")].map((a) =>
+    a.getAttribute("href")?.split("/").at(-1),
+  );
+
+describe("the agent's pick, hidden until asked (#0008, 20261111nsaj)", () => {
+  it("shows no tag and no take until r, then hides them again on the next visit", async () => {
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    expect(text()).not.toContain("The agent's take");
+    expect(text()).not.toContain("Recommended");
+    expect(button("Show the agent's pick")).toBeDefined();
+    // Nothing is preselected, so Enter can't leak the pick.
+    expect(text()).not.toContain("Selected");
+    await press("r", document.body);
+    expect(text()).toContain("The agent's take");
+    expect(text()).toContain("Recommended");
+    expect(button("Show the agent's pick")).toBeUndefined();
+    // Leaving the card and coming back (j then k) hides it again.
+    await press("j", document.body);
+    await until(() => text().includes("report errors"), "the next card");
+    await press("k", document.body);
+    await until(() => pathname() === "/card/demo/0001" && text().includes(CARD_TITLE), "back");
+    expect(text()).not.toContain("The agent's take");
+    expect(text()).not.toContain("Recommended");
+    await act(async () => button("Show the agent's pick")?.click());
+    expect(text()).toContain("The agent's take");
+    expect(posts).toEqual([]);
+  });
+
+  it("moves focus to the agent's take once the button is gone (R1-2)", async () => {
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await act(async () => button("Show the agent's pick")?.click());
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Agent recommendation");
+    // r with the button focused, on the next visit, does the same.
+    await press("j", document.body);
+    await until(() => text().includes("report errors"), "the next card");
+    await press("k", document.body);
+    await until(() => button("Show the agent's pick") !== undefined, "back");
+    const reveal = button("Show the agent's pick") as HTMLButtonElement;
+    reveal.focus();
+    await press("r", reveal);
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Agent recommendation");
+  });
+});
+
+describe("your own answer from the Neither panel (#0010)", () => {
+  it("decides the card with what was typed, and Undo brings the panel back", async () => {
+    const file = join(demo, "decisions", "0001-offline-storage.md");
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await press("n", document.body);
+    expect(text()).toContain("Ask for new options");
+    await typeInto(host.querySelector("#panel-text"), "Plain JSON files, one per trip.");
+    await act(async () => button("Decide this as my answer")?.click());
+    await until(() => text().includes("Decided #0001: your own answer."), "the decision toast");
+    const decided = await io(() => readFile(file, "utf8"));
+    expect(decided).toMatch(/^status: resolved$/m);
+    expect(decided).toMatch(/choice: custom\n\s+note: Plain JSON files, one per trip\./);
+    expect(decided).not.toContain("needs_new_options");
+    await press("u", document.body);
+    await until(
+      () =>
+        pathname() === "/card/demo/0001" &&
+        (host.querySelector("#panel-text") as HTMLTextAreaElement | null)?.value ===
+          "Plain JSON files, one per trip.",
+      "the Neither panel with the text",
+    );
+  });
+});
+
+describe("the Neither panel on a card decided elsewhere (R1-5)", () => {
+  it("hides the panel's actions once the card is resolved, keeping the text as a draft", async () => {
+    const file = join(demo, "decisions", "0001-offline-storage.md");
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await press("n", document.body);
+    await typeInto(host.querySelector("#panel-text"), "Something else.");
+    expect(button("Decide this as my answer")).toBeDefined();
+    await editFile(
+      file,
+      "status: open\n",
+      "status: resolved\nresolution:\n  choice: dexie\n  resolved_at: 2026-11-12T10:00:00Z\n",
+    );
+    socket()?.emit({ type: "cards", project: "demo" } satisfies HubEvent);
+    await until(() => text().includes("This decision is made."), "the decided bar");
+    expect(button("Ask for new options")).toBeUndefined();
+    expect(button("Decide this as my answer")).toBeUndefined();
+    expect(host.querySelector("#panel-text")).toBeNull();
+  });
+});
+
+describe("notes on decided cards (#0011)", () => {
+  it("adds a note with m and keeps the decision and applied_at", async () => {
+    const file = join(demo, "decisions", "0004-map-tiles.md");
+    await open("/card/demo/0004", () => text().includes("This decision is made"), "the card");
+    expect(button("Note…")).toBeDefined();
+    expect(button("Reopen")).toBeDefined();
+    await press("m", document.body);
+    await typeInto(host.querySelector("#panel-text"), "Keep the old tiles as a fallback.");
+    await panelCtrlEnter();
+    await until(() => text().includes("Note added."), "the note toast");
+    const after = await io(() => readFile(file, "utf8"));
+    expect(after).toMatch(/^status: resolved$/m);
+    expect(after).toMatch(/^applied_at: /m);
+    expect(after).toMatch(/type: note\n\s+note: Keep the old tiles as a fallback\./);
+    expect(text()).toContain("This decision is made");
+  });
+});
+
+describe("snooze (#0017, 202611112hzh) and the queue order (#0009, #0015)", () => {
+  const DEFERRED_TITLE = "What should the app say the first time someone opens it?";
+  const deferUntil = async (file: string) =>
+    /^defer_until: (\S+)$/m.exec(await io(() => readFile(file, "utf8")))?.[1] ?? "";
+
+  it("brings a deferred card without a date back, and d snoozes it for a week", async () => {
+    const file = join(demo, "decisions", "0003-first-run-copy.md");
+    await open("/", () => queueIds().includes("0003"), "the card back in the queue");
+    expect(text()).toContain("back from deferral");
+    expect(text()).not.toContain("Deferred (");
+    await act(async () => navigate("/card/demo/0003"));
+    await until(() => text().includes(DEFERRED_TITLE), "the card");
+    expect(text()).toContain("Back from deferral: it was deferred with no return date");
+    const before = Date.now();
+    await press("d", document.body);
+    await until(() => text().includes("Deferred #0003 until"), "the defer toast");
+    const days = (Date.parse(await deferUntil(file)) - before) / (24 * 3600 * 1000);
+    expect(days).toBeGreaterThan(6.99);
+    expect(days).toBeLessThan(7.01);
+    await act(async () => navigate("/"));
+    await until(() => text().includes("Deferred (1)"), "the Deferred list");
+    expect(queueIds()).not.toContain("0003");
+    expect(text()).toContain("back in 7 days");
+    // Its page says when it comes back, and Back to queue works as before.
+    await act(async () => navigate("/card/demo/0003"));
+    await until(() => text().includes("Deferred until"), "the card");
+    await act(async () => button("Back to queue")?.click());
+    await until(() => text().includes("Moved #0003 back to the queue"), "the reopen toast");
+    expect(await io(() => readFile(file, "utf8"))).not.toContain("defer_until");
+  });
+
+  it("offers other dates in the Defer menu, on D or its button", async () => {
+    const file = join(demo, "decisions", "0002-api-errors.md");
+    await open("/card/demo/0002", () => text().includes("report errors"), "the card");
+    await press("D", document.body);
+    expect(text()).toContain("Defer until:");
+    // Esc closes it without deferring.
+    await press("Escape");
+    await settle();
+    expect(text()).not.toContain("Defer until:");
+    expect(pathname()).toBe("/card/demo/0002");
+    await act(async () => button("Defer until…")?.click());
+    for (const label of ["Next week", "Tomorrow", "Next month", "Pick a date…"]) {
+      expect(button(label), label).toBeDefined();
+    }
+    const before = Date.now();
+    await act(async () => button("Tomorrow")?.click());
+    await until(() => text().includes("Deferred #0002 until"), "the defer toast");
+    const hours = (Date.parse(await deferUntil(file)) - before) / (3600 * 1000);
+    // A day later, give or take a daylight saving change.
+    expect(hours).toBeGreaterThan(22.9);
+    expect(hours).toBeLessThan(25.1);
+  });
+
+  it("defers until a picked day", async () => {
+    const file = join(demo, "decisions", "0002-api-errors.md");
+    await open("/card/demo/0002", () => text().includes("report errors"), "the card");
+    await press("D", document.body);
+    await act(async () => button("Pick a date…")?.click());
+    await typeInto(host.querySelector("input[type=date]"), "2099-03-04");
+    await act(async () => button("Defer")?.click());
+    await until(() => text().includes("Deferred #0002 until"), "the defer toast");
+    expect(Date.parse(await deferUntil(file))).toBe(new Date(2099, 2, 4).getTime());
+  });
+
+  it("shows a snoozed card in the queue as soon as its date passes, with no reload", async () => {
+    const soon = new Date(Date.now() + 1500).toISOString();
+    await editFile(
+      join(demo, "decisions", "0002-api-errors.md"),
+      "status: open\n",
+      `status: deferred\ndefer_until: ${soon}\n`,
+    );
+    await open("/", () => text().includes("Deferred (1)"), "the Deferred list");
+    expect(queueIds()).not.toContain("0002");
+    await until(() => queueIds().includes("0002"), "the card back");
+    expect(text()).not.toContain("Deferred (");
+  });
+
+  it("brings a card due during sleep back when the window regains focus (R1-7)", async () => {
+    const inAnHour = new Date(Date.now() + 3_600_000).toISOString();
+    await editFile(
+      join(demo, "decisions", "0002-api-errors.md"),
+      "status: open\n",
+      `status: deferred\ndefer_until: ${inAnHour}\n`,
+    );
+    await open("/", () => text().includes("Deferred (1)"), "the Deferred list");
+    // The machine slept two hours; its timer hasn't fired.
+    const woke = Date.now() + 7_200_000;
+    const now = vi.spyOn(Date, "now").mockImplementation(() => woke);
+    try {
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+      });
+      expect(queueIds()).toContain("0002");
+      expect(text()).not.toContain("Deferred (");
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("sinks a card whose dependency isn't decided below the ready ones", async () => {
+    // 0003 is low priority and back from deferral; 0002 (normal) depends on it.
+    await editFile(
+      join(demo, "decisions", "0002-api-errors.md"),
+      "depends_on: []",
+      'depends_on: ["0003"]',
+    );
+    await open("/", () => queueIds().length === 3, "the queue");
+    expect(queueIds()).toEqual(["0001", "0003", "0002"]);
+    expect(host.querySelectorAll(".queue-link")[2]?.textContent).toContain("depends on #0003");
+    // j on the card page follows the same order.
+    await act(async () => navigate("/card/demo/0003"));
+    await until(() => text().includes(DEFERRED_TITLE), "the card");
+    await press("j", document.body);
+    await until(() => pathname() === "/card/demo/0002", "the dependent card next");
   });
 });

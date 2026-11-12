@@ -6,9 +6,12 @@
  *    │ └─────reopen──────┘
  *    ├──neither──▶ open + needs_new_options (feedback appended)
  *    ├──note─────▶ open (feedback appended)
- *    └──defer────▶ deferred ──reopen──▶ open
+ *    └──defer────▶ deferred + defer_until ──reopen──▶ open
+ *                     │  (back in the queue once defer_until passes; defer again snoozes it)
  *
- * `resolve`, `neither` and `note` also work on deferred cards. `seen` (an agent has read the
+ * `resolve`, `neither` and `note` also work on deferred cards, and `note` on resolved ones
+ * (#0011: the decision and applied_at stay). `resolve`, `neither` and `reopen` remove
+ * `defer_until`. `seen` (an agent has read the
  * human's feedback) works in any state; `applied` implies it. Both take the token that
  * `preside pending` printed, and mark only what the agent was shown (see agentToken).
  *
@@ -25,8 +28,12 @@ import {
   type FeedbackType,
   FrontmatterSchema,
   formatIssues,
+  isIsoDateOrDateTime,
   type RawFrontmatter,
 } from "./schema.ts";
+
+/** How long `d` defers a card when no date is given (#0017: "d defers for a week"). */
+export const DEFAULT_SNOOZE_DAYS = 7;
 
 const Note = z.string().trim().min(1, { error: "a note is required" }).max(20_000);
 const OptionalNote = z.string().trim().max(20_000).optional();
@@ -39,7 +46,18 @@ export const CardActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("resolve"), choice: z.string().min(1).max(40), note: OptionalNote }),
   z.object({ type: z.literal("neither"), note: Note }),
   z.object({ type: z.literal("note"), note: Note }),
-  z.object({ type: z.literal("defer"), note: OptionalNote }),
+  z.object({
+    type: z.literal("defer"),
+    note: OptionalNote,
+    /** When the card comes back to the queue; a week from now when left out. */
+    until: z
+      .string()
+      .refine(isIsoDateOrDateTime, {
+        error:
+          "expected a timestamp with a timezone, like 2026-11-18T13:00:00Z, or a date, like 2026-11-18 (midnight UTC)",
+      })
+      .optional(),
+  }),
   z.object({ type: z.literal("reopen"), note: OptionalNote }),
   z.object({ type: z.literal("applied"), token: AgentToken }),
   z.object({ type: z.literal("seen"), token: AgentToken }),
@@ -83,8 +101,8 @@ export function feedbackTimestamp(
 const ALLOWED_FROM: Record<CardActionType, readonly CardStatus[]> = {
   resolve: ["open", "deferred"],
   neither: ["open", "deferred"],
-  note: ["open", "deferred"],
-  defer: ["open"],
+  note: ["open", "deferred", "resolved"],
+  defer: ["open", "deferred"],
   reopen: ["deferred", "resolved"],
   applied: ["resolved"],
   seen: CARD_STATUSES,
@@ -146,6 +164,7 @@ export function applyAction(
       };
       delete next.needs_new_options;
       delete next.applied_at;
+      delete next.defer_until;
       break;
     }
     case "neither": {
@@ -157,6 +176,7 @@ export function applyAction(
       appendFeedback("neither", action.note);
       next.status = "open";
       next.needs_new_options = true;
+      delete next.defer_until;
       break;
     }
     case "note": {
@@ -164,8 +184,13 @@ export function applyAction(
       break;
     }
     case "defer": {
+      const until = action.until
+        ? Date.parse(action.until)
+        : now.getTime() + DEFAULT_SNOOZE_DAYS * 24 * 3600 * 1000;
+      if (until <= now.getTime()) return invalid("the date to defer the card until has passed");
       if (action.note) appendFeedback("defer", action.note);
       next.status = "deferred";
+      next.defer_until = timestamp(new Date(until));
       break;
     }
     case "reopen": {
@@ -182,6 +207,7 @@ export function applyAction(
       next.status = "open";
       delete next.resolution;
       delete next.applied_at;
+      delete next.defer_until;
       break;
     }
     case "applied":
