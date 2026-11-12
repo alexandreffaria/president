@@ -33,7 +33,7 @@ built in PR #17. B2 (20261112l9vh) is built in PR #18 (branch `feat/sync-followu
 three follow-ups from PR #12's review: S7-4, S4-6 and S8-1.
 
 Later on 2026-11-12: F (the command is now `preside`, #0016 and 20261111dmvt) is built in the
-pull request "Rename the command to preside (F)" (branch `feat/rename-preside`), with
+pull request "Rename the command to preside (F)" (PR #19, branch `feat/rename-preside`), with
 `president` kept as an alias. F2, which removes the alias, isn't built.
 
 ## Build plan
@@ -50,7 +50,7 @@ Each row is one pull request (PR 2 may be split, see its section). The order is 
 | C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | Alongside B; before PR 2, which builds on #0010's Neither panel and #0011's notes on decided cards |
 | D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part), 202611116ff6 (`pending` and `validate`) | PR #7 (it edits `card-format.md` and `SKILL.md`) | Before or with C and PR 2; `chat` must exist before PR 2 writes it |
 | E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s, 20261112dfik | C (#0010's panel, #0011's notes on decided cards), D (`chat` type) | After C and D |
-| F | [Rename the command to `preside`](#f-rename-the-command-to-preside-0016-20261111dmvt) (agent-facing: the CLI, the skill and every printed command) | #0016, 20261111dmvt | A2 (both edit `SKILL.md`). The npm placeholder is published by the human (an agent prepares it). No card orders it against F; suggested: publish it before F merges (after repeating the name check), so the name F writes everywhere can't be taken meanwhile | **Built** in the pull request "Rename the command to preside (F)" (branch `feat/rename-preside`) |
+| F | [Rename the command to `preside`](#f-rename-the-command-to-preside-0016-20261111dmvt) (agent-facing: the CLI, the skill and every printed command) | #0016, 20261111dmvt | A2 (both edit `SKILL.md`). The npm placeholder is published by the human (an agent prepares it). No card orders it against F; suggested: publish it before F merges (after repeating the name check), so the name F writes everywhere can't be taken meanwhile | **Built** in the pull request "Rename the command to preside (F)" (PR #19, branch `feat/rename-preside`) |
 | F2 | [Remove the `president` alias](#the-president-alias-and-when-it-ends) | 20261111dmvt | F | One month after F ships, or once every registered project's own docs and agent instructions use `preside`, whichever is later |
 
 Nothing here needs Sync to be built first: B is early because of #0022, not because the others
@@ -1287,7 +1287,7 @@ from `preside pending` and runs `preside applied` (in the main folder, #0022). F
 
 ## F. Rename the command to `preside` (#0016, 20261111dmvt)
 
-**Built** in the pull request "Rename the command to preside (F)" (branch
+**Built** in the pull request "Rename the command to preside (F)" (PR #19, branch
 `feat/rename-preside`), as written below. `bin/preside.js` is the entry point and
 `bin/president.js` is the alias, a one-line script that imports it, so links made with the old
 install line keep working; `package.json` lists both in `bin`. What the CLI prints about itself
@@ -1455,8 +1455,7 @@ only); the build PR named in brackets fixes each.
 - README, the `n` row ("an agent writes new ones"): under #0007 the hub starts the card's
   session at once [E].
 - README and the skill, "Use `president`, not `npx president`": #0016 renames the command, to
-  `preside` (20261111dmvt) [F; fixed in the pull request "Rename the command to preside (F)",
-  where the warning is about `npx preside`].
+  `preside` (20261111dmvt) [F; fixed in PR #19, where the warning is about `npx preside`].
 - The skill's "Not decided yet" paragraph (card changes outside an apply), its interim rule to
   write new cards straight into `<main>/decisions/`, *Writing a card*, step 1, and *Changing a
   card*'s "A new card has no human edits to lose: write its file directly
