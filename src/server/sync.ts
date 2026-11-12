@@ -44,6 +44,7 @@ import type {
   SyncStatusResponse,
 } from "../core/api.ts";
 import { parseCardFileName } from "../core/card-file.ts";
+import { revisionOf } from "./cards.ts";
 import { UserError } from "./errors.ts";
 import { KeyedMutex } from "./fs-utils.ts";
 import { type GitOptions, type GitResult, runGit, splitZ } from "./git.ts";
@@ -464,9 +465,31 @@ export async function syncRepo(
   name: string,
   options: SyncOptions = {},
 ): Promise<RepoSyncResult> {
+  return (await syncRepoDetailed(dir, name, options)).result;
+}
+
+/**
+ * {@link syncRepo}, plus the card files (paths relative to `dir`) whose content the pull
+ * changed in the checkout, for "Sync just brought in a newer version of this card".
+ */
+export async function syncRepoDetailed(
+  dir: string,
+  name: string,
+  options: SyncOptions = {},
+): Promise<{ result: RepoSyncResult; broughtIn: string[] }> {
+  const pulled = { broughtIn: [] as string[] };
+  return { result: await guardedSequence(dir, name, options, pulled), broughtIn: pulled.broughtIn };
+}
+
+async function guardedSequence(
+  dir: string,
+  name: string,
+  options: SyncOptions,
+  pulled: { broughtIn: string[] },
+): Promise<RepoSyncResult> {
   const repo = new Repo(dir, options);
   try {
-    return await runSequence(repo, name, options.hostname ?? machineName());
+    return await runSequence(repo, name, options.hostname ?? machineName(), pulled);
   } catch (error) {
     if (error instanceof GitFailed) {
       return result("not-synced", `Not synced: git failed in ${name}`, {
@@ -478,7 +501,12 @@ export async function syncRepo(
   }
 }
 
-async function runSequence(repo: Repo, name: string, machine: string): Promise<RepoSyncResult> {
+async function runSequence(
+  repo: Repo,
+  name: string,
+  machine: string,
+  report: { broughtIn: string[] },
+): Promise<RepoSyncResult> {
   const dir = repo.dir;
   const unavailable = await repo.unavailable();
   if (unavailable) {
@@ -667,6 +695,22 @@ async function runSequence(repo: Repo, name: string, machine: string): Promise<R
       gitError: gitErrorText(pulled),
       action: `Nothing was pushed${kept}. Press Sync again to retry. ${extra}`.trim(),
     });
+  }
+
+  // The cards the pull changed here (whatever happens next, they are in the checkout now).
+  const pulledHead = await repo.run(["rev-parse", "--verify", "HEAD^{commit}"]);
+  if (pulledHead.code === 0) {
+    const changed = await repo.run([
+      "diff",
+      "--name-only",
+      "-z",
+      "--no-renames",
+      before,
+      pulledHead.stdout.trim(),
+      "--",
+      CARDS,
+    ]);
+    if (changed.code === 0) report.broughtIn = splitZ(changed.stdout);
   }
 
   // Look before pushing: a file an agent wrote while the pull had it set aside leaves
@@ -890,6 +934,11 @@ class WriteGate {
   }
 }
 
+/** A card file's key: its project's folder and its file name. */
+function broughtInKey(project: Project, cardPath: string): string {
+  return `${project.path}\0${basename(cardPath)}`;
+}
+
 interface ProjectState {
   fetchError?: string;
   last?: SyncResultDto;
@@ -908,6 +957,11 @@ export class SyncService {
   readonly #state = new Map<string, ProjectState>();
   readonly #running = new Set<string>();
   readonly #inFlight = new Set<Promise<unknown>>();
+  /**
+   * The card revisions a pull of this hub's Sync brought in, by project folder and card
+   * file name (the 500 most recent cards, 20 revisions each; a restart forgets them).
+   */
+  readonly #broughtIn = new Map<string, string[]>();
 
   constructor(registry: Registry, bus: EventBus, options: SyncOptions = {}) {
     this.#registry = registry;
@@ -945,6 +999,37 @@ export class SyncService {
         ),
       task,
     );
+  }
+
+  /**
+   * Whether the card file at `cardPath` in `project` is at a revision this hub's Sync
+   * brought in with a pull: the card view then says "Sync just brought in a newer version
+   * of this card from the online copy." rather than "An agent changed this card".
+   */
+  broughtIn(project: Project, cardPath: string, revision: string): boolean {
+    return this.#broughtIn.get(broughtInKey(project, cardPath))?.includes(revision) ?? false;
+  }
+
+  async #recordBroughtIn(project: Project, paths: string[]): Promise<void> {
+    for (const path of paths) {
+      if (!isCardPath(path)) continue;
+      let text: string;
+      try {
+        text = await readFile(join(project.path, path), "utf8");
+      } catch {
+        continue; // Deleted by the pull, or unreadable: no card view shows it.
+      }
+      const key = broughtInKey(project, path);
+      const list = this.#broughtIn.get(key) ?? [];
+      const revision = revisionOf(text);
+      if (!list.includes(revision)) list.push(revision);
+      if (list.length > 20) list.shift();
+      this.#broughtIn.delete(key);
+      this.#broughtIn.set(key, list);
+      if (this.#broughtIn.size > 500) {
+        this.#broughtIn.delete(this.#broughtIn.keys().next().value as string);
+      }
+    }
   }
 
   async status(): Promise<SyncStatusResponse> {
@@ -988,7 +1073,11 @@ export class SyncService {
           this.#running.add(project.path);
           this.#bus.emit({ type: "sync" });
           try {
-            return await syncRepo(project.path, project.name, this.#options);
+            const run = await syncRepoDetailed(project.path, project.name, this.#options);
+            // Recorded before the `cards` event below, so a card view that reloaded while
+            // the pull ran (and took the change for an agent's) gets it right on that event.
+            await this.#recordBroughtIn(project, run.broughtIn);
+            return run.result;
           } catch (error) {
             console.error(error);
             return result("not-synced", `Not synced: something went wrong in ${project.name}`, {

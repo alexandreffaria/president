@@ -109,8 +109,14 @@ section left open were settled the simplest safe way, and the human can change a
   `SSH_ASKPASS`), `SSH_ASKPASS_REQUIRE=never`, no stdin and no terminal.
 - The last result per project is kept in the running hub (every tab shows it until
   dismissed in that tab); a restart forgets it.
-- The notice an open card shows after a pull brought in a change ("An agent changed this
-  card...") is unchanged; the suggestion under "Notes for whoever builds it" is not built.
+- The notice an open card shows after this hub's Sync brought in a change reads "Sync just
+  brought in a newer version of this card from the online copy." (decided in card
+  `20261112xp4s`, option from-sync). `SyncService` records the revisions of the cards each
+  pull changed, before it sends its `cards` event; the card endpoint reports
+  `changedBySync`, and a view that reloaded mid-pull (and took the change for an agent's)
+  picks the sentence again on that event. Other changes keep their notices.
+- Only a project at the top folder of its repository gets Sync (card `2026111209dq`, decided
+  top-only).
 
 From review round 1 of the PR (each with a test in `test/sync.test.ts` that fails without it):
 
@@ -236,10 +242,9 @@ Sync would then refuse whenever an agent has work in progress.
   hold or refuse card actions there until it finishes.
 - If `git push` fails, the answers stay in the local commit and the "not synced" count stays;
   show git's error. Pressing Sync again retries.
-- After a pull brings in the human's own answers from another machine, an open card currently
-  says "An agent changed this card while you had it open" (`src/web/views/CardView.tsx`),
-  because this hub didn't write it. Suggestion, not decided: make the notice say the change
-  came from Sync.
+- After a pull brings in a change to an open card, the card says "Sync just brought in a newer
+  version of this card from the online copy." (`src/web/views/CardView.tsx`; decided in card
+  `20261112xp4s`), not "An agent changed this card while you had it open".
 - Sync carries everything under `decisions/`: answers, notes, `applied_at` from agents
   (#0022), conversation summaries (#0003, #0023), `defer_until` (#0017) and `withdrawn` (#0014).
   Session ids, the hub's copy of conversations and the "not summarized" list never travel

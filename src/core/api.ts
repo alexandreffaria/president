@@ -26,6 +26,11 @@ export interface CardDetailDto extends CardDto {
    * agent's, even after a reload or with live events missed.
    */
   writtenByPresident: boolean;
+  /**
+   * Whether this revision is one a pull of this hub's Sync brought in (SyncService.broughtIn):
+   * the view then says the change came with Sync rather than from an agent.
+   */
+  changedBySync: boolean;
 }
 
 export interface BrokenCardDto {

@@ -70,6 +70,8 @@ let registryEntry: string;
 let posts: string[];
 /** How many of the next undo requests the hub refuses because a Sync is running. */
 let syncingUndos = 0;
+/** While set, card reads say the hub's Sync brought in the revision (changedBySync). */
+let syncBroughtIn = false;
 /** Requests the UI started that haven't finished; awaited before the stubs go away. */
 const inFlight = new Set<Promise<Response>>();
 
@@ -98,6 +100,7 @@ async function setUp() {
   const app = createApp({ registry, bus: new EventBus(), staticDir: undefined });
   posts = [];
   syncingUndos = 0;
+  syncBroughtIn = false;
   vi.stubGlobal("fetch", async (input: string, init: RequestInit = {}) => {
     if (init.method === "POST") posts.push(input);
     if (init.method === "POST" && input.endsWith("/undo") && syncingUndos > 0) {
@@ -114,7 +117,19 @@ async function setUp() {
     const request = new Request(`http://127.0.0.1:4747${input}`, init);
     // A browser adds Origin itself (scripts may not set it, so the DOM's Request drops it).
     request.headers.set("origin", "http://127.0.0.1:4747");
-    const response = Promise.resolve(app.fetch(request));
+    const response = Promise.resolve(app.fetch(request)).then(async (res) => {
+      if (
+        !syncBroughtIn ||
+        init.method === "POST" ||
+        !/^\/api\/cards\/[^/?]+\/[^/?]+/.test(input)
+      ) {
+        return res;
+      }
+      // What SyncService.broughtIn says once a Sync's pull brought this revision in.
+      const body = (await res.json()) as { ok: boolean; card?: { changedBySync: boolean } };
+      if (body.card) body.card.changedBySync = true;
+      return Response.json(body, { status: res.status });
+    });
     inFlight.add(response);
     response.finally(() => inFlight.delete(response)).catch(() => {});
     return response;
@@ -350,6 +365,28 @@ describe("card view keyboard", () => {
     // The notice stays until the human says they read it.
     await act(async () => button("I've read it")?.click());
     expect(text()).not.toContain("Your choice was cleared");
+  });
+
+  it("says the change came with Sync when the hub's Sync brought it in, even after a mid-pull reload", async () => {
+    const file = join(demo, "decisions", "0001-offline-storage.md");
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    // The pull rewrites the file; the watcher reloads the card before the Sync knows what
+    // it brought in, so this first reload takes it for an agent's change.
+    await editFile(file, "title: IndexedDB through Dexie", "title: Something else entirely");
+    socket()?.emit({ type: "cards", project: "demo" } satisfies HubEvent);
+    await until(() => text().includes("An agent changed this card"), "the first notice");
+    // The Sync recorded what it brought in, then sent its own cards event.
+    syncBroughtIn = true;
+    socket()?.emit({ type: "cards", project: "demo" } satisfies HubEvent);
+    await until(
+      () =>
+        text().includes(
+          "Sync just brought in a newer version of this card from the online copy. Read what changed before you act on it.",
+        ),
+      "the Sync notice",
+    );
+    expect(text()).not.toContain("An agent changed this card");
+    expect(text()).toContain('Option 1 ("Something else entirely") changed: title.');
   });
 
   it("puts focus back on the Note button when the note panel closes", async () => {

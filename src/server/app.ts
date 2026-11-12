@@ -176,6 +176,7 @@ export function createApp(options: AppOptions): Hono {
           card: toCardDetailDto(
             found.card,
             writes.explain(found.card.path, found.card.revision, since),
+            sync.broughtIn(project, found.card.path, found.card.revision),
           ),
         }
       : { ok: false, broken: found.broken };

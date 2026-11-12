@@ -13,6 +13,7 @@ import type {
   SyncStatusResponse,
 } from "../src/core/api.ts";
 import { createApp } from "../src/server/app.ts";
+import { revisionOf } from "../src/server/cards.ts";
 import { Registry } from "../src/server/registry.ts";
 import { startHub } from "../src/server/server.ts";
 import { SyncService } from "../src/server/sync.ts";
@@ -202,6 +203,53 @@ describe("the Sync API", () => {
     ];
     expect(outcomes.sort()).toEqual(["nothing", "synced"]);
     expect(s.remoteLog()).toEqual(["decisions from laptop: 0001", "demo cards", "init"]);
+  });
+});
+
+describe("cards a Sync brought in (card 20261112xp4s, from-sync)", () => {
+  it("marks the revision the pull brought in, before the cards event, and nothing else", async () => {
+    const s = await cardsSandbox();
+    const file = "decisions/0003-first-run-copy.md";
+    const original = await s.read(s.desktop, file);
+    const changed = original.replace(
+      "title: What should the app say the first time someone opens it?",
+      "title: What should the app say on first run?",
+    );
+    expect(changed).not.toBe(original);
+    await s.write(s.desktop, file, changed);
+    s.push(s.desktop, "desktop edits a card");
+
+    const { registry, bus, sync, request } = await setup(s);
+    const [project] = await registry.list();
+    if (!project) throw new Error("no project");
+    const detail = async (id: string, since?: string) => {
+      const res = (await (
+        await request(`/api/cards/shop/${id}${since ? `?since=${since}` : ""}`)
+      ).json()) as CardResponse;
+      if (!res.ok) throw new Error("broken card");
+      return res.card;
+    };
+    const before = await detail("0003");
+    expect(before.changedBySync).toBe(false);
+    // What the Sync knows when it tells open card views to reload.
+    const atCardsEvent: boolean[] = [];
+    bus.subscribe((event) => {
+      if (event.type === "cards") {
+        atCardsEvent.push(sync.broughtIn(project, join(s.laptop, file), revisionOf(changed)));
+      }
+    });
+
+    expect((await sync.sync()).results[0]).toMatchObject({ outcome: "synced", received: ["0003"] });
+
+    expect(atCardsEvent).toEqual([true]);
+    const after = await detail("0003", before.revision);
+    expect(after.revision).toBe(revisionOf(changed));
+    expect(after).toMatchObject({ changedBySync: true, writtenByPresident: false });
+    expect((await detail("0001")).changedBySync).toBe(false);
+
+    // An agent here changes the card afterwards: that is no longer what Sync brought in.
+    await s.write(s.laptop, file, `${changed}\nMore from an agent.\n`);
+    expect((await detail("0003", after.revision)).changedBySync).toBe(false);
   });
 });
 
