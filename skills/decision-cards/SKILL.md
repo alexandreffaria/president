@@ -220,25 +220,32 @@ options:
      the main folder is. (A draft in a scratch folder gets neither check: `validate` reads only
      that file, so its `depends_on` is checked first at step 7.)
 6. Have a fresh session review the draft: one that didn't write it, for example a subagent
-   you start for this. Give it the draft's absolute path and ask it to check the card
-   against **What makes a good card**, to check every fact and quote against its source,
-   and to mark each finding should-fix (a wrong or one-sided fact, a missing or straw-man
-   option, anything the human could decide wrongly from) or nit. Fix what it finds,
-   validate the draft again, and have a fresh session review the fixed draft, round after
-   round, until a review finds nothing should-fix. If you can't start a fresh session, don't
-   copy the card in: tell the human where the draft is.
+   you start for this. Give it the draft's absolute path and the **What makes a good card**
+   list below (paste it in; it may not have this skill), and ask it to check the card
+   against that list, to check every fact and quote against its source, and to mark each
+   finding should-fix (a wrong or one-sided fact, a missing or straw-man option, anything
+   the human could decide wrongly from) or nit. Fix what it finds, validate the draft again,
+   and have a fresh session review the fixed draft, round after round, until a review finds
+   nothing should-fix. If you can't start a fresh session, don't copy the card in: tell the
+   human where the draft is.
 7. List `<main>/decisions/` again. If another card has taken your id meanwhile, renumber the
-   draft to the next free id (change its `id` and rename the file to match) and validate it
-   again. Then copy the reviewed draft into the main folder, by absolute path
-   (`<main>/decisions/0012-empty-state-copy.md`), never over an existing file, and run
+   draft to the next free id (change its `id` and rename the file to match). Check that every
+   id in the draft's `depends_on` is a card in that list; if one isn't, fix the draft. If
+   you changed the draft, validate it again. Then copy it into the main folder, by absolute
+   path (`<main>/decisions/0012-empty-state-copy.md`), never over an existing file, and run
    `president validate <main>/decisions/0012-empty-state-copy.md`: it must print `ok` and no
-   `warning` line (here a `depends_on` warning is a real problem). If it reports
-   `id "0012" is also used by ...` (another agent copied the same id in since you looked),
-   your copy is the newer card: renumber the file in `<main>/decisions/`, not the draft
-   (it is broken, so edit its `id` directly and rename it, see **Changing a card**), to the
-   next free id there, then validate it and the other card's file again; leave the other
-   card alone. Then delete the draft (and the scratch folder, if you made one), so your
-   branch never commits it. The card is in the human's queue now; leave it uncommitted.
+   `warning` line.
+   - If it warns that a `depends_on` "is not a card in this project" (that card went away
+     since you looked), the card is already in the human's queue: fix it with
+     `president update` (see **Changing a card**), not by editing it or copying over it.
+   - If it reports `id "0012" is also used by ...` (another agent copied the same id in
+     since you looked), your copy is the newer card: renumber the file in `<main>/decisions/`,
+     not the draft (it is broken, so edit its `id` directly and rename it, see **Changing a
+     card**), to the next free id there. Then validate it and the other card's file again; if
+     yours is reported as a duplicate again, renumber it again. Leave the other card alone.
+
+   Then delete the draft (and the scratch folder, if you made one), so your branch never
+   commits it. The card is in the human's queue now; leave it uncommitted.
 
 ### What makes a good card
 
