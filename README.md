@@ -168,8 +168,14 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
      the branch has no upstream;
    - there are commits that aren't pushed and change files outside `decisions/`, or change
      nothing at all (an agent's work: the pull would rebase it and the push would publish it);
-   - a file outside `decisions/` that changed on the remote has uncommitted edits here, or the
-     remote adds a file where one git doesn't track (even an ignored one) is in the way.
+   - a file outside `decisions/` that changed on the remote has uncommitted edits here.
+
+   An untracked file where the pull would write is left to git, which refuses to overwrite
+   it: Sync then says "Not synced: the pull failed" with git's error, nothing is lost, and
+   your answers stay in a local commit. Ignored files are expendable, as in any `git pull`:
+   if the online copy adds a tracked file at the exact path of a file you ignore here, git
+   replaces your file (and it removes ignored files in a folder the online copy turns into
+   a file).
 
    If the same card changed on both machines, Sync puts everything back as it was, keeps your
    answers in a local commit and says "Not synced: 0001 changed on both machines"; fixing that
@@ -186,7 +192,9 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
    actions there are refused (an Undo refused that way stays on offer, to try again). git never asks
    for a password or passphrase (a remote that needs one fails instead, so use a credential
    helper or an ssh agent), and each git command is stopped after a timeout. Sync only works
-   on a project whose folder is the top folder of its git repository.
+   on a project whose folder is the top folder of its git repository, and it skips a project
+   with git submodules (a `.gitmodules` file or a submodule in the index): commit and push
+   `decisions/` there by hand.
 
 To try it with sample cards:
 

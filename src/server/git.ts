@@ -5,7 +5,8 @@
  * - runs in the given folder, without the inherited variables that point git at another
  *   repository: the ones `git rev-parse --local-env-vars` lists (GIT_DIR, GIT_WORK_TREE,
  *   GIT_INDEX_FILE, GIT_CONFIG_PARAMETERS, ...; git removes the same ones before it runs a
- *   hook in another repository), plus GIT_CONFIG_KEY_n/GIT_CONFIG_VALUE_n and GIT_EXEC_PATH.
+ *   hook in another repository), plus GIT_CONFIG_KEY_n/GIT_CONFIG_VALUE_n, GIT_EXEC_PATH and
+ *   GIT_{LITERAL,GLOB,NOGLOB,ICASE}_PATHSPECS (they change what `-- decisions/` matches).
  *   A git hook that started the hub exports some of them. The user's own git setup
  *   (GIT_SSH_COMMAND, GIT_CONFIG_GLOBAL, GIT_SSL_CAINFO, GIT_AUTHOR_NAME, ...) is kept, so
  *   Sync behaves like git in their terminal;
@@ -105,6 +106,7 @@ function isLocalEnvVar(key: string, local: ReadonlySet<string>): boolean {
   return (
     local.has(name) ||
     name === "GIT_EXEC_PATH" ||
+    /^GIT_(LITERAL|GLOB|NOGLOB|ICASE)_PATHSPECS$/.test(name) ||
     name.startsWith("GIT_CONFIG_KEY_") ||
     name.startsWith("GIT_CONFIG_VALUE_")
   );

@@ -389,7 +389,7 @@ describe("card view keyboard", () => {
     expect(text()).toContain('Option 1 ("Something else entirely") changed: title.');
   });
 
-  it("drops the notice when the card goes back to the version the human read (S2-6)", async () => {
+  it("drops the notice and gives the pick back when the card returns to the version read (S2-6, S3-3)", async () => {
     const file = join(demo, "decisions", "0001-offline-storage.md");
     await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
     await press("1", document.body);
@@ -397,11 +397,12 @@ describe("card view keyboard", () => {
     // machine's commit is replayed), then the file is back to what the human read.
     await editFile(file, "title: IndexedDB through Dexie", "title: Something else entirely");
     socket()?.emit({ type: "cards", project: "demo" } satisfies HubEvent);
-    await until(() => text().includes("An agent changed this card"), "the notice");
+    await until(() => text().includes("Your choice was cleared"), "the notice");
+    expect(text()).not.toContain("Selected");
     await editFile(file, "title: Something else entirely", "title: IndexedDB through Dexie");
     socket()?.emit({ type: "cards", project: "demo" } satisfies HubEvent);
     await until(() => !text().includes("An agent changed this card"), "the notice to go");
-    expect(text()).not.toContain("Your choice was cleared");
+    expect(text()).toContain("Selected");
     expect(button("I've read it")).toBeUndefined();
   });
 

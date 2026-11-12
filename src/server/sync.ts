@@ -121,6 +121,16 @@ class Repo {
     if (realTop !== realDir) {
       return `it is inside the git repository ${top} rather than its top folder, and Sync only works on a project that is a repository's top folder`;
     }
+    // A pull can delete an agent's files inside a submodule without a word, so Sync leaves a
+    // project with submodules (a .gitmodules file, or a gitlink in the index) alone.
+    const index = await this.run(["ls-files", "--stage", "-z"]);
+    if (index.code !== 0) return `git can't read it: ${gitErrorText(index)}`;
+    if (
+      (await lstat(join(this.dir, ".gitmodules")).then(Boolean, () => false)) ||
+      splitZ(index.stdout).some((entry) => entry.startsWith("160000 "))
+    ) {
+      return "it has git submodules, which Sync doesn't handle";
+    }
     return undefined;
   }
 
@@ -330,60 +340,6 @@ function stashText(entries: StashEntry[], dir: string): string {
     );
   }
   return parts.join(" ");
-}
-
-/** `git diff --name-status -z` output ("A\0path\0M\0path\0") as a list. */
-function nameStatus(output: string): { status: string; path: string }[] {
-  const tokens = output.split("\0");
-  const entries: { status: string; path: string }[] = [];
-  for (let i = 0; i + 1 < tokens.length; i += 2) {
-    const status = tokens[i]?.trim() ?? "";
-    const path = tokens[i + 1] ?? "";
-    if (status && path) entries.push({ status, path });
-  }
-  return entries;
-}
-
-/**
- * Paths the remote adds where something git doesn't track is in the way here: an untracked
- * or ignored file or link at that path or in a folder there, or a file or link where the
- * remote needs a folder (and the remote doesn't remove it). Tracked content at the path (a
- * folder the same pull replaces with a file, or the name in another case on a file system
- * that ignores case) is the pull's to change. `known` paths are already reported.
- */
-async function untrackedInTheWay(
-  repo: Repo,
-  remoteChanged: { status: string; path: string }[],
-  known: ReadonlySet<string>,
-): Promise<string[]> {
-  const dir = repo.dir;
-  const changed = new Set(remoteChanged.map(({ path }) => path));
-  const kind = (path: string) =>
-    lstat(join(dir, path)).then(
-      (stats) => (stats.isDirectory() ? "folder" : "other"),
-      () => undefined,
-    );
-  const found: string[] = [];
-  for (const { status, path } of remoteChanged) {
-    if (!status.startsWith("A") || known.has(path)) continue;
-    if (await kind(path)) {
-      // Without --exclude-standard, ignored files are listed too; git applies core.ignorecase.
-      const untracked = await repo.paths(["ls-files", "--others", "-z", "--", `:(literal)${path}`]);
-      if (untracked.length > 0) found.push(path);
-      continue;
-    }
-    const parts = path.split("/");
-    for (let i = 1; i < parts.length; i++) {
-      const parent = parts.slice(0, i).join("/");
-      const parentKind = await kind(parent);
-      if (parentKind === undefined) break;
-      if (parentKind === "other" && !changed.has(parent)) {
-        found.push(parent);
-        break;
-      }
-    }
-  }
-  return found;
 }
 
 /** Check 1's "nothing in progress" part, and no unresolved conflicts. Changes nothing. */
@@ -619,22 +575,18 @@ async function runSequence(
 
   // Check 3: no file outside decisions/ that the remote changed has uncommitted edits here.
   // Check 2 passed, so outside decisions/ HEAD is the last commit in common with the remote.
-  const remoteChanged = nameStatus(
-    await repo.out(["diff", "--name-status", "-z", "--no-renames", `HEAD...${expected}`]),
-  ).filter(({ path }) => !isCardPath(path));
+  // Untracked files in the pull's way are left to git, which refuses to overwrite them (the
+  // pull fails and is undone); ignored files git replaces, as a plain git pull does.
+  const remoteChanged = (
+    await repo.paths(["diff", "--name-only", "-z", "--no-renames", `HEAD...${expected}`])
+  ).filter((path) => !isCardPath(path));
   if (remoteChanged.length > 0) {
-    const edited = new Set([
-      ...(await repo.paths(["diff", "--name-only", "-z", "--no-renames", "HEAD"])),
-      ...(await repo.paths(["ls-files", "--others", "--exclude-standard", "-z"])),
-    ]);
-    const clash = remoteChanged.map(({ path }) => path).filter((path) => edited.has(path));
-    // A file git doesn't track where the remote adds one, an ignored one too: the pull
-    // would overwrite it without a word.
-    clash.push(...(await untrackedInTheWay(repo, remoteChanged, edited)));
+    const edited = new Set(await repo.paths(["diff", "--name-only", "-z", "--no-renames", "HEAD"]));
+    const clash = remoteChanged.filter((path) => edited.has(path));
     if (clash.length > 0) {
       return result(
         "not-now",
-        `Not now: an agent in ${name} has uncommitted edits to ${listText(unique(clash))}, which also changed on the remote`,
+        `Not now: an agent in ${name} has uncommitted edits to ${listText(clash)}, which also changed on the remote`,
         {
           action: "Press Sync again once those edits are committed and pushed, or put away.",
         },
@@ -727,6 +679,7 @@ async function runSequence(
   // read at once: an agent may rewrite one during the checks and the push, and that
   // revision is the agent's, not Sync's.
   const pulledHead = await repo.run(["rev-parse", "--verify", "HEAD^{commit}"]);
+  let pulledCards: string[] = [];
   if (pulledHead.code === 0) {
     const changed = await repo.run([
       "diff",
@@ -738,7 +691,10 @@ async function runSequence(
       "--",
       CARDS,
     ]);
-    if (changed.code === 0) report.broughtIn = await cardRevisions(dir, splitZ(changed.stdout));
+    if (changed.code === 0) {
+      pulledCards = splitZ(changed.stdout);
+      report.broughtIn = await cardRevisions(dir, pulledCards);
+    }
   }
 
   // Look before pushing: a file an agent wrote while the pull had it set aside leaves
@@ -811,17 +767,8 @@ async function runSequence(
       CARDS,
     ]),
   );
-  const received = cardLabels(
-    await repo.paths([
-      "diff",
-      "--name-only",
-      "-z",
-      "--no-renames",
-      `${before}...${expected}`,
-      "--",
-      CARDS,
-    ]),
-  );
+  // What the pull brought into the checkout, not what the remote has now (a later fetch).
+  const received = cardLabels(pulledCards);
   // Nothing to send when the remote already has HEAD: equal, or behind it when a fetch
   // (another hub's, an agent's) moved the remote-tracking branch since the pull.
   const remoteHas = (await repo.run(["merge-base", "--is-ancestor", head, expected])).code === 0;

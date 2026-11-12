@@ -63,6 +63,10 @@ describe("the git environment", () => {
         GIT_EXEC_PATH: "/elsewhere/libexec",
         GIT_OBJECT_DIRECTORY: "/elsewhere/objects",
         GIT_COMMON_DIR: "/elsewhere/.git",
+        GIT_LITERAL_PATHSPECS: "1",
+        GIT_GLOB_PATHSPECS: "1",
+        GIT_NOGLOB_PATHSPECS: "1",
+        GIT_ICASE_PATHSPECS: "1",
       },
     );
     for (const name of [
@@ -77,6 +81,10 @@ describe("the git environment", () => {
       "GIT_EXEC_PATH",
       "GIT_OBJECT_DIRECTORY",
       "GIT_COMMON_DIR",
+      "GIT_LITERAL_PATHSPECS",
+      "GIT_GLOB_PATHSPECS",
+      "GIT_NOGLOB_PATHSPECS",
+      "GIT_ICASE_PATHSPECS",
     ]) {
       expect(env[name], name).toBeUndefined();
     }
@@ -266,20 +274,6 @@ describe("Sync: the checks say not now and change nothing", () => {
     );
     expect(snapshot(s)).toEqual(before);
     expect(await s.read(s.laptop, "app.js")).toBe("x = wip\n");
-  });
-
-  it("refuses when the remote added a file that exists here untracked", async () => {
-    const s = await gitSandbox();
-    await desktopPushes(s, { "new.js": "remote\n" });
-    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
-    await s.write(s.laptop, "new.js", "mine\n");
-    const before = snapshot(s);
-
-    const result = await syncRepo(s.laptop, "shop", s.options);
-
-    expect(result).toMatchObject({ outcome: "not-now" });
-    expect(result.message).toMatch(/uncommitted edits to new\.js/);
-    expect(snapshot(s)).toEqual(before);
   });
 
   it("refuses on any branch but the remote's default", async () => {
@@ -892,42 +886,7 @@ describe("Sync only names git's own stash entry (S-4)", () => {
   });
 });
 
-describe("Sync and ignored files (S-7)", () => {
-  it("refuses when the remote adds a file that exists here, ignored", async () => {
-    const s = await gitSandbox();
-    await s.write(s.laptop, ".git/info/exclude", "secret.env\nbuild\n");
-    await s.write(s.laptop, "secret.env", "LOCAL AGENT DATA\n");
-    await desktopPushes(s, { "secret.env": "REMOTE\n" });
-    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
-    const before = snapshot(s);
-
-    const result = await syncRepo(s.laptop, "shop", s.options);
-
-    expect(result).toMatchObject({
-      outcome: "not-now",
-      message:
-        "Not now: an agent in shop has uncommitted edits to secret.env, which also changed on the remote",
-    });
-    expect(snapshot(s)).toEqual(before);
-    expect(await s.read(s.laptop, "secret.env")).toBe("LOCAL AGENT DATA\n");
-  });
-
-  it("refuses when an ignored file is where the remote adds a folder", async () => {
-    const s = await gitSandbox();
-    await s.write(s.laptop, ".git/info/exclude", "build\n");
-    await s.write(s.laptop, "build", "local build output\n");
-    await desktopPushes(s, { "build/out.js": "remote\n" });
-    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
-    const before = snapshot(s);
-
-    const result = await syncRepo(s.laptop, "shop", s.options);
-
-    expect(result.outcome).toBe("not-now");
-    expect(result.message).toMatch(/uncommitted edits to build,/);
-    expect(snapshot(s)).toEqual(before);
-    expect(await s.read(s.laptop, "build")).toBe("local build output\n");
-  });
-
+describe("Sync leaves untracked and ignored files to git (round 4)", () => {
   it("lets the remote replace a tracked folder with a file (S2-1)", async () => {
     const s = await gitSandbox();
     await desktopPushes(s, { "foo/a.js": "a\n" }, "a folder");
@@ -942,28 +901,6 @@ describe("Sync and ignored files (S-7)", () => {
     expect(await s.read(s.laptop, "foo")).toBe("now a file\n");
   });
 
-  it("refuses when that folder holds an ignored file the pull would delete (S2-1)", async () => {
-    const s = await gitSandbox();
-    await desktopPushes(s, { "foo/a.js": "a\n" }, "a folder");
-    s.git(s.laptop, "pull", "--quiet");
-    await s.write(s.laptop, ".git/info/exclude", "*.log\n");
-    await s.write(s.laptop, "foo/agent.log", "LOCAL AGENT DATA\n");
-    s.git(s.desktop, "rm", "--quiet", "-r", "foo");
-    await desktopPushes(s, { foo: "now a file\n" }, "the folder becomes a file");
-    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
-    const before = snapshot(s);
-
-    const result = await syncRepo(s.laptop, "shop", s.options);
-
-    expect(result).toMatchObject({
-      outcome: "not-now",
-      message:
-        "Not now: an agent in shop has uncommitted edits to foo, which also changed on the remote",
-    });
-    expect(snapshot(s)).toEqual(before);
-    expect(await s.read(s.laptop, "foo/agent.log")).toBe("LOCAL AGENT DATA\n");
-  });
-
   it("lets the remote replace a tracked file with a folder (S2-1)", async () => {
     const s = await gitSandbox();
     s.git(s.desktop, "rm", "--quiet", "app.js");
@@ -974,6 +911,85 @@ describe("Sync and ignored files (S-7)", () => {
 
     expect(result).toMatchObject({ outcome: "synced", sent: ["0001"] });
     expect(await s.read(s.laptop, "app.js/index.js")).toBe("x = 2\n");
+  });
+
+  it("leaves an untracked file where the remote adds one to git, which refuses (round 4)", async () => {
+    const s = await gitSandbox();
+    await desktopPushes(s, { "new.js": "remote\n" });
+    await s.write(s.laptop, "new.js", "mine\n");
+    await answerAndAgentWork(s);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result).toMatchObject({
+      outcome: "not-synced",
+      message: "Not synced: the pull failed in shop",
+    });
+    expect(await s.read(s.laptop, "new.js")).toBe("mine\n");
+    expect(s.status(s.laptop)).toEqual([" M lib.js", "?? new.js"]);
+  });
+
+  it("leaves an untracked file in a folder the remote replaces to git, which refuses (round 4)", async () => {
+    const s = await gitSandbox();
+    await desktopPushes(s, { "foo/a.js": "a\n" }, "a folder");
+    s.git(s.laptop, "pull", "--quiet");
+    await s.write(s.laptop, "foo/agent-notes.txt", "LOCAL AGENT DATA\n");
+    s.git(s.desktop, "rm", "--quiet", "-r", "foo");
+    await desktopPushes(s, { foo: "now a file\n" }, "the folder becomes a file");
+    await answerAndAgentWork(s);
+    const remoteBefore = s.remoteLog();
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result).toMatchObject({
+      outcome: "not-synced",
+      message: "Not synced: the pull failed in shop",
+    });
+    expect(result.gitError).toMatch(/untracked/);
+    expect(result.action).toMatch(/Nothing was pushed; your answers are kept in a local commit/);
+    expect(await s.read(s.laptop, "foo/agent-notes.txt")).toBe("LOCAL AGENT DATA\n");
+    expect(s.git(s.laptop, "log", "--format=%s", "-1").trim()).toBe("decisions from laptop: 0001");
+    expect(s.status(s.laptop)).toEqual([" M lib.js", "?? foo/agent-notes.txt"]);
+    expect(s.stashCount(s.laptop)).toBe(0);
+    expect(s.remoteLog()).toEqual(remoteBefore);
+    expect((await repoStatus(s.laptop, s.options)).rebase).toBeUndefined();
+  });
+});
+
+describe("Sync and submodules (round 4)", () => {
+  it("skips a project with a gitlink in the index, and changes nothing", async () => {
+    const s = await gitSandbox();
+    s.git(s.laptop, "update-index", "--add", "--cacheinfo", `160000,${s.head(s.laptop)},sub`);
+    await desktopPushes(s, { "decisions/0002-size.md": "status: resolved\n" });
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+    const before = snapshot(s);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result).toMatchObject({
+      outcome: "unavailable",
+      message:
+        "Not synced: shop is skipped because it has git submodules, which Sync doesn't handle",
+    });
+    expect(snapshot(s)).toEqual(before);
+    // The top bar agrees: skipped, and no answers counted that Sync will never move.
+    expect(await repoStatus(s.laptop, s.options)).toEqual({
+      unavailable: "it has git submodules, which Sync doesn't handle",
+      unsynced: 0,
+      remoteChanges: 0,
+    });
+  });
+
+  it("skips a project with a .gitmodules file, and changes nothing", async () => {
+    const s = await gitSandbox();
+    await s.write(s.laptop, ".gitmodules", "");
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+    const before = snapshot(s);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result.outcome).toBe("unavailable");
+    expect(snapshot(s)).toEqual(before);
   });
 });
 
@@ -1116,7 +1132,8 @@ describe("nothing to push (S2-5)", () => {
   it("doesn't push when the remote moved past HEAD since the pull", async () => {
     const s = await gitSandbox();
     await desktopPushes(s, { "decisions/0002-size.md": "status: deferred\n" });
-    // Once the pull has moved main, the desktop pushes again and something here fetches.
+    // Once the pull has moved main, the desktop pushes a card change and something here
+    // fetches: received names only what reached the checkout (S3-6).
     const done = join(s.root, "fetched");
     await hook(
       s,
@@ -1129,7 +1146,7 @@ describe("nothing to push (S2-5)", () => {
         "(",
         "  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE",
         `  cd "${s.desktop}"`,
-        '  echo "x = desktop again" > app.js',
+        '  echo "status: resolved" > decisions/0001-colour.md',
         '  git commit --quiet -am "desktop again"',
         "  git push --quiet",
         ")",

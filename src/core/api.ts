@@ -110,7 +110,8 @@ export const HEARTBEAT_MS = 25_000;
  *   agent's unpushed commits, ...).
  * - "not-synced": the fetch, the commit or the pull failed; nothing was pushed.
  * - "not-pushed": the pull worked but Sync stopped before pushing, or the push failed.
- * - "unavailable": the project folder isn't the top folder of a git repository.
+ * - "unavailable": the project folder isn't the top folder of a git repository, or it has
+ *   git submodules.
  */
 export type SyncOutcome =
   | "synced"
@@ -138,7 +139,10 @@ export interface SyncResultDto {
 
 export interface ProjectSyncStatus {
   project: string;
-  /** Why Sync can't work on this project (not a git repository); the counts are 0 then. */
+  /**
+   * Why Sync can't work on this project (not a repository's top folder, or submodules); the
+   * counts are 0 then.
+   */
   unavailable?: string;
   /**
    * Changed and new files under decisions/, plus files there changed by local commits that

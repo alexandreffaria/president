@@ -1344,10 +1344,11 @@ body:has(.action-bar-open) .toasts {
   }
 }
 
-/* Below this the full Sync summary (three-digit counts, "Connecting") doesn't fit next to
-   the nav on one line: the count moves onto the Sync button instead (S2-3, measured in
-   Chrome from 320 to 1280 px). */
-@media (max-width: 72rem) {
+/* Below this a usual Sync summary ("16 answers not synced · 3 card changes on the remote,
+   press Sync") doesn't fit next to the nav on one line: the count moves onto the Sync button
+   instead (S2-3, S3-7, measured in Chrome). Above it, longer counts wrap the end group onto
+   a second line. */
+@media (max-width: 66rem) {
   /* Hidden from sight only: screen readers still read (and announce) it. */
   .sync-summary {
     position: absolute;

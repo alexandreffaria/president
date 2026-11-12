@@ -70,6 +70,8 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const [changedBy, setChangedBy] = useState<ChangedBy | null>(null);
   /** Set when a change on disk cleared the option the human had picked. */
   const [choiceCleared, setChoiceCleared] = useState(false);
+  /** That option, put back if the card returns to the version it was picked on. */
+  const clearedPick = useRef<string | undefined>(undefined);
   const heading = useRef<HTMLHeadingElement>(null);
   const noticeButton = useRef<HTMLButtonElement>(null);
   /** Where focus was when a send was refused, to go back to once the change is read. */
@@ -87,6 +89,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
       updateDraft({ seen: card });
       setChangedBy(null);
       setChoiceCleared(false);
+      clearedPick.current = undefined;
     },
     [updateDraft],
   );
@@ -124,7 +127,12 @@ export function CardView({ project, id }: { project: string; id: string }) {
       setLoaded({ state: "ok", card });
       if (seen?.revision === card.revision) {
         // Back at the version the human read (a reload mid-pull caught the card in between,
-        // say): nothing is unread, so no notice either.
+        // say): nothing is unread, so no notice either, and a pick the in-between version
+        // cleared comes back.
+        if (clearedPick.current && !latest.current.selected) {
+          updateDraft({ selected: clearedPick.current });
+        }
+        clearedPick.current = undefined;
         setChangedBy(null);
         setChoiceCleared(false);
         return false;
@@ -147,6 +155,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
       setChangedBy(card.writtenByPresident ? "other-tab" : card.changedBySync ? "sync" : "agent");
       if (latest.current.selected) {
         // The options may now mean something else: never keep a choice made on the old text.
+        clearedPick.current = latest.current.selected;
         updateDraft({ selected: undefined });
         setChoiceCleared(true);
       }

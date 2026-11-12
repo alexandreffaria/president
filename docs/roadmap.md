@@ -95,8 +95,17 @@ section left open were settled the simplest safe way, and the human can change a
   default branch, not only to track it: `git checkout -b feat origin/main` tracks
   `origin/main` too. The remote's default comes from `refs/remotes/<remote>/HEAD` (git 2.48+
   records it on fetch), else from `git ls-remote --symref`.
-- Check 3 also counts **untracked files** at a path the remote added as uncommitted edits
-  (the pull would otherwise fail on them).
+- Check 3 is exactly the card's: tracked files with uncommitted edits. Sync makes no guess of
+  its own about **untracked or ignored files** in the pull's way (three review rounds of
+  such guesses each regressed; the human cut it back in round 4). git refuses to overwrite
+  an untracked file, so the pull fails, is undone, and Sync says "Not synced: the pull
+  failed" with git's error; nothing is lost and the answers stay in a local commit.
+  **Ignored files are expendable**, git's own rule: if the online copy adds a tracked file
+  at the exact path of a file ignored here, git replaces it (and it removes ignored files in
+  a folder the online copy turns into a file).
+- A project with **git submodules** (a `.gitmodules` file, or a gitlink in the index) is
+  skipped like one that isn't a repository's top folder, and its answers aren't counted: a
+  pull can delete an agent's untracked files inside a submodule without a word.
 - The rebase, merge, detached-HEAD and no-upstream parts of check 1 run **before** the fetch
   (they need no network); the rest after it, as in the card.
 - Sync skips a project with no card changes here or on the remote (after its fetch) without
@@ -134,10 +143,6 @@ From review round 1 of the PR (each with a test in `test/sync.test.ts` that fail
   (`sequencer/`), a bisect, and unmerged files (`git ls-files --unmerged`), and it runs again
   right before `git add`.
 - Check 2 also refuses an unpushed commit that changes no file (an agent's empty commit).
-- Check 3 also refuses when the remote adds a file where something git doesn't track is in
-  the way, ignored files included (the pull overwrites those without a word). Only what
-  `git ls-files --others` lists counts: a tracked folder the remote replaces with a file, or
-  the reverse, syncs (round 2).
 - Sync pushes nothing when the remote already has `HEAD` (`merge-base --is-ancestor`), as
   when a fetch moved `<remote>/<main>` past it after the pull (round 2).
 - The look before pushing calls only a new stash entry with the subject `autostash` git's,
@@ -148,7 +153,8 @@ From review round 1 of the PR (each with a test in `test/sync.test.ts` that fail
   `git rebase --abort` to get them back.
 - An Undo refused because a Sync is running stays on offer in its toast, to try again.
 - git runs without the variables `git rev-parse --local-env-vars` lists (plus
-  `GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` and `GIT_EXEC_PATH`), not without every `GIT_*`
+  `GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n`, `GIT_EXEC_PATH` and, from round 4, the four
+  `GIT_*_PATHSPECS`, which change what `-- decisions/` matches), not without every `GIT_*`
   one: the user's `GIT_SSH_COMMAND`, `GIT_CONFIG_GLOBAL` and the like are kept.
 
 ### What the human sees
