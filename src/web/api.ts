@@ -105,6 +105,7 @@ async function* sendChat(
       }
     } catch (error) {
       if (signal?.aborted) throw error;
+      await reader.cancel().catch(() => {});
       throw new StreamError((error as Error).message);
     }
     yield* events;

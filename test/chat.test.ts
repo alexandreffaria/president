@@ -574,6 +574,40 @@ describe("summaries (#0003, #0019, #0020, #0024, 20261111paot)", () => {
     expect((await t.calls()).at(-1)?.stdin).toMatch(/cover only what came after it/);
   });
 
+  it("keeps a message saved while the summary is saved unsummarized (R2-2)", async () => {
+    const t = await setup();
+    await t.send("Does our client throw?");
+    await t.post("/api/chats/demo/0002/summary", {});
+    const key = { project: "demo", id: "0002" };
+    const store = t.chat.store;
+    const original = store.updateEntry.bind(store);
+    let first = true;
+    // A message lands (copy and mark) just before the summary's bookkeeping takes the lock.
+    vi.spyOn(store, "updateEntry").mockImplementation(async (k, change) => {
+      if (first) {
+        first = false;
+        await store.append(key, {
+          from: "you",
+          text: "And on 500?",
+          at: new Date().toISOString(),
+        });
+        await original(key, (e) => ({ ...e, unsummarized: true }));
+      }
+      return original(k, change);
+    });
+    try {
+      await t.chat.summarySaved(
+        { name: "demo" } as Parameters<typeof t.chat.summarySaved>[0],
+        "0002",
+        "rev-x",
+      );
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect((await t.sessions())["demo/0002"]?.unsummarized).toBe(true);
+    expect((await t.sessions())["demo/0002"]?.summarized).toBe(2);
+  });
+
   it("undoing a saved summary makes the conversation unsummarized again", async () => {
     const t = await setup();
     await t.send("Does our client throw?");

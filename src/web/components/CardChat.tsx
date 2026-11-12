@@ -47,7 +47,9 @@ export function CardChat(props: {
   const live = chat.live;
   const [writing, setWriting] = useState(false);
   const hasSummaryDraft = draft.summary.trim() !== "";
-  const [boxOpen, setBoxOpen] = useState(hasSummaryDraft);
+  // A draft kept from before (closed with Esc, a reload) waits behind "Edit summary".
+  const [boxOpen, setBoxOpen] = useState(false);
+  const hadSummaryDraft = useRef(hasSummaryDraft);
   const [saving, setSaving] = useState(false);
   const list = useRef<HTMLOListElement>(null);
   const atBottom = useRef(true);
@@ -82,7 +84,8 @@ export function CardChat(props: {
   // A summary draft that appears (the agent wrote one, an Undo put a saved one back) opens
   // the box; closing the box keeps the draft without reopening it.
   useEffect(() => {
-    if (hasSummaryDraft) setBoxOpen(true);
+    if (hasSummaryDraft && !hadSummaryDraft.current) setBoxOpen(true);
+    hadSummaryDraft.current = hasSummaryDraft;
   }, [hasSummaryDraft]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: once the box opened or closed

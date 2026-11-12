@@ -376,6 +376,32 @@ describe("summaries", () => {
     await until(() => text().includes("What you typed on #0002 is kept"), "the leave notice");
   });
 
+  it("a kept draft doesn't reopen its box on coming back or remounting (R2-1)", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("Does it throw?");
+    await click("Write summary");
+    const box = () => host.querySelector(".chat-summary textarea") as HTMLTextAreaElement | null;
+    await until(() => !!box(), "the summary");
+    await press("Escape", box() as Element);
+    await until(() => box() === null, "the box to close");
+    await press("Escape");
+    await until(() => window.location.pathname === "/", "the queue");
+    navigate("/card/demo/0002");
+    await until(() => text().includes("Summary draft kept, not saved yet."), "the draft notice");
+    expect(box()).toBeNull();
+    // The app mounted afresh (drafts live in memory, so a page reload starts without one).
+    root.unmount();
+    root = createRoot(host);
+    await open("/card/demo/0002");
+    if (!text().includes("Hide conversation")) await press("c");
+    await until(() => text().includes("Summary draft kept, not saved yet."), "the draft notice");
+    expect(box()).toBeNull();
+    // The page's keys aren't held by a box nobody opened.
+    await press("Escape");
+    await until(() => window.location.pathname === "/", "the queue");
+  });
+
   it("aren't saved while a decision's Undo notice is shown, and saving keeps it (#0020, R1-7)", async () => {
     await open("/card/demo/0002");
     await press("c");
@@ -392,6 +418,10 @@ describe("summaries", () => {
     await press("Enter");
     await until(() => text().includes("Decided #0002"), "the decision");
     navigate("/card/demo/0002");
+    // The kept draft waits behind Edit summary (R2-1).
+    await until(() => !!button("Edit summary"), "Edit summary");
+    expect(box()).toBeNull();
+    await click("Edit summary");
     await until(() => box()?.value === "It throws.", "the summary box again");
     await settled();
     await click("Save summary");
