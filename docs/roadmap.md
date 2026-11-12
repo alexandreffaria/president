@@ -45,6 +45,10 @@ Then (2026-11-12): C (queue and card UX) is built in the pull request "Queue and
 [Withdrawn cards in the hub](#withdrawn-cards-in-the-hub-0014), which needs D's `withdrawn`
 field (merged in PR #20) and follows in a small pull request. E isn't built.
 
+Then (2026-11-12): 2026111276n0 (should the hub move to an always-on server) is decided:
+`local`, a hub on each machine as today, no server. It builds nothing; E stays as planned,
+run by the hub next to the project on each machine, with its per-machine stores.
+
 Then (2026-11-12): F2 (the `president` alias removed; `preside` is the only command) is built
 in the pull request "Remove the president alias (F2)" (branch `feat/remove-president-alias`),
 without waiting the month: the human waived the wait because nobody else uses the command.
@@ -1426,9 +1430,11 @@ old name from habit still find the installed command, rather than failing and tr
 - **Four per-machine stores, one folder.** Session ids (#0021), the hub's copy (#0018), the
   "not summarized" list if it is kept rather than derived (#0024), and the "first found
   missing" dates 202611114wet's cleanup records all live in `$XDG_STATE_HOME/president/`, keyed
-  by project name and card id, and none travels with Sync. 2026111272fu adds the
-  per-conversation "revealed" flag, with which recommendation was revealed; its card suggests
-  keeping it next to the session id, so on the same machine and not in the card.
+  by project name and card id, and none travels with Sync. 2026111276n0 (`local`, no
+  server hub) keeps it that way: a conversation stays on the machine that had it.
+  2026111272fu adds the per-conversation "revealed" flag, with which recommendation was
+  revealed; its card suggests keeping it next to the session id, so on the same machine and
+  not in the card.
 - **202611111gpm `shown-no-reminder` + #0002 + 20261111sblu.** Every "neither" now gives the card
   a stored conversation, and #0002 opens the panel by default once a card has one, so after a
   "neither" the panel is open on that card (three columns on an A/B card). The run's
