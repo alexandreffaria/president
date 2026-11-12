@@ -15,6 +15,7 @@ import { type ServerType, serve } from "@hono/node-server";
 import { WebSocketServer } from "ws";
 import { HEARTBEAT_MS, type LiveMessage } from "../core/api.ts";
 import { createApp } from "./app.ts";
+import { type ChatOptions, ChatService } from "./chat/service.ts";
 import { fileError, UserError } from "./errors.ts";
 import { Registry } from "./registry.ts";
 import { type SyncOptions, SyncService } from "./sync.ts";
@@ -51,6 +52,8 @@ export async function startHub(
     sync?: SyncOptions;
     /** Run `git fetch` in every project once the hub is up (default true). */
     fetchOnStart?: boolean;
+    /** Where card conversations are kept and which `claude` runs them (tests). */
+    chat?: ChatOptions;
   } = {},
 ): Promise<RunningHub> {
   const registry = options.registry ?? new Registry();
@@ -64,7 +67,14 @@ export async function startHub(
   const watcher = new HubWatcher(registry, bus);
   await watcher.start();
   const sync = new SyncService(registry, bus, options.sync);
-  const app = createApp({ registry, bus, sync, staticDir: options.staticDir ?? BUILT_UI_DIR });
+  const chat = new ChatService(registry, bus, options.chat);
+  const app = createApp({
+    registry,
+    bus,
+    sync,
+    chat,
+    staticDir: options.staticDir ?? BUILT_UI_DIR,
+  });
 
   // The upgrade request goes through the app (and its Host and Origin checks) first.
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024 });
@@ -105,6 +115,8 @@ export async function startHub(
   // Fetch only: it changes no file and no branch, so the top bar can say how many card
   // changes wait on the remote. In the background: the hub doesn't wait for the network.
   if (options.fetchOnStart ?? true) void sync.fetchAll();
+  // Deletes the conversations of cards gone for 30 days, now and once a day (202611114wet).
+  chat.start();
 
   return {
     url: `http://${HOST}:${actualPort}`,
@@ -112,6 +124,7 @@ export async function startHub(
       stopHeartbeat();
       for (const socket of sockets.clients) socket.terminate();
       await watcher.close();
+      await chat.close();
       // Let a Sync in progress finish (each git call has a timeout): stopping it halfway
       // could leave a rebase behind.
       await sync.close();

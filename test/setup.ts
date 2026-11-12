@@ -12,8 +12,19 @@
  * A test that expects such output says so with `expectConsole`, and then only matching
  * messages are allowed, and at least one must come.
  */
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { format } from "node:util";
 import { afterAll, afterEach, expect } from "vitest";
+
+// president's state folder (card conversations, chat/store.ts) is a temp folder in every
+// test, so no test can read or clean up the real ~/.local/state/president, whatever hub it
+// starts. Claude Code's folder too: no test looks at the real ~/.claude.
+const stateHome = mkdtempSync(join(tmpdir(), "president-state-"));
+process.env.XDG_STATE_HOME = stateHome;
+process.env.CLAUDE_CONFIG_DIR = join(stateHome, "claude");
+afterAll(() => rmSync(stateHome, { recursive: true, force: true }));
 
 /** How long after a file's last test late output is still caught. */
 const LATE_MS = 100;

@@ -87,9 +87,73 @@ export interface AddProjectResponse {
 
 /**
  * Something in a project's cards, or the project list, changed; or a Sync started or
- * finished (refetch /api/sync).
+ * finished (refetch /api/sync); or a card's conversation changed on this machine (a message
+ * was saved, a run started or ended, a summary was saved: refetch /api/chats/:project/:id).
  */
-export type HubEvent = { type: "cards"; project: string } | { type: "projects" } | { type: "sync" };
+export type HubEvent =
+  | { type: "cards"; project: string }
+  | { type: "projects" }
+  | { type: "sync" }
+  | { type: "chat"; project: string; id: string };
+
+/**
+ * One message of a card's conversation, as the hub showed it (#0018: the hub's own copy, in
+ * `$XDG_STATE_HOME/president/chats/`, never in the project).
+ *
+ * - "you": what the human sent;
+ * - "agent": the card's Claude Code session's reply (its text, without tool calls);
+ * - "hub": a line from president itself, such as "The earlier conversation on this card
+ *   isn't available on this machine".
+ */
+export interface ChatMessageDto {
+  at: string;
+  from: "you" | "agent" | "hub";
+  text: string;
+}
+
+export interface ChatDto {
+  messages: ChatMessageDto[];
+  /**
+   * The conversation has messages no saved summary covers yet, on this machine (#0024): the
+   * page offers Write summary, and Decide offers the summary first (#0019).
+   */
+  unsummarized: boolean;
+  /**
+   * False when this machine has a session for the card but Claude Code has deleted it (after
+   * `cleanupPeriodDays`): "The agent no longer remembers this conversation; your next message
+   * starts from the summaries." (#0018). True otherwise, also when there is no conversation.
+   */
+  remembers: boolean;
+  /** A run of the card's session is going on now (a reply, a summary). */
+  running: boolean;
+}
+
+/**
+ * The lines of `POST /api/chats/:project/:id/messages` (newline-delimited JSON), in order:
+ * the messages saved before the run ("you", and "hub" notices), then what the session does
+ * as it does it, then exactly one "done" or "error". The run goes on if the page goes away;
+ * its reply is saved all the same.
+ */
+export type ChatStreamEvent =
+  | { type: "message"; message: ChatMessageDto }
+  /** What the session is doing, for example "Reading src/http.ts". Not saved. */
+  | { type: "activity"; text: string }
+  /** A part of the agent's reply, as it arrives; the parts make up the saved reply. */
+  | { type: "text"; text: string }
+  /** The reply as saved (none when the session answered nothing). */
+  | { type: "done"; message: ChatMessageDto | undefined }
+  /** The run failed; what it had answered so far is saved, then this line saved too. */
+  | { type: "error"; error: string; message: ChatMessageDto };
+
+export interface ChatSummaryResponse {
+  /** The session's summary, for the human to edit; nothing is saved until they save it. */
+  summary: string;
+  /**
+   * Claude Code had deleted the session, so a fresh one wrote the summary from the hub's
+   * copy of the messages (20261111paot).
+   */
+  fromCopy: boolean;
+}
 
 /**
  * A message on the /api/events WebSocket: "ready" once it is connected (anything may have

@@ -10,7 +10,9 @@
  *                     │  (back in the queue once defer_until passes; defer again snoozes it)
  *
  * `resolve`, `neither` and `note` also work on deferred cards, and `note` on resolved ones
- * (#0011: the decision and applied_at stay). `resolve`, `neither` and `reopen` remove
+ * (#0011: the decision and applied_at stay). `chat` saves a conversation summary (#0023) as
+ * a `chat` feedback entry, wherever `note` works (#0020: decided cards too); `resolve` can
+ * carry one in `summary`, so the summary and the decision are one write (#0019). `resolve`, `neither` and `reopen` remove
  * `defer_until`. `seen` (an agent has read the
  * human's feedback) works in any state; `applied` implies it. Both take the token that
  * `preside pending` printed, and mark only what the agent was shown (see agentToken).
@@ -43,9 +45,17 @@ const AgentToken = z
   .max(100);
 
 export const CardActionSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("resolve"), choice: z.string().min(1).max(40), note: OptionalNote }),
+  z.object({
+    type: z.literal("resolve"),
+    choice: z.string().min(1).max(40),
+    note: OptionalNote,
+    /** A conversation summary saved with the decision, as its own `chat` entry (#0019). */
+    summary: OptionalNote,
+  }),
   z.object({ type: z.literal("neither"), note: Note }),
   z.object({ type: z.literal("note"), note: Note }),
+  /** A conversation summary the human read and edited (#0003, #0023). */
+  z.object({ type: z.literal("chat"), note: Note }),
   z.object({
     type: z.literal("defer"),
     note: OptionalNote,
@@ -102,6 +112,7 @@ const ALLOWED_FROM: Record<CardActionType, readonly CardStatus[]> = {
   resolve: ["open", "deferred"],
   neither: ["open", "deferred"],
   note: ["open", "deferred", "resolved"],
+  chat: ["open", "deferred", "resolved"],
   defer: ["open", "deferred"],
   reopen: ["deferred", "resolved"],
   applied: ["resolved"],
@@ -112,6 +123,7 @@ const VERB: Record<CardActionType, string> = {
   resolve: "resolve a card",
   neither: "reject the options of a card",
   note: "add a note to a card",
+  chat: "save a conversation summary on a card",
   defer: "defer a card",
   reopen: "reopen a card",
   applied: "mark a card as applied",
@@ -156,6 +168,7 @@ export function applyAction(
       } else if (!optionIds.includes(action.choice)) {
         return invalid(`"${action.choice}" is not an option of this card`);
       }
+      if (action.summary) appendFeedback("chat", action.summary);
       next.status = "resolved";
       next.resolution = {
         choice: action.choice,
@@ -181,6 +194,10 @@ export function applyAction(
     }
     case "note": {
       appendFeedback("note", action.note);
+      break;
+    }
+    case "chat": {
+      appendFeedback("chat", action.note);
       break;
     }
     case "defer": {

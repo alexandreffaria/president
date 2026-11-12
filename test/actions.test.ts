@@ -87,6 +87,48 @@ describe("resolve", () => {
   });
 });
 
+describe("chat (conversation summaries, #0023)", () => {
+  it("appends a chat entry on open, deferred and resolved cards", () => {
+    for (const from of [card(), card({ status: "deferred" }), card(RESOLVED)]) {
+      const { frontmatter } = act(from, { type: "chat", note: "I now see B is one line." });
+      expect(frontmatter.feedback.at(-1)).toEqual({
+        at: AT,
+        type: "chat",
+        note: "I now see B is one line.",
+      });
+      expect(frontmatter.status).toBe(from.frontmatter.status);
+    }
+  });
+
+  it("keeps the decision and applied_at on a resolved card (#0020)", () => {
+    const { raw } = act(card(RESOLVED), { type: "chat", note: "Asked about the README." });
+    expect(raw.resolution).toEqual(card(RESOLVED).raw.resolution);
+    expect(raw.applied_at).toBe(RESOLVED.applied_at);
+  });
+
+  it("needs a note", () => {
+    expect(CardActionSchema.safeParse({ type: "chat", note: " " }).success).toBe(false);
+  });
+
+  it("saves a summary with a decision in one write (#0019, 20261111is21)", () => {
+    const { frontmatter } = act(card(), {
+      type: "resolve",
+      choice: "custom",
+      note: "Green.",
+      summary: "Discussed with the card's agent.",
+    });
+    expect(frontmatter.feedback).toEqual([
+      { at: AT, type: "chat", note: "Discussed with the card's agent." },
+    ]);
+    expect(frontmatter.resolution).toEqual({ choice: "custom", note: "Green.", resolved_at: AT });
+  });
+
+  it("adds no entry for a decision without a summary", () => {
+    const { frontmatter } = act(card(), { type: "resolve", choice: "a", summary: "" });
+    expect(frontmatter.feedback).toEqual([]);
+  });
+});
+
 describe("neither", () => {
   it("appends feedback, keeps the card open and asks for new options", () => {
     const { frontmatter } = act(card(), { type: "neither", note: "Both too loud." });
@@ -361,13 +403,22 @@ describe("error reasons", () => {
 
 describe("transition table", () => {
   const table: Record<CardStatus, string[]> = {
-    open: ["resolve", "neither", "note", "defer", "seen"],
-    deferred: ["resolve", "neither", "note", "defer", "reopen", "seen"],
-    resolved: ["note", "reopen", "applied", "seen"],
+    open: ["resolve", "neither", "note", "chat", "defer", "seen"],
+    deferred: ["resolve", "neither", "note", "chat", "defer", "reopen", "seen"],
+    resolved: ["note", "chat", "reopen", "applied", "seen"],
   };
   for (const status of CARD_STATUSES) {
     it(`allows exactly ${table[status].join(", ")} from ${status}`, () => {
-      const all = ["resolve", "neither", "note", "defer", "reopen", "applied", "seen"] as const;
+      const all = [
+        "resolve",
+        "neither",
+        "note",
+        "chat",
+        "defer",
+        "reopen",
+        "applied",
+        "seen",
+      ] as const;
       expect(all.filter((t) => canApply(status, t))).toEqual(table[status]);
     });
   }
