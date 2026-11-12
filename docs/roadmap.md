@@ -1424,9 +1424,10 @@ old name from habit still find the installed command, rather than failing and tr
   "not summarized" list if it is kept rather than derived (#0024), and the "first found
   missing" dates 202611114wet's cleanup records all live in `$XDG_STATE_HOME/president/`, keyed
   by project name and card id, and none travels with Sync. 2026111276n0 (`local`, no
-  server hub) keeps it that way: a conversation stays on the machine that had it. 2026111272fu adds the
-  per-conversation "revealed" flag, with which recommendation was revealed; its card suggests
-  keeping it next to the session id, so on the same machine and not in the card.
+  server hub) keeps it that way: a conversation stays on the machine that had it.
+  2026111272fu adds the per-conversation "revealed" flag, with which recommendation was
+  revealed; its card suggests keeping it next to the session id, so on the same machine and
+  not in the card.
 - **202611111gpm `shown-no-reminder` + #0002 + 20261111sblu.** Every "neither" now gives the card
   a stored conversation, and #0002 opens the panel by default once a card has one, so after a
   "neither" the panel is open on that card (three columns on an A/B card). The run's
