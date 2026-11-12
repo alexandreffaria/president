@@ -197,7 +197,8 @@ withdrawn:
   until it is decided.
 - The hub leaves an open or deferred card with `withdrawn` out of the queue and lists it under
   **Withdrawn by agents**, with the reason; a deferred one's `defer_until` is ignored while it
-  is withdrawn. A decided card that kept the field is listed with the other decisions.
+  is withdrawn. A decided card that kept the field is listed with the other decisions, and its
+  page says under the decision "An agent had withdrawn this card: <reason>".
 - The hub's **Back to queue** removes the field and appends a `note` entry, "Back in the
   queue", to `feedback`. `status` and `defer_until` stay, so a deferred card's date applies
   again. The note is what makes `preside update` refuse an agent's version made from an

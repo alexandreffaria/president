@@ -57,6 +57,11 @@ Then (2026-11-12): the Withdrawn section (#0014's and 202611116ff6's hub part) i
 pull request "Withdrawn cards in the hub" (PR #24, branch `feat/withdrawn-section`), so C is fully
 built. E isn't built.
 
+Then (2026-11-12): the two questions PR #24 left in [Needs a card](#needs-a-card) are decided:
+20261112tiuq `hidden` (no Defer on a withdrawn card, as built) and 20261112jdyg `quiet-line` (a
+decided card's page says an agent had withdrawn it), built in the pull request "Apply
+20261112tiuq and 20261112jdyg". [Needs a card](#needs-a-card) is empty again.
+
 ## Build plan
 
 Each row is one pull request (PR 2 may be split, see its section). The order is a suggestion;
@@ -707,6 +712,17 @@ queue is a new action, `unwithdraw` (`src/core/actions.ts`); the queue's rules a
   202611112hzh's rule: the date, missing or not, is what is ignored.
 - The card page shows "Withdrawn by the agent: <reason>" above the options, which still work:
   you can decide, note, or reject a withdrawn card as usual.
+- **No Defer on a withdrawn card** ([20261112tiuq-defer-withdrawn-card.md](../decisions/20261112tiuq-defer-withdrawn-card.md),
+  option `hidden`, as PR #24 built it): its page offers no Defer buttons and `d` and `D` do
+  nothing (`canDefer` in `src/web/views/CardView.tsx`); Back to queue takes their place, and
+  the card can be deferred once it is back. Nothing on the page writes a date that would be
+  ignored. Accepted: putting a withdrawn card off takes two steps, and `d` silently does
+  nothing there (no hint).
+- **A decided card that kept `withdrawn`** ([20261112jdyg-decided-withdrawn-page.md](../decisions/20261112jdyg-decided-withdrawn-page.md),
+  option `quiet-line`): under the "Decided" notice, a muted line says "An agent had withdrawn
+  this card: <reason>" (`StatusNotice` in `src/web/views/CardView.tsx`), since the withdrawal
+  is a field, not in the card's history, and the hub would otherwise show it nowhere once the
+  card is decided. Built in the pull request "Apply 20261112tiuq and 20261112jdyg".
 - A **Back to queue** button removes the field **and** appends a note to `feedback` (the card's
   example: "Back in the queue"). The note is required: `preside update` doesn't compare
   `withdrawn`, so without it an agent's update made from an earlier read would withdraw the card
@@ -1561,12 +1577,8 @@ The three questions this list held after PR #14 were answered on 2026-11-12: 1 b
 The question this list held after PR #15 (the same card open in a second tab while the run
 waits for Undo) was answered on 2026-11-12 by 20261112dfik.
 
-From the Withdrawn section's pull request ("Withdrawn cards in the hub"). The cards and this
-roadmap don't say these; the pull request built what follows from today's code and needs the
-human's answer to keep or change it:
+The two questions this list held after the Withdrawn section's pull request (PR #24) were
+answered on 2026-11-12: 1 (Defer on a withdrawn card) by 20261112tiuq and 2 (a decided card's
+page) by 20261112jdyg; see [Withdrawn cards in the hub](#withdrawn-cards-in-the-hub-0014).
 
-1. **Defer on a withdrawn card.** #0014 lists decide, note and reject as what still works. The
-   pull request offers no `d`, `D` or Defer buttons on a withdrawn card (a date would be
-   ignored while it is withdrawn); Back to queue takes their place. Keep, or allow deferring?
-2. **A decided card's page.** It doesn't say the card was withdrawn before the decision
-   (the "Withdrawn by the agent" notice shows on open and deferred cards only). Show it?
+None for now.
