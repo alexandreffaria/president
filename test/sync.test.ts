@@ -923,8 +923,12 @@ describe("Sync leaves untracked and ignored files to git (round 4)", () => {
 
     expect(result).toMatchObject({
       outcome: "not-synced",
-      message: "Not synced: the pull failed in shop",
+      message:
+        "Not synced: a file here that git doesn't track is where the online copy puts one (git names it below)",
+      action:
+        "Nothing was pushed; your answers are kept in a local commit. Move or commit that file (an agent's?), then press Sync again.",
     });
+    expect(result.gitError).toMatch(/new\.js/);
     expect(await s.read(s.laptop, "new.js")).toBe("mine\n");
     expect(s.status(s.laptop)).toEqual([" M lib.js", "?? new.js"]);
   });
@@ -943,10 +947,13 @@ describe("Sync leaves untracked and ignored files to git (round 4)", () => {
 
     expect(result).toMatchObject({
       outcome: "not-synced",
-      message: "Not synced: the pull failed in shop",
+      message:
+        "Not synced: a file here that git doesn't track is where the online copy puts one (git names it below)",
     });
     expect(result.gitError).toMatch(/untracked/);
-    expect(result.action).toMatch(/Nothing was pushed; your answers are kept in a local commit/);
+    expect(result.action).toMatch(
+      /^Nothing was pushed; your answers are kept in a local commit\. Move or commit that file/,
+    );
     expect(await s.read(s.laptop, "foo/agent-notes.txt")).toBe("LOCAL AGENT DATA\n");
     expect(s.git(s.laptop, "log", "--format=%s", "-1").trim()).toBe("decisions from laptop: 0001");
     expect(s.status(s.laptop)).toEqual([" M lib.js", "?? foo/agent-notes.txt"]);
@@ -980,6 +987,68 @@ describe("Sync and submodules (round 4)", () => {
     });
   });
 
+  it("still finds a gitlink with a git that doesn't know ls-files --format (S4-1)", async () => {
+    const s = await gitSandbox();
+    s.git(s.laptop, "update-index", "--add", "--cacheinfo", `160000,${s.head(s.laptop)},sub`);
+    // A git older than 2.38: --format is an unknown option.
+    const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+    await s.write(
+      s.root,
+      "old-git/git",
+      `#!/bin/sh\nfor a in "$@"; do case "$a" in --format=*) echo "error: unknown option" >&2; exit 129;; esac; done\nexec "${realGit}" "$@"\n`,
+    );
+    await chmod(join(s.root, "old-git/git"), 0o755);
+    const env = { ...s.options.env, PATH: `${join(s.root, "old-git")}:${process.env.PATH ?? ""}` };
+
+    expect(await repoStatus(s.laptop, { ...s.options, env })).toMatchObject({
+      unavailable: "it has git submodules, which Sync doesn't handle",
+    });
+  });
+
+  it("refuses when git's file list is cut at the output limit (S4-1)", async () => {
+    const s = await gitSandbox();
+    for (let i = 0; i < 200; i++) await s.write(s.laptop, `files/f${i}.txt`, "x\n");
+    s.git(s.laptop, "add", "files");
+    // Past the cut below: a check that read the cut list would never see it.
+    s.git(s.laptop, "update-index", "--add", "--cacheinfo", `160000,${s.head(s.laptop)},zz-sub`);
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+    const before = snapshot(s);
+    const options = { ...s.options, maxOutput: 400 };
+
+    const result = await syncRepo(s.laptop, "shop", options);
+
+    expect(result).toMatchObject({
+      outcome: "unavailable",
+      message:
+        "Not synced: shop is skipped because git's list of its files is too long to check for submodules",
+    });
+    expect(snapshot(s)).toEqual(before);
+    expect(await repoStatus(s.laptop, options)).toEqual({
+      unavailable: "git's list of its files is too long to check for submodules",
+      unsynced: 0,
+      remoteChanges: 0,
+    });
+  });
+
+  it("skips a project whose index git can't read, and changes nothing (S4-3)", async () => {
+    const s = await gitSandbox();
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+    await s.write(s.laptop, ".git/index", "garbage");
+    const remoteBefore = s.remoteLog();
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result.outcome).toBe("unavailable");
+    expect(result.message).toMatch(
+      /^Not synced: shop is skipped because git can't read it: .*index/,
+    );
+    expect((await repoStatus(s.laptop, s.options)).unavailable).toMatch(
+      /^git can't read it: .*index/,
+    );
+    expect(s.remoteLog()).toEqual(remoteBefore);
+    expect(await s.read(s.laptop, ".git/index")).toBe("garbage");
+  });
+
   it("skips a project with a .gitmodules file, and changes nothing", async () => {
     const s = await gitSandbox();
     await s.write(s.laptop, ".gitmodules", "");
@@ -990,6 +1059,44 @@ describe("Sync and submodules (round 4)", () => {
 
     expect(result.outcome).toBe("unavailable");
     expect(snapshot(s)).toEqual(before);
+  });
+});
+
+describe("output cut at the limit (S4-2)", () => {
+  it("runGit says when it cut stdout", async () => {
+    const s = await gitSandbox();
+    const cut = await runGit(s.laptop, ["log", "--format=%H"], { ...s.options, maxOutput: 10 });
+    expect(cut).toMatchObject({ code: 0, truncated: true });
+    expect(cut.stdout).toHaveLength(10);
+    const whole = await runGit(s.laptop, ["rev-parse", "HEAD"], s.options);
+    expect(whole).toMatchObject({ code: 0, truncated: false });
+  });
+
+  it("treats a cut list of files as a failure, and pushes nothing", async () => {
+    const s = await gitSandbox();
+    // New cards with long names: git status lists about 3 KB of them.
+    for (let i = 0; i < 30; i++) {
+      await s.write(
+        s.laptop,
+        `decisions/${9000 + i}-${"long-name-".repeat(9)}.md`,
+        "status: open\n",
+      );
+    }
+    const remoteBefore = s.remoteLog();
+    const headBefore = s.head(s.laptop);
+    const statusBefore = s.status(s.laptop);
+
+    // Enough for the submodule check's few entries, not for git status's list of cards.
+    const result = await syncRepo(s.laptop, "shop", { ...s.options, maxOutput: 1000 });
+
+    expect(result).toMatchObject({
+      outcome: "not-synced",
+      message: "Not synced: git failed in shop",
+    });
+    expect(result.gitError).toMatch(/^git output too large: git /);
+    expect(s.head(s.laptop)).toBe(headBefore);
+    expect(s.status(s.laptop)).toEqual(statusBefore);
+    expect(s.remoteLog()).toEqual(remoteBefore);
   });
 });
 

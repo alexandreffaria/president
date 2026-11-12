@@ -171,8 +171,9 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
    - a file outside `decisions/` that changed on the remote has uncommitted edits here.
 
    An untracked file where the pull would write is left to git, which refuses to overwrite
-   it: Sync then says "Not synced: the pull failed" with git's error, nothing is lost, and
-   your answers stay in a local commit. Ignored files are expendable, as in any `git pull`:
+   it: Sync then says a file git doesn't track is in the way, with git's error naming it,
+   nothing is lost, and your answers stay in a local commit; move or commit that file, then
+   press Sync again. Ignored files are expendable, as in any `git pull`:
    if the online copy adds a tracked file at the exact path of a file you ignore here, git
    replaces your file (and it removes ignored files in a folder the online copy turns into
    a file).
@@ -193,8 +194,9 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
    for a password or passphrase (a remote that needs one fails instead, so use a credential
    helper or an ssh agent), and each git command is stopped after a timeout. Sync only works
    on a project whose folder is the top folder of its git repository, and it skips a project
-   with git submodules (a `.gitmodules` file or a submodule in the index): commit and push
-   `decisions/` there by hand.
+   with git submodules (a `.gitmodules` file or a submodule in the index), or whose file
+   list is too long to check for them: commit and push `decisions/` there by hand. If git
+   prints more than Sync reads (4 MiB) anywhere else, Sync stops with "git output too large".
 
 To try it with sample cards:
 

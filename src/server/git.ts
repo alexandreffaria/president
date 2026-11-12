@@ -29,6 +29,8 @@ export interface GitOptions {
   timeoutMs?: number;
   /** How long a command that talks to the remote (fetch, pull, push, ls-remote) may take (ms). */
   networkTimeoutMs?: number;
+  /** How much of stdout and stderr is kept, in characters (tests lower it). */
+  maxOutput?: number;
 }
 
 export interface GitResult {
@@ -37,13 +39,15 @@ export interface GitResult {
   stdout: string;
   stderr: string;
   timedOut: boolean;
+  /** True when stdout was longer than the limit and was cut: it is then incomplete. */
+  truncated: boolean;
 }
 
 export const DEFAULT_TIMEOUT_MS = 30_000;
 export const DEFAULT_NETWORK_TIMEOUT_MS = 60_000;
 /** After SIGTERM, how long git gets to remove its lock files before SIGKILL. */
 const KILL_GRACE_MS = 2000;
-/** Output beyond this is dropped (git's answers here are short lists of files). */
+/** Output beyond this is dropped, and the result says so (`truncated`). */
 const MAX_OUTPUT = 4 * 1024 * 1024;
 
 const NETWORK_COMMANDS = new Set(["fetch", "pull", "push", "ls-remote"]);
@@ -145,6 +149,8 @@ export function runGit(cwd: string, args: string[], options: GitOptions = {}): P
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let truncated = false;
+    const maxOutput = options.maxOutput ?? MAX_OUTPUT;
     let settled = false;
     const child = spawn("git", args, {
       cwd,
@@ -180,10 +186,15 @@ export function runGit(cwd: string, args: string[], options: GitOptions = {}): P
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
-      if (stdout.length < MAX_OUTPUT) stdout += chunk;
+      if (stdout.length + chunk.length > maxOutput) {
+        stdout += chunk.slice(0, Math.max(0, maxOutput - stdout.length));
+        truncated = true;
+      } else {
+        stdout += chunk;
+      }
     });
     child.stderr.on("data", (chunk: string) => {
-      if (stderr.length < MAX_OUTPUT) stderr += chunk;
+      if (stderr.length < maxOutput) stderr += chunk.slice(0, maxOutput - stderr.length);
     });
     child.on("error", (error: NodeJS.ErrnoException) => {
       finish({
@@ -194,6 +205,7 @@ export function runGit(cwd: string, args: string[], options: GitOptions = {}): P
             ? "git is not installed, or not on the PATH of the president server"
             : error.message,
         timedOut: false,
+        truncated,
       });
     });
     child.on("close", (code) => {
@@ -206,6 +218,7 @@ export function runGit(cwd: string, args: string[], options: GitOptions = {}): P
           ? `git ${args[0]} took longer than ${formatSeconds(timeoutMs)} and was stopped. ${stderr}`.trim()
           : stderr,
         timedOut,
+        truncated,
       });
     });
   });

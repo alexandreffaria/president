@@ -406,6 +406,40 @@ describe("card view keyboard", () => {
     expect(button("I've read it")).toBeUndefined();
   });
 
+  it("keeps a pick made after the clear when the card returns to the version read (S4-4)", async () => {
+    const file = join(demo, "decisions", "0001-offline-storage.md");
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await press("1", document.body);
+    await editFile(file, "title: IndexedDB through Dexie", "title: Something else entirely");
+    socket()?.emit({ type: "cards", project: "demo" } satisfies HubEvent);
+    await until(() => text().includes("Your choice was cleared"), "the notice");
+    // The human picks again, a different option.
+    await press("2", document.body);
+    await editFile(file, "title: Something else entirely", "title: IndexedDB through Dexie");
+    socket()?.emit({ type: "cards", project: "demo" } satisfies HubEvent);
+    await until(() => !text().includes("An agent changed this card"), "the notice to go");
+    const picked = [...host.querySelectorAll('button[aria-pressed="true"]')];
+    expect(picked.map((b) => b.querySelector("kbd")?.textContent)).toEqual(["2"]);
+  });
+
+  it("forgets the cleared pick once the human has read the change (S4-4)", async () => {
+    const file = join(demo, "decisions", "0001-offline-storage.md");
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await press("1", document.body);
+    await editFile(file, "title: IndexedDB through Dexie", "title: Something else entirely");
+    socket()?.emit({ type: "cards", project: "demo" } satisfies HubEvent);
+    await until(() => text().includes("Your choice was cleared"), "the notice");
+    await act(async () => button("I've read it")?.click());
+    // Another change, then the card is back at the version the human read.
+    await editFile(file, "title: Something else entirely", "title: A third title");
+    socket()?.emit({ type: "cards", project: "demo" } satisfies HubEvent);
+    await until(() => text().includes("An agent changed this card"), "the second notice");
+    await editFile(file, "title: A third title", "title: Something else entirely");
+    socket()?.emit({ type: "cards", project: "demo" } satisfies HubEvent);
+    await until(() => !text().includes("An agent changed this card"), "the notice to go");
+    expect(text()).not.toContain("Selected");
+  });
+
   it("puts focus back on the Note button when the note panel closes", async () => {
     await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
     await press("m", document.body);

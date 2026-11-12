@@ -61,6 +61,7 @@ export type RepoSyncResult = Omit<SyncResultDto, "project" | "at">;
 
 const CARDS = `${DECISIONS_DIR}/`;
 const MAX_GIT_ERROR = 1200;
+const SUBMODULES = "it has git submodules, which Sync doesn't handle";
 
 /** A git command that failed where the sequence can't go on. */
 class GitFailed extends Error {
@@ -90,10 +91,16 @@ class Repo {
     return runGit(this.dir, args, this.#options);
   }
 
-  /** Runs git and returns its output; a failure throws GitFailed. */
+  /** Runs git and returns its output; a failure, or output cut at the limit, throws GitFailed. */
   async out(args: string[]): Promise<string> {
     const result = await this.run(args);
     if (result.code !== 0) throw new GitFailed(args, result);
+    if (result.truncated) {
+      throw new GitFailed(args, {
+        ...result,
+        stderr: `git output too large: git ${args[0]} printed more than Sync reads, so Sync stopped there.`,
+      });
+    }
     return result.stdout;
   }
 
@@ -123,14 +130,17 @@ class Repo {
     }
     // A pull can delete an agent's files inside a submodule without a word, so Sync leaves a
     // project with submodules (a .gitmodules file, or a gitlink in the index) alone.
-    const index = await this.run(["ls-files", "--stage", "-z"]);
-    if (index.code !== 0) return `git can't read it: ${gitErrorText(index)}`;
-    if (
-      (await lstat(join(this.dir, ".gitmodules")).then(Boolean, () => false)) ||
-      splitZ(index.stdout).some((entry) => entry.startsWith("160000 "))
-    ) {
-      return "it has git submodules, which Sync doesn't handle";
+    if (await lstat(join(this.dir, ".gitmodules")).then(Boolean, () => false)) {
+      return SUBMODULES;
     }
+    // Only each entry's mode (7 bytes), so the list fits for any real repository. A git
+    // older than 2.38 doesn't know --format and gets the longer --stage list instead.
+    let index = await this.run(["ls-files", "-z", "--format=%(objectmode)"]);
+    if (index.code !== 0) index = await this.run(["ls-files", "--stage", "-z"]);
+    if (index.code !== 0) return `git can't read it: ${gitErrorText(index)}`;
+    // A cut list may miss a gitlink: refuse rather than guess.
+    if (index.truncated) return "git's list of its files is too long to check for submodules";
+    if (splitZ(index.stdout).some((entry) => entry.startsWith("160000"))) return SUBMODULES;
     return undefined;
   }
 
@@ -666,6 +676,21 @@ async function runSequence(
         {
           action:
             `Everything was put back as it was${kept}. Fixing the conflict is a manual git step in ${dir}; pressing Sync again retries. ${extra}`.trim(),
+        },
+      );
+    }
+    if (
+      /untracked working tree files would be (overwritten|removed)|would lose untracked files/.test(
+        pulled.stderr,
+      )
+    ) {
+      return result(
+        "not-synced",
+        "Not synced: a file here that git doesn't track is where the online copy puts one (git names it below)",
+        {
+          gitError: gitErrorText(pulled),
+          action:
+            `Nothing was pushed${kept}. Move or commit that file (an agent's?), then press Sync again. ${extra}`.trim(),
         },
       );
     }

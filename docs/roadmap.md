@@ -169,14 +169,18 @@ section left open were settled the simplest safe way, and the human can change a
 - Check 3 is exactly the card's: tracked files with uncommitted edits. Sync makes no guess of
   its own about **untracked or ignored files** in the pull's way (three review rounds of
   such guesses each regressed; the human cut it back in round 4). git refuses to overwrite
-  an untracked file, so the pull fails, is undone, and Sync says "Not synced: the pull
-  failed" with git's error; nothing is lost and the answers stay in a local commit.
+  an untracked file, so the pull fails, is undone, and Sync says a file git doesn't track
+  is in the way (git's error names it) and to move or commit it; nothing is lost and the
+  answers stay in a local commit.
   **Ignored files are expendable**, git's own rule: if the online copy adds a tracked file
   at the exact path of a file ignored here, git replaces it (and it removes ignored files in
   a folder the online copy turns into a file).
 - A project with **git submodules** (a `.gitmodules` file, or a gitlink in the index) is
   skipped like one that isn't a repository's top folder, and its answers aren't counted: a
-  pull can delete an agent's untracked files inside a submodule without a word.
+  pull can delete an agent's untracked files inside a submodule without a word. The check
+  reads `git ls-files --format=%(objectmode)` (`--stage` on a git older than 2.38), and a
+  list cut at Sync's output limit skips the project too, so a gitlink is never missed.
+  Anywhere else, output cut at that limit is a git failure ("git output too large").
 - The rebase, merge, detached-HEAD and no-upstream parts of check 1 run **before** the fetch
   (they need no network); the rest after it, as in the card.
 - Sync skips a project with no card changes here or on the remote (after its fetch) without
