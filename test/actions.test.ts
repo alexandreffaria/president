@@ -6,6 +6,7 @@ import {
   canApply,
   feedbackTimestamp,
   timestamp,
+  UNWITHDRAW_NOTE,
 } from "../src/core/actions.ts";
 import { type ParsedCard, parseCard } from "../src/core/card-file.ts";
 import { updateCardText } from "../src/core/card-writer.ts";
@@ -401,10 +402,44 @@ describe("error reasons", () => {
   });
 });
 
+describe("unwithdraw: Back to queue on a withdrawn card (#0014, 202611116ff6)", () => {
+  const WITHDRAWN = '\n  at: 2026-11-09T10:00:00Z\n  reason: "We dropped the map screen."';
+
+  it("removes the withdrawal and adds the note, keeping the status", () => {
+    const { raw } = act(card({ withdrawn: WITHDRAWN }), { type: "unwithdraw" });
+    expect(raw).not.toHaveProperty("withdrawn");
+    expect(raw.status).toBe("open");
+    expect(raw.feedback).toEqual([{ at: AT, type: "note", note: UNWITHDRAW_NOTE }]);
+    expect(UNWITHDRAW_NOTE).toBe("Back in the queue");
+  });
+
+  it("keeps a deferred card deferred, with its date, which applies again", () => {
+    const { raw } = act(
+      card({ status: "deferred", defer_until: "2026-12-01T00:00:00Z", withdrawn: WITHDRAWN }),
+      { type: "unwithdraw" },
+    );
+    expect(raw).toMatchObject({ status: "deferred", defer_until: "2026-12-01T00:00:00Z" });
+    expect(raw).not.toHaveProperty("withdrawn");
+  });
+
+  it("refuses a card that isn't withdrawn, or is decided", () => {
+    const fail = (from: ParsedCard) => {
+      const result = applyAction(from, { type: "unwithdraw" }, NOW);
+      return result.ok ? "ok" : `${result.reason}: ${result.error}`;
+    };
+    expect(fail(card())).toBe("transition: this card isn't withdrawn");
+    expect(fail(card({ ...RESOLVED, withdrawn: WITHDRAWN }))).toMatch(/^transition: cannot/);
+  });
+
+  it("is in the API's actions", () => {
+    expect(CardActionSchema.safeParse({ type: "unwithdraw" }).success).toBe(true);
+  });
+});
+
 describe("transition table", () => {
   const table: Record<CardStatus, string[]> = {
-    open: ["resolve", "neither", "note", "chat", "defer", "seen"],
-    deferred: ["resolve", "neither", "note", "chat", "defer", "reopen", "seen"],
+    open: ["resolve", "neither", "note", "chat", "defer", "unwithdraw", "seen"],
+    deferred: ["resolve", "neither", "note", "chat", "defer", "reopen", "unwithdraw", "seen"],
     resolved: ["note", "chat", "reopen", "applied", "seen"],
   };
   for (const status of CARD_STATUSES) {
@@ -416,6 +451,7 @@ describe("transition table", () => {
         "chat",
         "defer",
         "reopen",
+        "unwithdraw",
         "applied",
         "seen",
       ] as const;

@@ -24,6 +24,7 @@ const DESCRIBED_FIELDS = new Set([
   "options",
   "recommendation",
   "feedback",
+  "withdrawn",
 ]);
 
 export function describeChanges(before: CardDetailDto, after: CardDetailDto): string[] {
@@ -107,6 +108,17 @@ export function describeChanges(before: CardDetailDto, after: CardDetailDto): st
     changes.push("A note was added.");
   } else if (!deepEqual(a.feedback, b.feedback)) {
     changes.push("The notes changed.");
+  }
+
+  // #0014: an agent withdrew the card, changed its reason, or took the withdrawal back.
+  if (!deepEqual(a.withdrawn, b.withdrawn)) {
+    changes.push(
+      !b.withdrawn
+        ? "It is no longer withdrawn."
+        : a.withdrawn
+          ? `The agent's withdrawal changed: ${b.withdrawn.reason}`
+          : `An agent withdrew it: ${b.withdrawn.reason}`,
+    );
   }
 
   const otherFields = new Set([...Object.keys(a), ...Object.keys(b)]);

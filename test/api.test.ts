@@ -697,6 +697,54 @@ describe("undo", () => {
   });
 });
 
+describe("Back to queue on a withdrawn card (#0014)", () => {
+  async function withdrawn() {
+    const env = await setup();
+    const file = join(env.demo, "decisions", "0002-api-errors.md");
+    const text = await readFile(file, "utf8");
+    const original = text.replace(
+      "status: open\n",
+      'status: open\nwithdrawn:\n  at: 2026-11-11T10:00:00Z\n  reason: "Moot now."\n',
+    );
+    await writeFile(file, original);
+    return { ...env, file, original };
+  }
+
+  it("removes the withdrawal, adds the note, and undo puts the card back byte for byte", async () => {
+    const { act, post, file, original } = await withdrawn();
+    const res = await act("0002", { type: "unwithdraw" });
+    expect(res.status).toBe(200);
+    const { card } = (await res.json()) as { card: CardDetailDto };
+    expect(card.frontmatter.withdrawn).toBeUndefined();
+    expect(card.frontmatter.status).toBe("open");
+    expect(card.frontmatter.feedback.at(-1)).toMatchObject({
+      type: "note",
+      note: "Back in the queue",
+    });
+    // #0012: not a decision, so its undo leaves no trace.
+    expect((await post("/api/cards/demo/0002/undo", { revision: card.revision })).status).toBe(200);
+    expect(await readFile(file, "utf8")).toBe(original);
+  });
+
+  it("refuses a card that isn't withdrawn, and words a refused undo", async () => {
+    const { act, post, file } = await withdrawn();
+    const refused = await act("0001", { type: "unwithdraw" });
+    expect(refused.status).toBe(409);
+    expect((await refused.json()) as { error: string }).toMatchObject({
+      error: "this card isn't withdrawn",
+    });
+    const { card } = (await (await act("0002", { type: "unwithdraw" })).json()) as {
+      card: CardDetailDto;
+    };
+    await writeFile(file, `${await readFile(file, "utf8")}\nAn agent's answer.\n`);
+    const undo = await post("/api/cards/demo/0002/undo", { revision: card.revision });
+    expect(undo.status).toBe(409);
+    expect(((await undo.json()) as { error: string }).error).toMatch(
+      /since you put it back in the queue/,
+    );
+  });
+});
+
 describe("who wrote a card (R3-6)", () => {
   const detail = async (request: (path: string) => Promise<Response>, since?: string) => {
     const res = await json<CardResponse>(

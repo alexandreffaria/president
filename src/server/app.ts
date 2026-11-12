@@ -214,7 +214,11 @@ export function createApp(options: AppOptions): Hono {
     );
     writes.record(card.path, revision, card.revision);
     if (action.type === "chat" || (action.type === "resolve" && action.summary)) {
-      await chat.summarySaved(project, card.id, card.revision);
+      // Bookkeeping: the card is already written, so a failure here is logged, never a 500
+      // (the page would save the summary again).
+      await chat
+        .summarySaved(project, card.id, card.revision)
+        .catch((error: unknown) => console.error("[chat] recording a saved summary:", error));
     }
     // The watcher will notice too; emitting now makes other tabs update immediately.
     bus.emit({ type: "cards", project: project.name });
@@ -228,7 +232,10 @@ export function createApp(options: AppOptions): Hono {
       undoLastAction(project, c.req.param("id"), revision),
     );
     writes.record(card.path, revision, card.revision);
-    await chat.undone(revision);
+    // Bookkeeping, as for summarySaved: the undo itself is done.
+    await chat
+      .undone(revision)
+      .catch((error: unknown) => console.error("[chat] recording an undone summary:", error));
     bus.emit({ type: "cards", project: project.name });
     return c.json({ ok: true, card: toCardDetailDto(card, true) } satisfies CardResponse);
   });
@@ -252,7 +259,11 @@ export function createApp(options: AppOptions): Hono {
         lines.push(event);
         wake();
       });
-      out.onAbort(unsubscribe);
+      // Wake the loop too, so it sees the page went away and the handler ends.
+      out.onAbort(() => {
+        unsubscribe();
+        wake();
+      });
       try {
         while (!out.aborted) {
           const event = lines.shift();

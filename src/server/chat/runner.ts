@@ -27,6 +27,12 @@ export const SESSION_TOOLS = "Read,Grep,Glob,WebSearch,WebFetch";
 export const SESSION_ALLOWED_TOOLS = "WebSearch,WebFetch";
 /** The spending cap of one run, in US dollars (#0004). */
 export const MAX_BUDGET_USD = "1";
+/**
+ * A session id president passes to `--resume` or `--session-id`: a UUID, 8-4-4-4-12 hex
+ * digits. Checked again before every run (defence in depth for a hand-edited sessions.json).
+ */
+export const SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** A run still going after this long is stopped. */
 export const RUN_TIMEOUT_MS = 15 * 60 * 1000;
 const KILL_GRACE_MS = 5000;
@@ -81,11 +87,15 @@ export interface RunResult {
   structured?: unknown;
 }
 
-/** The arguments of a run, flags in #0004's order. */
+/** The arguments of a run, flags in #0004's order. Throws on a session id that isn't a UUID. */
 export function claudeArgs(
   request: Pick<RunRequest, "session" | "appendSystemPrompt" | "jsonSchema">,
 ): string[] {
   const { session } = request;
+  const id = "resume" in session ? session.resume : "start" in session ? session.start : undefined;
+  if (id !== undefined && !SESSION_ID_PATTERN.test(id)) {
+    throw new Error(`not a session id: ${JSON.stringify(id)}`);
+  }
   const sessionArgs =
     "resume" in session
       ? ["--resume", session.resume]
@@ -115,8 +125,33 @@ export function claudeArgs(
   ];
 }
 
+const SHUTTING_DOWN = "The run was stopped because president is shutting down.";
+
 /** Runs the session once. Never throws; a failure is in the result. */
 export function runClaude(request: RunRequest, handlers: RunHandlers = {}): Promise<RunResult> {
+  let args: string[];
+  try {
+    args = claudeArgs(request);
+  } catch (error) {
+    return Promise.resolve({
+      ok: false,
+      text: "",
+      started: false,
+      sessionNotFound: false,
+      error: `Couldn't start Claude Code: ${(error as Error).message}`,
+    });
+  }
+  // An abort listener added to a signal that already fired never runs: such a run would
+  // never be stopped and, detached, would outlive the hub. Don't start it.
+  if (request.signal?.aborted) {
+    return Promise.resolve({
+      ok: false,
+      text: "",
+      started: false,
+      sessionNotFound: false,
+      error: SHUTTING_DOWN,
+    });
+  }
   return new Promise((resolve) => {
     const texts: string[] = [];
     let started = false;
@@ -127,7 +162,7 @@ export function runClaude(request: RunRequest, handlers: RunHandlers = {}): Prom
     let settled = false;
     let stopped: string | undefined;
 
-    const child = spawn(request.bin, claudeArgs(request), {
+    const child = spawn(request.bin, args, {
       cwd: request.cwd,
       env: request.env ?? process.env,
       stdio: ["pipe", "pipe", "pipe"],
@@ -158,7 +193,7 @@ export function runClaude(request: RunRequest, handlers: RunHandlers = {}): Prom
         stop(`The run took longer than ${Math.round(timeoutMs / 60000)} minutes and was stopped.`),
       timeoutMs,
     );
-    const onAbort = () => stop("The run was stopped because president is shutting down.");
+    const onAbort = () => stop(SHUTTING_DOWN);
     request.signal?.addEventListener("abort", onAbort);
 
     const finish = (result: RunResult) => {
@@ -333,7 +368,7 @@ export function defaultClaudeDir(env: NodeJS.ProcessEnv = process.env): string {
  * way it names those folders doesn't matter.
  */
 export async function transcriptExists(claudeDir: string, session: string): Promise<boolean> {
-  if (!/^[0-9a-f-]{36}$/i.test(session)) return false;
+  if (!SESSION_ID_PATTERN.test(session)) return false;
   const projects = join(claudeDir, "projects");
   let folders: string[];
   try {

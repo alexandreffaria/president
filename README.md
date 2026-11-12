@@ -33,26 +33,25 @@ PATH by linking the repo's script (no build needed; Node 24 runs the TypeScript 
 
 ```sh
 mkdir -p ~/.local/bin
-ln -s "$PWD/bin/preside.js" ~/.local/bin/preside       # make sure ~/.local/bin is on PATH
-ln -s "$PWD/bin/president.js" ~/.local/bin/president   # the old name, an alias for now
+ln -s "$PWD/bin/preside.js" ~/.local/bin/preside   # make sure ~/.local/bin is on PATH
 preside help
 ```
 
-(`npm link` works too if your npm prefix is writable; it links both names.)
+(`npm link` works too if your npm prefix is writable.)
 
-The command used to be called `president`. If you installed it under that name, your link
-still works (it is now an alias, until it is removed in a later release), but add the new one:
-run the `ln -s "$PWD/bin/preside.js" ~/.local/bin/preside` line above from this repo. Everything
-president prints and every doc now says `preside`.
+The command used to be called `president`, and that name no longer works. If you installed it
+under the old name, run the `ln -s` line above from this repo and remove the old link:
+`rm ~/.local/bin/president`. If you used `npm link`, run it again (or delete `president` from
+`$(npm prefix -g)/bin`).
 
 **Use `preside`, not `npx preside`, outside this repo.** When a command isn't installed
 locally, `npx` looks for an npm package with that name. The `preside` package on npm is a
 placeholder of ours with no command, so `npx preside` only fails with
 `could not determine executable to run`; it can't run someone else's code, but it doesn't run
-president either. The old name is worse: an unrelated package called `president` exists on npm,
-and if a future release of it adds a command, `npx president` would download and run it,
-without asking when there is no terminal (as for an agent). Inside this repo `npx preside` runs
-the local copy.
+president either. Never type `npx president`: an unrelated package called `president` exists
+on npm, and if a future release of it adds a command, `npx president` would download and run
+it, without asking when there is no terminal (as for an agent). Inside this repo `npx preside`
+runs the local copy.
 
 ### Install the agent skill
 
@@ -123,7 +122,7 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
    You can also add and remove projects on the **Projects** page.
 
 2. Work with your agent as usual. When it hits a decision for you, it writes
-   `decisions/0007-some-question.md`. The card shows up in the queue right away, no reload needed.
+   `decisions/20261112k7q2-some-question.md`. The card shows up in the queue right away, no reload needed.
 
 3. Go through the **Queue**. On a card:
 
@@ -150,6 +149,17 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
    decided yet; each group by priority, then oldest first. A deferred card stays under
    **Deferred** until its date, then is back in the queue; a card deferred with no date (before
    this existed, or by hand) is back at once.
+
+   A card an agent withdrew (it no longer matters, the agent says why) leaves the queue for the
+   collapsed **Withdrawn by agents** list, even if it was deferred: its date is ignored while it
+   is withdrawn. Its page shows the agent's reason, and you can still decide it, add a note or
+   reject its options, but not defer it (`d`, `D` and the Defer buttons are gone there). **Back
+   to queue** puts it back (with a "Back in the queue" note, so the agent hears of it); a
+   deferred one goes back under Deferred if its date is still ahead, otherwise straight to the
+   queue, and you can defer it from there. Cards that depend on it stay at the bottom, marked
+   "depends on #0042, withdrawn", until you decide it. Once you decide it, its page keeps the
+   agent's reason in a muted line under the decision: "An agent had withdrawn this card:
+   <reason>".
 
    If an agent changes a card while you have it open, president shows what changed and refuses
    to send anything until you press **I've read it**, so you never decide on text you didn't see.
