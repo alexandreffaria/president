@@ -297,6 +297,18 @@ describe("the pick line (20261111mby8, 2026111272fu)", () => {
     expect((await t.calls())[0]?.stdin).toMatch(NOT_REVEALED);
   });
 
+  it("says a card without a pick has none, and stays neutral", async () => {
+    const t = await setup();
+    const { revision } = await t.card("0003");
+    await t.send("Which wording?", {}, "0003");
+    await t.send("And now?", { revealed: true, revision }, "0003");
+    for (const call of await t.calls()) {
+      expect(call.stdin).toMatch(/^\(president: This card has no pick \(no `recommendation`\)/);
+      expect(call.stdin).toMatch(/without recommending one of your own/);
+      expect(call.stdin).not.toMatch(/behind r|has not revealed|has revealed/);
+    }
+  });
+
   it("is neutral about a new pick that replaced the revealed one", async () => {
     const t = await setup();
     await t.send("Which one?", { revealed: true, revision: (await t.card()).revision });

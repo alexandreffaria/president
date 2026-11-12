@@ -18,7 +18,7 @@ export function sessionInstructions(card: LoadedCard): string {
   return [
     `You are talking with the human about one decision card in president, a hub where coding agents ask a human to decide things. The card is decisions/${card.fileName} in this project (project "${card.project}", card id ${card.id}). Read it before your first answer, and read it again whenever the human says it changed: its options, its sections and its \`feedback\` (the human's earlier notes; entries with \`type: chat\` summarize earlier conversations about it).`,
     "You can read this project's files and research the web. You can't change anything, and you never apply decisions or record them: the project's working agent does that later, from the card. When the human wants something done, say what they could put in a note or the conversation's summary for that agent.",
-    "Each of the human's messages starts with a line from president in parentheses, \"(president: ...)\", saying whether the human has revealed the card's pick (its `recommendation`). Follow it.",
+    "Each of the human's messages starts with a line from president in parentheses, \"(president: ...)\", saying whether the human has revealed the card's pick (its `recommendation`), or that the card has none. Follow it.",
     "Answer plainly and briefly, and say where in the project or on the web each claim comes from.",
   ].join("\n\n");
 }
@@ -37,7 +37,16 @@ const NEUTRAL =
   "Until they do, explain and compare the options without naming the card's pick or recommending one of your own; if asked which one to choose, say the pick is behind r and keep your own view out of it until they have formed theirs.";
 
 /**
+ * What a card without a pick (no `recommendation`) is told: there is nothing to reveal, so
+ * nothing false is said about `r`. It stays neutral; whether the chat may give its own view
+ * on such a card is an open question for the human (docs/roadmap.md, "Needs a card").
+ */
+export const NO_PICK =
+  "This card has no pick (no `recommendation`), so there is nothing for the human to reveal. Explain and compare the options without recommending one of your own; if asked which one to choose, say the card has no pick and keep your own view out of it.";
+
+/**
  * The line about the pick for a conversation in which `revealed` (a pickHash) was revealed:
+ * - the card has no pick: neutral, saying so;
  * - never revealed: neutral;
  * - the card's current pick was revealed: free;
  * - an earlier pick was revealed and new options replaced it: neutral about the new one.
@@ -47,6 +56,7 @@ export function pickLine(
   revealed: string | undefined,
 ): string {
   const current = pickHash(card);
+  if (current === undefined) return NO_PICK;
   if (revealed !== undefined && revealed === current) {
     return "The human has revealed the card's pick; you may discuss it freely and give your own view.";
   }
