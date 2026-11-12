@@ -7,6 +7,7 @@ import { api, RequestError } from "../api.ts";
 import { wroteHere } from "../app-writes.ts";
 import { describeChanges } from "../card-changes.ts";
 import { CardAssistant } from "../components/CardAssistant.tsx";
+import { CardId } from "../components/CardId.tsx";
 import { FeedbackHistory } from "../components/FeedbackHistory.tsx";
 import { Markdown } from "../components/Markdown.tsx";
 import { OptionCard } from "../components/OptionCard.tsx";
@@ -443,7 +444,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
       <header className="card-header">
         <p className="card-meta">
           <span>{project}</span>
-          <span>#{card.id}</span>
+          <CardId id={card.id} />
           <span>{KIND_LABEL[fm.kind]}</span>
           <span className={`priority-label priority-label-${fm.priority}`}>
             {PRIORITY_LABEL[fm.priority]}

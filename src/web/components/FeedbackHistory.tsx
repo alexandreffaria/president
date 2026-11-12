@@ -1,13 +1,14 @@
 import { unseenFeedback } from "../../core/pending.ts";
-import type { FeedbackEntry } from "../../core/schema.ts";
+import type { FeedbackEntry, FeedbackType } from "../../core/schema.ts";
 import { fullDate, timeAgo } from "../format.ts";
 
-const LABEL: Record<string, string> = {
+const LABEL: Record<FeedbackType, string> = {
   neither: "Asked for new options",
   note: "Note",
   defer: "Deferred",
   reopen: "Reopened",
   undo: "Decision taken back",
+  chat: "Conversation summary",
 };
 
 export function FeedbackHistory(props: { feedback: FeedbackEntry[]; seenAt: string | undefined }) {

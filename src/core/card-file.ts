@@ -324,6 +324,7 @@ const FREE_TEXT = new Set(
     ["feedback", "*", "note"],
     ["feedback", "*", "previous_resolution", "note"],
     ["resolution", "note"],
+    ["withdrawn", "reason"],
   ].map((path) => JSON.stringify(path)),
 );
 

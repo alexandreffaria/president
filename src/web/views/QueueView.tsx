@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { BrokenCardDto, CardDto } from "../../core/api.ts";
 import { buildQueue, isWaitingOnAgent, openDependencies } from "../../core/queue.ts";
+import { CardId } from "../components/CardId.tsx";
 import { useHeadingFocus } from "../focus.ts";
 import { fullDate, KIND_LABEL, PRIORITY_LABEL, timeAgo } from "../format.ts";
 import { useHub } from "../hub.tsx";
@@ -176,7 +177,7 @@ function QueueItem(props: {
           <span className="sr-only">, {PRIORITY_LABEL[fm.priority]}</span>
           <span className="queue-meta">
             {props.showProject && <span>{card.project}</span>}
-            <span>#{card.id}</span>
+            <CardId id={card.id} />
             <span>{KIND_LABEL[fm.kind]}</span>
             <time dateTime={fm.created} title={fullDate(fm.created)}>
               {timeAgo(fm.created)}
@@ -213,7 +214,7 @@ function CompactItem({ card }: { card: CardDto }) {
     <li>
       <Link to={cardPath(card.project, card.id)}>{card.frontmatter.title}</Link>{" "}
       <span className="muted small">
-        {card.project} #{card.id}
+        {card.project} <CardId id={card.id} withDate />
       </span>
     </li>
   );

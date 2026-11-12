@@ -16,7 +16,7 @@ import {
   needsApplying,
   unseenFeedback,
 } from "../core/pending.ts";
-import { CUSTOM_CHOICE, type Frontmatter } from "../core/schema.ts";
+import { CUSTOM_CHOICE, type Frontmatter, withdrawalOf } from "../core/schema.ts";
 import {
   actOnCard,
   findCard,
@@ -171,7 +171,7 @@ export async function validate(args: string[], out: Output): Promise<number> {
   const project = await projectAt(target, out);
   const { cards, broken, warnings, error } = await loadProjectCards(project);
   if (error) throw new UserError(error);
-  for (const card of cards) out.log(`ok      ${card.fileName}`);
+  for (const card of cards) out.log(okLine(card.fileName, card.frontmatter));
   printProblems(broken, warnings, out);
   out.log(
     `\n${cards.length} valid, ${broken.length} broken in ${join(project.path, DECISIONS_DIR)}. Format: ${CARD_FORMAT_DOC}`,
@@ -195,8 +195,9 @@ async function validateFile(file: string, out: Output): Promise<number> {
     const { cards, broken, warnings, error } = await loadProjectCards(project);
     if (error) throw new UserError(error);
     const mine = broken.filter((b) => b.fileName === fileName);
-    ok = mine.length === 0 && cards.some((c) => c.fileName === fileName);
-    if (ok) out.log(`ok      ${fileName}`);
+    const card = mine.length === 0 ? cards.find((c) => c.fileName === fileName) : undefined;
+    ok = card !== undefined;
+    if (card) out.log(okLine(fileName, card.frontmatter));
     // Never exit 1 without saying why (the file went away while it was being read).
     const missing = { fileName, errors: [`not found in ${join(project.path, DECISIONS_DIR)}`] };
     printProblems(
@@ -207,11 +208,27 @@ async function validateFile(file: string, out: Output): Promise<number> {
   } else {
     const result = parseCard(await readFile(file, "utf8"), fileName);
     ok = result.ok;
-    if (result.ok) out.log(`ok      ${fileName}`);
+    if (result.ok) out.log(okLine(fileName, result.card.frontmatter));
     else printProblems([result.problem], [], out);
   }
   out.log(`\nFormat: ${CARD_FORMAT_DOC}`);
   return ok ? 0 : 1;
+}
+
+/**
+ * `validate`'s line for a valid card; a withdrawn card's line says so and why
+ * (202611116ff6): `ok      0042-map-tiles.md (withdrawn: We dropped the map screen.)`.
+ */
+function okLine(fileName: string, card: Frontmatter): string {
+  const withdrawal = withdrawalOf(card);
+  return withdrawal
+    ? `ok      ${fileName} (withdrawn: ${oneLine(withdrawal.reason)})`
+    : `ok      ${fileName}`;
+}
+
+/** Text on one line: every run of whitespace, line breaks included, becomes one space. */
+function oneLine(text: string): string {
+  return text.trim().replace(/\s+/g, " ");
 }
 
 function printProblems(
@@ -256,6 +273,8 @@ export async function pending(args: string[], out: Output): Promise<number> {
       id: c.id,
       title: c.frontmatter.title,
       status: c.frontmatter.status,
+      // Only on a card an agent withdrew (202611116ff6): `{ at, reason }`.
+      ...(withdrawalOf(c.frontmatter) ? { withdrawn: withdrawalOf(c.frontmatter) } : {}),
       path: c.path,
       new_notes: unseenFeedback(c.frontmatter),
       token: agentToken(c),
@@ -297,6 +316,16 @@ export async function pending(args: string[], out: Output): Promise<number> {
     for (const w of warnings) out.log(`(warning) ${w.fileName}: ${w.message}`);
     return 0;
   }
+  // A withdrawn card is listed only when it would be anyway, marked, with the agent's
+  // reason (202611116ff6, option `labelled`).
+  const title = (c: LoadedCard) =>
+    `${c.frontmatter.title}${withdrawalOf(c.frontmatter) ? " (withdrawn)" : ""}`;
+  const whyWithdrawn = (c: LoadedCard) => {
+    const withdrawal = withdrawalOf(c.frontmatter);
+    if (withdrawal) {
+      out.log(`    Withdrawn by an agent at ${withdrawal.at}: ${continued(withdrawal.reason)}`);
+    }
+  };
   const notes = (c: LoadedCard) => {
     const entries = unseenFeedback(c.frontmatter);
     for (const note of entries) {
@@ -329,8 +358,9 @@ export async function pending(args: string[], out: Output): Promise<number> {
     for (const c of toApply) {
       const r = c.frontmatter.resolution;
       out.log(
-        `  ${c.path}\n    ${c.frontmatter.title} -> ${r?.choice}${r?.note ? ` (${continued(r.note)})` : ""}`,
+        `  ${c.path}\n    ${title(c)} -> ${r?.choice}${r?.note ? ` (${continued(r.note)})` : ""}`,
       );
+      whyWithdrawn(c);
       const earlier = earlierDecision(c.frontmatter);
       if (earlier) {
         const was = describeDecision(earlier.resolution);
@@ -349,7 +379,8 @@ export async function pending(args: string[], out: Output): Promise<number> {
       "The human rejected the options. Write new options that answer all the feedback shown, remove `needs_new_options`, then run its `done` command:",
     );
     for (const c of needOptions) {
-      out.log(`  ${c.path}\n    ${c.frontmatter.title}`);
+      out.log(`  ${c.path}\n    ${title(c)}`);
+      whyWithdrawn(c);
       if (unseenFeedback(c.frontmatter).length > 0) {
         notes(c);
       } else {
@@ -364,7 +395,8 @@ export async function pending(args: string[], out: Output): Promise<number> {
   if (withNotes.length > 0) {
     out.log("New notes from the human. Act on them, then run its `done` command:");
     for (const c of withNotes) {
-      out.log(`  ${c.path}\n    ${c.frontmatter.title} (${c.frontmatter.status})`);
+      out.log(`  ${c.path}\n    ${title(c)} (${c.frontmatter.status})`);
+      whyWithdrawn(c);
       notes(c);
       out.log(`    done: ${done(c)}`);
     }
