@@ -8,6 +8,7 @@ import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type {
+  CardActionResponse,
   CardResponse,
   ChatCloseResponse,
   ChatDto,
@@ -515,6 +516,7 @@ describe("summaries (#0003, #0019, #0020, #0024, 20261111paot)", () => {
     expect((await response.json()) as ChatSummaryResponse).toEqual({
       summary: "Discussed with the card's agent. I now see it throws.",
       fromCopy: false,
+      covers: 2,
     });
     const call = (await t.calls())[1];
     expect(call?.args).toContain("--resume");
@@ -745,6 +747,69 @@ describe("summaries (#0003, #0019, #0020, #0024, 20261111paot)", () => {
     const wrong = await t.post("/api/chats/demo/0004/reopen", { closed });
     expect(wrong.status).toBe(409);
     expect((await t.conversation()).unsummarized).toBe(false);
+  });
+
+  it("a reopen with a decision's revision is refused: only a close is reopened (PR #28 R1-6)", async () => {
+    const t = await setup();
+    await t.send("Does our client throw?");
+    // Decide without summary: the close is undone with the decision, not with /reopen.
+    const without = (await (
+      await t.post("/api/cards/demo/0002/actions", {
+        type: "resolve",
+        choice: "result",
+        closeChat: true,
+        revision: (await t.card()).revision,
+      })
+    ).json()) as CardActionResponse;
+    expect(without.unsummarized).toBe(false);
+    const refused = await t.post("/api/chats/demo/0002/reopen", { closed: without.card.revision });
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toMatchObject({ code: "not_undoable" });
+    expect((await t.conversation()).unsummarized).toBe(false);
+
+    // Nor a summary saved with a decision.
+    await t.post("/api/cards/demo/0002/undo", { revision: without.card.revision });
+    await t.script([{ text: "It throws." }]);
+    await t.post("/api/chats/demo/0002/summary", {});
+    const saved = (await (
+      await t.post("/api/cards/demo/0002/actions", {
+        type: "resolve",
+        choice: "result",
+        summary: "It throws.",
+        revision: (await t.card()).revision,
+      })
+    ).json()) as CardActionResponse;
+    expect(saved.unsummarized).toBe(false);
+    const again = await t.post("/api/chats/demo/0002/reopen", { closed: saved.card.revision });
+    expect(again.status).toBe(409);
+    expect((await t.conversation()).unsummarized).toBe(false);
+  });
+
+  it("a decision's answer says the conversation is still unsummarized when a message came after its summary (PR #28 R1-1)", async () => {
+    const t = await setup();
+    await t.send("Does our client throw?");
+    await t.script([{ text: "It throws." }]);
+    await t.post("/api/chats/demo/0002/summary", {});
+    await t.send("And on 500?");
+    const decided = (await (
+      await t.post("/api/cards/demo/0002/actions", {
+        type: "resolve",
+        choice: "result",
+        summary: "It throws.",
+        revision: (await t.card()).revision,
+      })
+    ).json()) as CardActionResponse;
+    expect(decided.card.frontmatter.status).toBe("resolved");
+    expect(decided.unsummarized).toBe(true);
+    // An action that touches no conversation says nothing about it.
+    const note = (await (
+      await t.post("/api/cards/demo/0002/actions", {
+        type: "note",
+        note: "Hm.",
+        revision: decided.card.revision,
+      })
+    ).json()) as CardActionResponse;
+    expect(note).not.toHaveProperty("unsummarized");
   });
 
   it("Decide without summary closes the conversation, and undo brings the reminder back (20261112hq3k)", async () => {

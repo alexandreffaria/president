@@ -137,8 +137,15 @@ export class ChatService {
    * transcript yet, which doesn't mean it forgot the conversation.
    */
   readonly #starting = new Set<string>();
-  /** Card revisions written by saving a summary, with what to put back if that is undone. */
-  readonly #summaryWrites = new Map<string, { key: CardKey; before: SessionEntry | undefined }>();
+  /**
+   * Card revisions written by saving a summary (or by Decide without summary), and the ids of
+   * closes ("Close without summary", `close: true`), with what to put back if that is undone.
+   * Only a close is undone with `reopen`; a card write is undone by undoing it (`undone`).
+   */
+  readonly #summaryWrites = new Map<
+    string,
+    { key: CardKey; before: SessionEntry | undefined; close: boolean }
+  >();
   /** How many messages the summary last offered for a card covers. */
   readonly #offered = new Map<string, number>();
   readonly #abort = new AbortController();
@@ -384,7 +391,7 @@ export class ChatService {
         );
       }
       this.#offered.set(keyName(key), messages.length);
-      return { summary, fromCopy };
+      return { summary, fromCopy, covers: messages.length };
     } finally {
       this.#running.delete(keyName(key));
       this.#changed(key);
@@ -427,7 +434,8 @@ export class ChatService {
     });
     this.#offered.delete(keyName(key));
     const closed = options.decision ?? randomUUID();
-    if (before) this.#remember(closed, key, before);
+    // A close made by a decision is undone with the decision, never with `reopen`.
+    if (before) this.#remember(closed, key, before, options.decision === undefined);
     this.#changed(key);
     return { chat: await this.conversation(project, card.id), closed };
   }
@@ -439,7 +447,7 @@ export class ChatService {
   async reopen(project: Project, id: string, closed: string): Promise<ChatDto> {
     const card = await this.#card(project, id);
     const write = this.#summaryWrites.get(closed);
-    if (!write || write.key.project !== project.name || write.key.id !== card.id) {
+    if (!write?.close || write.key.project !== project.name || write.key.id !== card.id) {
       throw new UserError("this close can no longer be undone", {
         status: 409,
         code: "not_undoable",
@@ -470,13 +478,13 @@ export class ChatService {
       if (covered >= messages.length) delete next.unsummarized;
       return next;
     });
-    this.#remember(revision, key, before);
+    this.#remember(revision, key, before, false);
     this.#changed(key);
   }
 
   /** What an undo of `write` (a card revision, or a close's id) puts back; the last 200. */
-  #remember(write: string, key: CardKey, before: SessionEntry | undefined): void {
-    this.#summaryWrites.set(write, { key, before });
+  #remember(write: string, key: CardKey, before: SessionEntry | undefined, close: boolean): void {
+    this.#summaryWrites.set(write, { key, before, close });
     if (this.#summaryWrites.size > 200) {
       this.#summaryWrites.delete(this.#summaryWrites.keys().next().value as string);
     }

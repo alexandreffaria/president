@@ -6,6 +6,7 @@ import type {
   AddProjectRequest,
   AddProjectResponse,
   ApiError,
+  CardActionResponse,
   CardDetailDto,
   CardListResponse,
   CardResponse,
@@ -148,17 +149,14 @@ export const api = {
     recorded(
       project,
       id,
-      call<{ ok: true; card: CardDetailDto }>(
-        `/api/cards/${segment(project)}/${segment(id)}/actions`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            ...action,
-            revision,
-            ...(options.closeChat ? { closeChat: true } : {}),
-          }),
-        },
-      ),
+      call<CardActionResponse>(`/api/cards/${segment(project)}/${segment(id)}/actions`, {
+        method: "POST",
+        body: JSON.stringify({
+          ...action,
+          revision,
+          ...(options.closeChat ? { closeChat: true } : {}),
+        }),
+      }),
     ),
   /** Reverts the action that returned `revision`, if nothing changed the card since. */
   undo: (project: string, id: string, revision: string) =>

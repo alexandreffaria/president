@@ -948,15 +948,6 @@ answer to **Teach me**:
 4. says **what the scenario leaves out**.
 
 The conversation continues after it as usual. *More info / research* is a separate button.
-
-**More info's answer**
-([20261112e1ik-more-info-answer.md](../decisions/20261112e1ik-more-info-answer.md), option
-`findings`): "The agent names the two or three facts the decision turns on, answers each in a
-sentence or two, and backs each answer with a quoted primary source and its link, then what it
-couldn't verify." The hub's request asks for them under "What this turns on:" and "Couldn't
-verify:", and, as for everything in the chat, names no pick until you press `r` (20261111mby8).
-Accepted costs: you see the evidence through the agent's framing, and a wrong "this is what it
-turns on" sends the research the wrong way.
 The card's guide: worked examples lose their edge for someone who already knows the area.
 
 **On an `open` card with no options**
@@ -969,6 +960,15 @@ of its own. The hub picks the prompt by whether the card has options
 An `open` card that does list suggestions gets #0005's format on them as is. Accepted costs:
 with nothing to contrast you learn less about the differences that matter, and one scenario can
 mislead if it isn't typical.
+
+**More info's answer**
+([20261112e1ik-more-info-answer.md](../decisions/20261112e1ik-more-info-answer.md), option
+`findings`): "The agent names the two or three facts the decision turns on, answers each in a
+sentence or two, and backs each answer with a quoted primary source and its link, then what it
+couldn't verify." The hub's request asks for them under "What this turns on:" and "Couldn't
+verify:", and, as for everything in the chat, names no pick until you press `r` (20261111mby8).
+Accepted costs: you see the evidence through the agent's framing, and a wrong "this is what it
+turns on" sends the research the wrong way.
 
 ### The chat stays neutral until you reveal the pick (20261111mby8)
 

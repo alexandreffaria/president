@@ -16,6 +16,8 @@
 import { useEffect, useRef } from "react";
 import { useKeyLayer } from "../keyboard.ts";
 
+const TITLE = "Before deciding: summary of your conversation";
+
 export function BeforeDeciding(props: {
   /** The summary is being written. */
   writing: boolean;
@@ -31,9 +33,14 @@ export function BeforeDeciding(props: {
   const { writing, busy } = props;
   const canSave = !writing && !busy && props.summary.trim() !== "";
   const saveButton = useRef<HTMLButtonElement>(null);
+  const summaryBox = useRef<HTMLTextAreaElement>(null);
   // Once the summary is there, focus Save and decide, so Enter takes it as the sketch says.
+  // Without one (it failed, or came back empty) Save is off: focus the box to write one.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once the summary is written
   useEffect(() => {
-    if (!writing) saveButton.current?.focus();
+    if (writing) return;
+    if (props.summary.trim()) saveButton.current?.focus();
+    else summaryBox.current?.focus();
   }, [writing]);
   useKeyLayer(
     {
@@ -50,18 +57,26 @@ export function BeforeDeciding(props: {
       <form
         className="action-bar-inner action-panel before-deciding"
         aria-labelledby="before-deciding-label"
+        aria-busy={writing}
         onSubmit={(event) => {
           event.preventDefault();
           if (canSave) props.onSaveAndDecide();
         }}
       >
-        <label
-          htmlFor="before-deciding-summary"
-          className="action-panel-label"
-          id="before-deciding-label"
-        >
-          Before deciding: summary of your conversation
-        </label>
+        {/* A label only once its text box is there; until then it names the form alone. */}
+        {writing ? (
+          <span className="action-panel-label" id="before-deciding-label">
+            {TITLE}
+          </span>
+        ) : (
+          <label
+            htmlFor="before-deciding-summary"
+            className="action-panel-label"
+            id="before-deciding-label"
+          >
+            {TITLE}
+          </label>
+        )}
         {writing ? (
           <p className="muted" role="status">
             Writing a summary…
@@ -75,6 +90,7 @@ export function BeforeDeciding(props: {
             </p>
             <textarea
               id="before-deciding-summary"
+              ref={summaryBox}
               rows={5}
               value={props.summary}
               onChange={(event) => props.onSummary(event.target.value)}

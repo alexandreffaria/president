@@ -17,7 +17,9 @@
  * - Teach me (#0005, 20261111fauj) and More info (20261112e1ik): buttons next to the message
  *   box (#0002's sketch); the hub writes their requests.
  * - While the "Before deciding" box is open (#0019, BeforeDeciding.tsx), the summary is edited
- *   there, so this panel's summary box stays out of the way.
+ *   there, so this panel's summary box stays out of the way, and nothing can be asked (the
+ *   message box, Teach me and More info are off): a message then would be missing from the
+ *   summary saved with the decision.
  * - Agent text never loads anything: images in it are links (a page the session read could
  *   have asked for an image whose address carries project text).
  */
@@ -118,7 +120,7 @@ export function CardChat(props: {
 
   const send = async () => {
     const text = draft.chat.trim();
-    if (!text || running) return;
+    if (!text || running || deciding) return;
     props.onDraft({ chat: "" });
     const failure = await chat.send(text, context);
     if (failure) {
@@ -131,7 +133,7 @@ export function CardChat(props: {
 
   /** Teach me or More info: the button's name shows as your message. */
   const ask = async (what: ChatAsk) => {
-    if (running) return;
+    if (running || deciding) return;
     const failure = await chat.send({ ask: what }, context);
     if (failure) toast(failure.error, { tone: "error" });
   };
@@ -139,9 +141,9 @@ export function CardChat(props: {
   const writeSummary = async () => {
     setWriting(true);
     try {
-      const { summary } = await chat.summarize(context);
+      const { summary, covers } = await chat.summarize(context);
       focusAfterBox.current = "box";
-      props.onDraft({ summary });
+      props.onDraft({ summary, summaryCovers: covers });
       setBoxOpen(true);
     } catch (error) {
       toast((error as Error).message, { tone: "error" });
@@ -173,9 +175,10 @@ export function CardChat(props: {
     if (closing) return;
     setClosing(true);
     const dropped = draft.summary;
+    const droppedCovers = draft.summaryCovers;
     try {
       const closed = await chat.close();
-      props.onDraft({ summary: "" });
+      props.onDraft({ summary: "", summaryCovers: undefined });
       setBoxOpen(false);
       toast("Conversation closed without a summary. Nothing was added to the card.", {
         action: {
@@ -185,7 +188,9 @@ export function CardChat(props: {
             chat
               .reopen(closed)
               .then(() => {
-                if (dropped.trim()) props.onDraft({ summary: dropped });
+                if (dropped.trim()) {
+                  props.onDraft({ summary: dropped, summaryCovers: droppedCovers });
+                }
                 toast("Undone. The conversation isn't summarized again.");
               })
               .catch((error: Error) => toast(`Couldn't undo: ${error.message}`, { tone: "error" }));
@@ -343,7 +348,7 @@ export function CardChat(props: {
         <button
           type="button"
           className="button"
-          disabled={running}
+          disabled={running || deciding}
           onClick={() => void ask("teach")}
         >
           Teach me
@@ -351,7 +356,7 @@ export function CardChat(props: {
         <button
           type="button"
           className="button"
-          disabled={running}
+          disabled={running || deciding}
           onClick={() => void ask("research")}
         >
           More info
@@ -370,6 +375,8 @@ export function CardChat(props: {
           aria-label="Message to the card's agent"
           placeholder="Ask about this card…"
           rows={2}
+          disabled={deciding}
+          aria-describedby={deciding ? `chat-deciding-${card.id}` : undefined}
           value={draft.chat}
           onChange={(event) => props.onDraft({ chat: event.target.value })}
           onKeyDown={(event) => {
@@ -382,11 +389,16 @@ export function CardChat(props: {
         <button
           type="submit"
           className="button button-primary"
-          disabled={running || !draft.chat.trim()}
+          disabled={running || deciding || !draft.chat.trim()}
         >
           Send <kbd>⏎</kbd>
         </button>
       </form>
+      {deciding && (
+        <p className="chat-note muted small" id={`chat-deciding-${card.id}`}>
+          Finish deciding, or press Esc to keep talking.
+        </p>
+      )}
     </section>
   );
 }

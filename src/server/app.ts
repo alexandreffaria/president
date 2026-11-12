@@ -49,6 +49,7 @@ import { CardActionSchema } from "../core/actions.ts";
 import {
   type AddProjectResponse,
   type ApiError,
+  type CardActionResponse,
   type CardListResponse,
   type CardResponse,
   CHAT_ASKS,
@@ -242,7 +243,9 @@ export function createApp(options: AppOptions): Hono {
       actOnCard(project, c.req.param("id"), action, { revision }),
     );
     writes.record(card.path, revision, card.revision);
-    if (action.type === "chat" || (action.type === "resolve" && action.summary)) {
+    const savesSummary =
+      action.type === "chat" || (action.type === "resolve" && Boolean(action.summary));
+    if (savesSummary) {
       // Bookkeeping: the card is already written, so a failure here is logged, never a 500
       // (the page would save the summary again).
       await chat
@@ -255,9 +258,21 @@ export function createApp(options: AppOptions): Hono {
         .closeWithoutSummary(project, card.id, { decision: card.revision })
         .catch((error: unknown) => console.error("[chat] closing the conversation:", error));
     }
+    // What the conversation is now, so the page knows whether its reminder is still due.
+    const unsummarized =
+      savesSummary || closeChat
+        ? await chat
+            .conversation(project, card.id)
+            .then((copy) => copy.unsummarized)
+            .catch(() => undefined)
+        : undefined;
     // The watcher will notice too; emitting now makes other tabs update immediately.
     bus.emit({ type: "cards", project: project.name });
-    return c.json({ ok: true, card: toCardDetailDto(card, true) } satisfies CardResponse);
+    return c.json({
+      ok: true,
+      card: toCardDetailDto(card, true),
+      ...(unsummarized === undefined ? {} : { unsummarized }),
+    } satisfies CardActionResponse);
   });
 
   api.post("/cards/:project/:id/undo", async (c) => {

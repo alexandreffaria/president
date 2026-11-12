@@ -868,3 +868,130 @@ describe("deciding while a conversation is open (#0019, 20261111is21)", () => {
     expect(await file()).toMatch(/type: chat\n\s+note: My own summary\./);
   });
 });
+
+describe("deciding while a conversation is open, reviewed (PR #28 R1)", () => {
+  const file = () => io(() => readFile(join(demo, "decisions", "0002-api-errors.md"), "utf8"));
+  const deciding = () =>
+    host.querySelector("#before-deciding-summary") as HTMLTextAreaElement | null;
+  const script = (steps: object[]) =>
+    io(() => writeFile(join(fakeDir, "script.json"), JSON.stringify(steps)));
+  const panelBox = () => host.querySelector(".chat-summary textarea") as HTMLTextAreaElement | null;
+
+  it("writes a new summary when a message came after the kept draft (R1-1)", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("Does it throw?");
+    // The runs from here: the summary, the reply to the next question, the new summary.
+    await script([{ text: "It throws." }, {}, { text: "It throws, and on 500 too." }]);
+    await click("Write summary");
+    await until(() => panelBox()?.value === "It throws.", "the summary");
+    await press("Escape", panelBox() as Element);
+    await until(() => !!button("Edit summary"), "the kept draft");
+    // A question after the draft was written: the draft leaves it out.
+    await sendMessage("And on 500?");
+    const runs = (await calls()).length;
+    await press("2");
+    await click("Decide");
+    await until(() => deciding()?.value === "It throws, and on 500 too.", "a new summary");
+    expect((await calls()).length).toBe(runs + 1);
+    await click("Save and decide");
+    await until(() => text().includes("with the conversation's summary"), "the decision");
+    expect(await file()).toMatch(/type: chat\n\s+note: It throws, and on 500 too\./);
+    // The hub says the conversation is summarized: no reminder on leaving.
+    expect((await io(() => chatCopy())).unsummarized).toBe(false);
+    await pause();
+    await settled();
+    expect(text()).not.toContain("isn't summarized");
+  });
+
+  it("while the box is open, nothing can be asked (R1-2)", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("Does it throw?");
+    await script([{ text: "It throws." }]);
+    await press("2");
+    await press("Enter");
+    await until(() => deciding()?.value === "It throws.", "the box");
+    expect((messageBox() as HTMLTextAreaElement).disabled).toBe(true);
+    expect(button("Teach me")?.disabled).toBe(true);
+    expect(button("More info")?.disabled).toBe(true);
+    expect(button("Send")?.disabled).toBe(true);
+    expect(text()).toContain("Finish deciding, or press Esc to keep talking.");
+    // Esc: talking again.
+    await press("Escape");
+    await until(() => deciding() === null, "the box to close");
+    expect((messageBox() as HTMLTextAreaElement).disabled).toBe(false);
+    expect(button("Teach me")?.disabled).toBe(false);
+    expect(text()).not.toContain("Finish deciding");
+  });
+
+  it("focuses the text box when no summary could be written, and Esc goes back to Decide (R1-3)", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("Does it throw?");
+    await script([{ text: "", exit: 1, stderr: "boom" }]);
+    await press("2");
+    // Clicking a button focuses it in a browser.
+    button("Decide")?.focus();
+    await click("Decide");
+    await until(() => text().includes("Couldn't write the summary"), "the error");
+    await until(() => document.activeElement === deciding(), "focus in the text box");
+    await press("Escape");
+    await until(() => deciding() === null, "the box to close");
+    await until(
+      () => document.activeElement === button("Decide"),
+      "focus back on the Decide button",
+    );
+  });
+
+  it("names the box without pointing at a text box that isn't there yet (R1-4)", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("Does it throw?");
+    await script([{ text: "It throws.", pauseMs: 600 }]);
+    await press("2");
+    await press("Enter");
+    await until(() => text().includes("Writing a summary…"), "the summary being written");
+    const form = host.querySelector("form.before-deciding");
+    expect(form?.getAttribute("aria-busy")).toBe("true");
+    const label = host.querySelector("#before-deciding-label");
+    expect(label?.tagName).toBe("SPAN");
+    expect(label?.textContent).toBe("Before deciding: summary of your conversation");
+    expect(host.querySelector('label[for="before-deciding-summary"]')).toBeNull();
+    await until(() => deciding()?.value === "It throws.", "the summary");
+    expect(host.querySelector('label[for="before-deciding-summary"]')).not.toBeNull();
+    expect(form?.getAttribute("aria-busy")).toBe("false");
+  });
+
+  it("an early Enter waits for the conversation before deciding (R1-5)", async () => {
+    // A conversation on the hub that the page hasn't read yet.
+    const sent = await io(() =>
+      fetch("/api/chats/demo/0002/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "Does it throw?" }),
+      }).then((res) => res.text()),
+    );
+    expect(sent).toContain('"done"');
+    await script([{ text: "It throws." }]);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    intercept = (input, init, hub) =>
+      input === "/api/chats/demo/0002" && (init.method ?? "GET") === "GET"
+        ? gate.then(hub)
+        : undefined;
+    window.history.replaceState(null, "", "/card/demo/0002");
+    root.render(<App />);
+    await until(() => text().includes("Pick an option"), "the card");
+    await press("2");
+    await press("Enter");
+    await pause();
+    expect(await file()).toMatch(/status: open/);
+    expect(text()).not.toContain("Decided #0002");
+    release();
+    await until(() => deciding()?.value === "It throws.", "the Before deciding box");
+    expect(await file()).toMatch(/status: open/);
+  });
+});

@@ -22,6 +22,11 @@ export interface Draft {
   chat: string;
   /** A conversation summary being edited, not saved yet (#0003). */
   summary: string;
+  /**
+   * How many messages of the conversation the agent wrote that summary from (undefined for
+   * one written by hand): Decide reuses the draft only while that is still all of them.
+   */
+  summaryCovers: number | undefined;
 }
 
 const EMPTY: Draft = {
@@ -33,6 +38,7 @@ const EMPTY: Draft = {
   note: "",
   chat: "",
   summary: "",
+  summaryCovers: undefined,
 };
 
 export type Panel = "neither" | "note";

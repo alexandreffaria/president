@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import type { CardAction } from "../../core/actions.ts";
 import type { BrokenCardDto, CardDetailDto, CardDto } from "../../core/api.ts";
 import { CUSTOM_CHOICE, withdrawalOf } from "../../core/model.ts";
@@ -82,6 +82,7 @@ const NO_DRAFT: Draft = {
   note: "",
   chat: "",
   summary: "",
+  summaryCovers: undefined,
 };
 
 /**
@@ -187,10 +188,18 @@ export function CardView({ project, id }: { project: string; id: string }) {
     cardChat.chat?.unsummarized === true ||
     (cardChat.live?.saved.some((m) => m.from === "you") ?? false);
   /**
-   * Set as a decision from the "Before deciding" box leaves the card: its summary is saved,
-   * or the conversation is closed without one (20261112hq3k), so no reminder.
+   * Set as a decision leaves the card when the hub answered that its conversation is
+   * summarized now (its summary saved with it, or closed without one: 20261112hq3k), so no
+   * reminder. A message the summary doesn't cover keeps the reminder.
    */
   const leavingSummarized = useRef(false);
+  /** Decide is reading the conversation before deciding (it hadn't loaded yet). */
+  const checkingChat = useRef(false);
+  /** What opened the "Before deciding" box, for focus once Esc closes it. */
+  const decideOpener = useRef<HTMLElement | null>(null);
+  const refocusDecide = useRef(false);
+  /** The action bar's Decide button (or the Neither panel's "Decide this as my answer"). */
+  const decideButton = useRef<HTMLButtonElement>(null);
   /** The "Before deciding" box (#0019), open while a decision waits for the summary. */
   const [beforeDeciding, setBeforeDeciding] = useState<PendingDecision | null>(null);
   /** Counts summary requests, so one answered after Esc is ignored. */
@@ -359,6 +368,9 @@ export function CardView({ project, id }: { project: string; id: string }) {
       const res = await api.act(project, id, action, seen.revision, {
         closeChat: options.closeChat === true,
       });
+      // Leaving: the reminder on leaving is due unless the hub says the conversation is
+      // summarized (or closed) after this write.
+      if (options.leave) leavingSummarized.current = res.unsummarized === false;
       // A decision's Undo window (see saveSummary) ends with any later action.
       if (action.type !== "resolve") forgetDecision(project, id);
       setLoaded({ state: "ok", card: res.card });
@@ -465,7 +477,6 @@ export function CardView({ project, id }: { project: string; id: string }) {
     if (!card || !fm) return false;
     const option = fm.options.find((o) => o.id === choice);
     const label = option ? option.title : "your own answer";
-    leavingSummarized.current = summary !== undefined || closeChat === true;
     const ok = await act(
       { type: "resolve", choice, note: note.trim() || undefined, summary },
       {
@@ -477,7 +488,6 @@ export function CardView({ project, id }: { project: string; id: string }) {
       },
     );
     if (ok) recordDecision(project, id);
-    else leavingSummarized.current = false;
     return ok;
   };
 
@@ -493,28 +503,52 @@ export function CardView({ project, id }: { project: string; id: string }) {
     sent: Partial<Draft>,
     panel?: DraftPanel,
   ) => {
-    if (!card || !fm || !choice || busy || beforeDeciding) return false;
-    const conversation = cardChat.chat;
+    if (!card || !fm || !choice || busy || beforeDeciding || checkingChat.current) return false;
+    const opener = document.activeElement;
+    let conversation = cardChat.chat;
+    if (!conversation) {
+      // Not loaded yet (a ⏎ right after the card showed): read it first, since it may hold
+      // messages no summary covers.
+      checkingChat.current = true;
+      try {
+        conversation = await api.chat(project, id);
+      } catch (error) {
+        toast(`Couldn't read this card's conversation: ${(error as Error).message}`, {
+          tone: "error",
+        });
+        return false;
+      } finally {
+        checkingChat.current = false;
+      }
+    }
     const waits =
-      conversation?.unsummarized === true ||
-      Boolean(conversation?.running) ||
+      conversation.unsummarized === true ||
+      Boolean(conversation.running) ||
       cardChat.live !== undefined;
     if (!waits) return resolve(choice, note, sent, panel);
+    decideOpener.current = opener instanceof HTMLElement ? opener : null;
     const pending = { choice, note, sent, panel };
-    // A summary already in the box (one written earlier, or put back by Undo) is used as is.
-    if (latest.current.summary.trim()) {
+    // A summary already in the box (one written earlier, or put back by Undo) is used as is,
+    // as long as it was written from every message there is; otherwise a new one is written.
+    const kept = latest.current;
+    if (
+      kept.summary.trim() &&
+      cardChat.live === undefined &&
+      kept.summaryCovers === conversation.messages.length
+    ) {
       setBeforeDeciding({ ...pending, writing: false });
       return false;
     }
     const request = ++summaryRequest.current;
     setBeforeDeciding({ ...pending, writing: true });
     try {
-      const { summary } = await cardChat.summarize({ revealed, revision: card.revision });
+      const { summary, covers } = await cardChat.summarize({ revealed, revision: card.revision });
       if (request !== summaryRequest.current) return false;
-      updateDraft({ summary });
+      updateDraft({ summary, summaryCovers: covers });
       setBeforeDeciding({ ...pending, writing: false });
     } catch (error) {
       if (request !== summaryRequest.current) return false;
+      // A kept draft that is out of date stays in the box, to edit or decide without.
       setBeforeDeciding({ ...pending, writing: false, error: (error as Error).message });
     }
     return false;
@@ -533,7 +567,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
     const ok = await resolve(
       pending.choice,
       pending.note,
-      { ...pending.sent, summary: "" },
+      { ...pending.sent, summary: "", summaryCovers: undefined },
       pending.panel,
       withSummary ? summary : undefined,
       !withSummary,
@@ -548,8 +582,19 @@ export function CardView({ project, id }: { project: string; id: string }) {
   /** Esc: back to the card without deciding; a summary written so far stays in the box. */
   const cancelDeciding = () => {
     summaryRequest.current++;
+    refocusDecide.current = true;
     setBeforeDeciding(null);
   };
+
+  // After Esc, focus goes back to what opened the box, or to Decide when that is gone.
+  useEffect(() => {
+    if (beforeDeciding || !refocusDecide.current) return;
+    refocusDecide.current = false;
+    const opener = decideOpener.current;
+    decideOpener.current = null;
+    if (opener?.isConnected && opener !== document.body) opener.focus();
+    else decideButton.current?.focus();
+  }, [beforeDeciding]);
 
   /**
    * Saves an edited conversation summary as a `chat` entry (#0003, #0023), on decided cards
@@ -564,7 +609,10 @@ export function CardView({ project, id }: { project: string; id: string }) {
       );
       return Promise.resolve(false);
     }
-    return act({ type: "chat", note: summary }, { done: "Summary saved.", sent: { summary: "" } });
+    return act(
+      { type: "chat", note: summary },
+      { done: "Summary saved.", sent: { summary: "", summaryCovers: undefined } },
+    );
   };
 
   /**
@@ -919,6 +967,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
             setPanel(null);
           }}
           onDecide={decide}
+          decideButton={decideButton}
           onAct={act}
           canDefer={canDefer}
           onDefer={defer}
@@ -1035,6 +1084,8 @@ function ActionBar(props: {
     panel?: DraftPanel,
   ) => Promise<boolean>;
   onAct: (action: CardAction, options?: ActOptions) => Promise<boolean>;
+  /** Decide (or "Decide this as my answer"), for focus after the "Before deciding" box. */
+  decideButton: RefObject<HTMLButtonElement | null>;
   canDefer: boolean;
   onDefer: (until?: Date) => void;
   deferMenu: boolean;
@@ -1125,6 +1176,7 @@ function ActionBar(props: {
               <button
                 type="button"
                 className="button"
+                ref={props.decideButton}
                 disabled={busy || !text.trim()}
                 onClick={() => void decideAsAnswer()}
               >
@@ -1249,6 +1301,7 @@ function ActionBar(props: {
         <button
           type="submit"
           className="button button-primary"
+          ref={props.decideButton}
           disabled={busy || (customAnswer ? !answer.trim() : !selectedOption)}
         >
           Decide <kbd>{customAnswer ? "Ctrl ⏎" : "⏎"}</kbd>
