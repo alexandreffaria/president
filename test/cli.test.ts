@@ -470,6 +470,25 @@ describe("preside CLI", () => {
       expect(result.err).toMatch(/the human added 1 entry since you read the card/);
       expect(await readFile(tiles, "utf8")).not.toContain("withdrawn:");
     });
+
+    it("after Back to queue, refuses an agent's update made from an earlier read (#0014)", async () => {
+      const demo = await copyDemoProject();
+      const tiles = await writeMapCards(demo);
+      // The agent read the withdrawn card, and rewrites it (keeping its withdrawal)...
+      const read = await readFile(tiles, "utf8");
+      // ...after the human put it back in the queue.
+      await human(demo, "20261111k7q2", { type: "unwithdraw" });
+      expect(await readFile(tiles, "utf8")).not.toContain("withdrawn:");
+      const mine = join(demo, "decisions", ".tiles.new");
+      await writeFile(mine, read.replace("title: Which map tiles?", "title: Which map tiles now?"));
+      const result = await cli("update", tiles, mine);
+      expect(result.code).toBe(1);
+      expect(result.err).toMatch(/the human added 1 entry since you read the card/);
+      expect(await readFile(tiles, "utf8")).not.toContain("withdrawn:");
+      // And pending tells the agent, as a note from the human.
+      expect((await cli("pending", demo)).out).toContain("note ");
+      expect((await cli("pending", demo)).out).toContain("Back in the queue");
+    });
   });
 
   it("prints a conversation summary as chat in pending (#0023)", async () => {

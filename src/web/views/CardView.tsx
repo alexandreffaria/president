@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CardAction } from "../../core/actions.ts";
 import type { BrokenCardDto, CardDetailDto, CardDto } from "../../core/api.ts";
-import { CUSTOM_CHOICE } from "../../core/model.ts";
+import { CUSTOM_CHOICE, withdrawalOf } from "../../core/model.ts";
 import {
+  activeWithdrawal,
   buildQueue,
+  describeDependencies,
   isBackFromDeferral,
+  isSnoozed,
   isWaitingOnAgent,
+  isWithdrawn,
   openDependencies,
   unknownDependencies,
 } from "../../core/queue.ts";
@@ -378,8 +382,13 @@ export function CardView({ project, id }: { project: string; id: string }) {
     );
   };
 
-  /** `d` and the Defer menu work on open cards and on cards back from deferral (#0017). */
-  const canDefer = card !== undefined && (fm?.status === "open" || isBackFromDeferral(card));
+  /**
+   * `d` and the Defer menu work on open cards and on cards back from deferral (#0017). Not on
+   * a withdrawn card: its date would be ignored while it is withdrawn (202611116ff6), and its
+   * action bar offers Back to queue instead.
+   */
+  const canDefer =
+    card !== undefined && !isWithdrawn(card) && (fm?.status === "open" || isBackFromDeferral(card));
 
   /**
    * Defers the card until `until`, or for a week (the hub's default) without it, unless the
@@ -580,7 +589,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
       <StatusNotice card={card} />
       {blockers.length > 0 && isActive && (
         <p className="notice notice-warn">
-          This depends on {blockers.map((b) => `#${b}`).join(", ")}, which{" "}
+          This depends on {describeDependencies(card, blockers, hub.cards)}, which{" "}
           {blockers.length === 1 ? "isn't" : "aren't"} decided yet.
         </p>
       )}
@@ -713,15 +722,28 @@ function StatusNotice({ card }: { card: CardDetailDto }) {
       </div>
     );
   }
-  // Open, or back from deferral (R1-1): either way it waits on the agent.
-  if (isWaitingOnAgent(card)) {
+  const newOptionsNotice = (
+    <p className="notice notice-info">
+      You asked for different options. An agent will rewrite this card; you can still pick one of
+      these.
+    </p>
+  );
+  // #0014: above the options, which still work. Shown instead of a deferred card's date,
+  // which is ignored while the card is withdrawn (202611116ff6), but not instead of the
+  // human's own request for new options.
+  const withdrawal = activeWithdrawal(card);
+  if (withdrawal) {
     return (
-      <p className="notice notice-info">
-        You asked for different options. An agent will rewrite this card; you can still pick one of
-        these.
-      </p>
+      <>
+        <p className="notice notice-info">
+          <strong>Withdrawn by the agent:</strong> {withdrawal.reason}
+        </p>
+        {fm.needs_new_options === true && newOptionsNotice}
+      </>
     );
   }
+  // Open, or back from deferral (R1-1): either way it waits on the agent.
+  if (isWaitingOnAgent(card)) return newOptionsNotice;
   if (fm.status === "deferred") {
     // #0017 snooze; a deferred card without a date counts as due (202611112hzh, back-now).
     const until = fm.defer_until;
@@ -894,7 +916,16 @@ function ActionBar(props: {
               className="button"
               disabled={busy}
               onClick={() =>
-                void props.onAct({ type: "reopen" }, { done: `Reopened #${card.id}.` })
+                void props.onAct(
+                  { type: "reopen" },
+                  {
+                    // A decision keeps `withdrawn` (D), so the reopened card is open with the
+                    // field and listed under Withdrawn by agents, not the queue (#0014).
+                    done: withdrawalOf(fm)
+                      ? `Reopened #${card.id}; it is still withdrawn by the agent, so it is listed under Withdrawn by agents.`
+                      : `Reopened #${card.id}.`,
+                  },
+                )
               }
             >
               Reopen
@@ -1021,6 +1052,29 @@ function ActionBar(props: {
                 Defer until… <kbd>D</kbd>
               </button>
             </>
+          ) : isWithdrawn(card) ? (
+            // #0014: removes the agent's `withdrawn` and adds a note; the status stays, so a
+            // deferred card's date applies again (202611116ff6).
+            <button
+              type="button"
+              className="button"
+              disabled={busy}
+              onClick={() =>
+                void props.onAct(
+                  { type: "unwithdraw" },
+                  {
+                    done: (after) => {
+                      const until = after.frontmatter.defer_until;
+                      return isSnoozed(after) && until
+                        ? `#${card.id} is no longer withdrawn; it stays deferred until ${fullDate(until)}.`
+                        : `Moved #${card.id} back to the queue.`;
+                    },
+                  },
+                )
+              }
+            >
+              Back to queue
+            </button>
           ) : (
             <button
               type="button"

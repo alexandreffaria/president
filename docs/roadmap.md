@@ -53,6 +53,10 @@ Then (2026-11-12): F2 (the `president` alias removed; `preside` is the only comm
 in the pull request "Remove the president alias (F2)" (branch `feat/remove-president-alias`),
 without waiting the month: the human waived the wait because nobody else uses the command.
 
+Then (2026-11-12): the Withdrawn section (#0014's and 202611116ff6's hub part) is built in the
+pull request "Withdrawn cards in the hub" (PR #24, branch `feat/withdrawn-section`), so C is fully
+built. E isn't built.
+
 ## Build plan
 
 Each row is one pull request (PR 2 may be split, see its section). The order is a suggestion;
@@ -64,7 +68,7 @@ Each row is one pull request (PR 2 may be split, see its section). The order is 
 | A2 | [Agent rules: how agents deliver new cards and rewrites](#a2-agent-rules-how-agents-deliver-new-cards-and-rewrites-20261111st0c) (agent-facing: the skill) | 20261111st0c | A (built) | **Built** in PR #17 |
 | B | [Sync](#b-sync-0001) | #0001, #0022, 2026111209dq, 20261112xp4s | nothing | **Built** in PR #12, together with [the two follow-up decisions](#decided-while-pr-12-was-open-2026111209dq-20261112xp4s): 09dq is what it already did, and xp4s is commit `b672fe1` |
 | B2 | [Sync: count a skipped project's answers apart](#b2-sync-count-a-skipped-projects-answers-apart-20261112l9vh) | 20261112l9vh | B (PR #12) merged | **Built** in the follow-up pull request (PR #18, branch `feat/sync-followups`) |
-| C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | **Built** in the pull request "Queue and card UX (C)" (PR #21, branch `feat/queue-card-ux-c`), except the [Withdrawn section](#withdrawn-cards-in-the-hub-0014) (#0014's and 202611116ff6's hub part), a follow-up now that D is merged (PR #20) |
+| C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | **Built** in the pull request "Queue and card UX (C)" (PR #21, branch `feat/queue-card-ux-c`), and the [Withdrawn section](#withdrawn-cards-in-the-hub-0014) (#0014's and 202611116ff6's hub part) in the follow-up pull request "Withdrawn cards in the hub" (PR #24, branch `feat/withdrawn-section`) |
 | D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part), 202611116ff6 (`pending` and `validate`) | PR #7 (it edits `card-format.md` and `SKILL.md`) | **Built** in the pull request "Card format and CLI (D)" (PR #20, branch `feat/card-format-d`) |
 | E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s, 20261112dfik | C (#0010's panel, #0011's notes on decided cards), D (`chat` type) | After C and D |
 | F | [Rename the command to `preside`](#f-rename-the-command-to-preside-0016-20261111dmvt) (agent-facing: the CLI, the skill and every printed command) | #0016, 20261111dmvt | A2 (both edit `SKILL.md`). The npm placeholder is published by the human (an agent prepares it). No card orders it against F; suggested: publish it before F merges (after repeating the name check), so the name F writes everywhere can't be taken meanwhile | **Built** in the pull request "Rename the command to preside (F)" (PR #19, branch `feat/rename-preside`) |
@@ -537,7 +541,8 @@ Hub changes (`src/core/queue.ts`, `src/core/actions.ts`, `src/web/views/QueueVie
 They can ship together or one by one.
 
 Built in the pull request "Queue and card UX (C)" (PR #21), except
-[Withdrawn cards in the hub](#withdrawn-cards-in-the-hub-0014). That PR also added
+[Withdrawn cards in the hub](#withdrawn-cards-in-the-hub-0014), which is built in the
+follow-up pull request "Withdrawn cards in the hub" (PR #24, branch `feat/withdrawn-section`). PR #21 also added
 `defer_until` to `preside update`'s guarded fields, the skill and `docs/card-format.md` (the
 Snooze section allowed it in D).
 
@@ -686,8 +691,11 @@ Card: [0017-deferred-resurfacing.md](../decisions/0017-deferred-resurfacing.md),
 Card: [0014-withdrawn-status.md](../decisions/0014-withdrawn-status.md), option `field`. The
 format part is in D.
 
-Not built yet: it needs D's `withdrawn` field (merged in PR #20), so it follows C's pull
-request in a small one.
+**Built** in the pull request "Withdrawn cards in the hub" (PR #24, branch `feat/withdrawn-section`),
+after D's `withdrawn` field (PR #20) and C's pull request (PR #21), as written below. Back to
+queue is a new action, `unwithdraw` (`src/core/actions.ts`); the queue's rules are in
+`src/core/queue.ts` (`activeWithdrawal`, `buildWithdrawn`, `describeDependencies`). The skill's
+"until then the hub still shows it in the queue" clause is dropped.
 
 - The queue leaves out open cards that have a `withdrawn` field and lists them in a collapsed
   **Withdrawn by agents (n)** section. A withdrawn **deferred** card is listed under
@@ -712,6 +720,12 @@ request in a small one.
   option's stated cost). What `preside pending` and `validate` say is in D.
 - When this ships, drop the "until then the hub still shows it in the queue" clause from the
   skill's *Withdrawing a card* (added by D in PR #20).
+- Settled by the rules above (not open questions): **Reopen on a decided card that kept
+  `withdrawn`** gives an open card with the field (a decision keeps it, D, and Reopen is
+  unchanged), so by the first rule it is listed under Withdrawn by agents, and the toast says
+  so. **A withdrawn card the human had said "neither" to** is an open card with the field, so it
+  is listed under Withdrawn by agents too (#0014, option `field`); its page shows the withdrawal
+  notice and, below it, "You asked for different options".
 
 ## D. Card format and CLI
 
@@ -1547,4 +1561,12 @@ The three questions this list held after PR #14 were answered on 2026-11-12: 1 b
 The question this list held after PR #15 (the same card open in a second tab while the run
 waits for Undo) was answered on 2026-11-12 by 20261112dfik.
 
-None at the moment.
+From the Withdrawn section's pull request ("Withdrawn cards in the hub"). The cards and this
+roadmap don't say these; the pull request built what follows from today's code and needs the
+human's answer to keep or change it:
+
+1. **Defer on a withdrawn card.** #0014 lists decide, note and reject as what still works. The
+   pull request offers no `d`, `D` or Defer buttons on a withdrawn card (a date would be
+   ignored while it is withdrawn); Back to queue takes their place. Keep, or allow deferring?
+2. **A decided card's page.** It doesn't say the card was withdrawn before the decision
+   (the "Withdrawn by the agent" notice shows on open and deferred cards only). Show it?

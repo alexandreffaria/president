@@ -566,6 +566,8 @@ input:disabled {
   border-radius: var(--radius-small);
   border: 1px solid var(--border);
   background: var(--surface);
+  /* Agent-written text (a withdrawal's reason, #0014) may hold a long unbroken path. */
+  overflow-wrap: anywhere;
 }
 
 .notice p {
@@ -706,8 +708,10 @@ input:disabled {
   padding-left: 1.2rem;
 }
 
+/* An agent's withdrawal reason (#0014) can hold a long path or URL: wrap it at narrow widths. */
 .compact-list li {
   margin: 0.3rem 0;
+  overflow-wrap: anywhere;
 }
 
 .broken-list {

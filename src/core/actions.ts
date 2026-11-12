@@ -9,6 +9,8 @@
  *    └──defer────▶ deferred + defer_until ──reopen──▶ open
  *                     │  (back in the queue once defer_until passes; defer again snoozes it)
  *
+ *   open/deferred + withdrawn ──unwithdraw──▶ the same status, without `withdrawn` (+ a note)
+ *
  * `resolve`, `neither` and `note` also work on deferred cards, and `note` on resolved ones
  * (#0011: the decision and applied_at stay). `resolve`, `neither` and `reopen` remove
  * `defer_until`. `seen` (an agent has read the
@@ -30,7 +32,11 @@ import {
   formatIssues,
   isIsoDateOrDateTime,
   type RawFrontmatter,
+  withdrawalOf,
 } from "./schema.ts";
+
+/** The note Back to queue adds to a withdrawn card it puts back (#0014's example). */
+export const UNWITHDRAW_NOTE = "Back in the queue";
 
 /** How long `d` defers a card when no date is given (#0017: "d defers for a week"). */
 export const DEFAULT_SNOOZE_DAYS = 7;
@@ -59,6 +65,8 @@ export const CardActionSchema = z.discriminatedUnion("type", [
       .optional(),
   }),
   z.object({ type: z.literal("reopen"), note: OptionalNote }),
+  /** Back to queue on a withdrawn card (#0014): removes `withdrawn`, adds a note. */
+  z.object({ type: z.literal("unwithdraw") }),
   z.object({ type: z.literal("applied"), token: AgentToken }),
   z.object({ type: z.literal("seen"), token: AgentToken }),
 ]);
@@ -104,6 +112,7 @@ const ALLOWED_FROM: Record<CardActionType, readonly CardStatus[]> = {
   note: ["open", "deferred", "resolved"],
   defer: ["open", "deferred"],
   reopen: ["deferred", "resolved"],
+  unwithdraw: ["open", "deferred"],
   applied: ["resolved"],
   seen: CARD_STATUSES,
 };
@@ -114,6 +123,7 @@ const VERB: Record<CardActionType, string> = {
   note: "add a note to a card",
   defer: "defer a card",
   reopen: "reopen a card",
+  unwithdraw: "put a withdrawn card back in the queue",
   applied: "mark a card as applied",
   seen: "mark a card's feedback as seen",
 };
@@ -208,6 +218,18 @@ export function applyAction(
       delete next.resolution;
       delete next.applied_at;
       delete next.defer_until;
+      break;
+    }
+    case "unwithdraw": {
+      if (!withdrawalOf(frontmatter)) {
+        return { ok: false, reason: "transition", error: "this card isn't withdrawn" };
+      }
+      // The note is required (#0014): `preside update` doesn't compare `withdrawn`, but it
+      // compares `feedback`, so an agent's update made from an earlier read is refused
+      // instead of withdrawing the card again. `status` and `defer_until` stay: a deferred
+      // card's date applies again (202611116ff6).
+      appendFeedback("note", UNWITHDRAW_NOTE);
+      delete next.withdrawn;
       break;
     }
     case "applied":
