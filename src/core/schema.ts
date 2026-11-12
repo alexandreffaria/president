@@ -122,7 +122,10 @@ export const FrontmatterSchema = z
     defer_until: Timestamp.optional(),
     /** Set by an agent that retracts the card (#0014); see {@link WithdrawnSchema}. */
     withdrawn: WithdrawnSchema.optional(),
-    /** Reserved for the chat panel (headless Claude Code session per card). */
+    /**
+     * No longer used (#0021): each machine's hub keeps the card's Claude Code session id in
+     * its own state folder (server/chat/store.ts). Still accepted, and kept as it is.
+     */
     session_id: z.string().optional(),
   })
   .superRefine((card, ctx) => {

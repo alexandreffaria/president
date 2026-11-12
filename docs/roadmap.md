@@ -62,6 +62,12 @@ Then (2026-11-12): the two questions PR #24 left in [Needs a card](#needs-a-card
 decided card's page says an agent had withdrawn it), built in the pull request "Apply
 20261112tiuq and 20261112jdyg". [Needs a card](#needs-a-card) is empty again.
 
+Then (2026-11-12): E is being built in a stack of pull requests. Its first, "Card chat (E1a):
+session, per-machine stores and API" (PR #25, branch `feat/card-chat`), runs the card's session with
+#0004's flags and adds the four per-machine stores, the conversation API, summaries (written
+by the session or from the hub's copy) and the `chat` card action; the page doesn't use them
+yet. The side panel and the rest follow in the next pull requests of the stack.
+
 ## Build plan
 
 Each row is one pull request (PR 2 may be split, see its section). The order is a suggestion;
@@ -75,7 +81,7 @@ Each row is one pull request (PR 2 may be split, see its section). The order is 
 | B2 | [Sync: count a skipped project's answers apart](#b2-sync-count-a-skipped-projects-answers-apart-20261112l9vh) | 20261112l9vh | B (PR #12) merged | **Built** in the follow-up pull request (PR #18, branch `feat/sync-followups`) |
 | C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | **Built** in the pull request "Queue and card UX (C)" (PR #21, branch `feat/queue-card-ux-c`), and the [Withdrawn section](#withdrawn-cards-in-the-hub-0014) (#0014's and 202611116ff6's hub part) in the follow-up pull request "Withdrawn cards in the hub" (PR #24, branch `feat/withdrawn-section`) |
 | D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part), 202611116ff6 (`pending` and `validate`) | PR #7 (it edits `card-format.md` and `SKILL.md`) | **Built** in the pull request "Card format and CLI (D)" (PR #20, branch `feat/card-format-d`) |
-| E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s, 20261112dfik | C (#0010's panel, #0011's notes on decided cards), D (`chat` type) | After C and D |
+| E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s, 20261112dfik | C (#0010's panel, #0011's notes on decided cards), D (`chat` type) | **In progress**, as a stack of pull requests: E1a (the session, the per-machine stores, the API and summaries on the server) in "Card chat (E1a)" (PR #25, branch `feat/card-chat`); the page, Teach me, deciding while open and Neither's run follow |
 | F | [Rename the command to `preside`](#f-rename-the-command-to-preside-0016-20261111dmvt) (agent-facing: the CLI, the skill and every printed command) | #0016, 20261111dmvt | A2 (both edit `SKILL.md`). The npm placeholder is published by the human (an agent prepares it). No card orders it against F; suggested: publish it before F merges (after repeating the name check), so the name F writes everywhere can't be taken meanwhile | **Built** in the pull request "Rename the command to preside (F)" (PR #19, branch `feat/rename-preside`) |
 | F2 | [Remove the `president` alias](#the-president-alias-and-when-it-ends) | 20261111dmvt | F | **Built** in the pull request "Remove the president alias (F2)" (branch `feat/remove-president-alias`); the human waived the wait on 2026-11-12, see [the alias](#the-president-alias-and-when-it-ends) |
 
@@ -1530,7 +1536,8 @@ only); the build PR named in brackets fixes each.
 
 - `docs/card-format.md` and the skill, picking an id ("add one to the highest number"):
   replaced by #0013's dated ids [D; fixed in PR #20].
-- `docs/card-format.md`, `session_id` "Reserved for the per-card chat": unused under #0021 [E].
+- `docs/card-format.md`, `session_id` "Reserved for the per-card chat": unused under #0021 [E;
+  fixed in PR #25].
 - `docs/card-format.md`, feedback types (`neither | note | defer | reopen | undo`): gains `chat`
   (#0023) [D; fixed in PR #20]; fields: gains `withdrawn` (#0014) [D; fixed in PR #20] and
   `defer_until` (#0017) [C or D; fixed by C in PR #21].
@@ -1581,4 +1588,22 @@ The two questions this list held after the Withdrawn section's pull request (PR 
 answered on 2026-11-12: 1 (Defer on a withdrawn card) by 20261112tiuq and 2 (a decided card's
 page) by 20261112jdyg; see [Withdrawn cards in the hub](#withdrawn-cards-in-the-hub-0014).
 
-None for now.
+Left open by "Card chat (E1a)" (PR #25); cards for them are being written.
+
+**E1b (the side panel)**
+
+1. **Hiding the panel vs. closing the conversation.** #0002's panel has a close button and a
+   toggle key, and #0020/#0024 say "closing the conversation offers the summary box". No card
+   says whether hiding the panel closes the conversation (and offers the summary) or only hides
+   it.
+2. **The same session or a fresh one after a saved summary.** E1a keeps one session per card
+   (#0021 `local`, the `"project/id" → session id` store) and the next summary covers only what
+   came after the last saved one. #0021's "starting a fresh conversation on the same card would
+   then need a counter" suggests a new session per conversation could also have been meant.
+
+**E1b and E1c (the chat on the page)**
+
+3. **The chat on a card with no pick** (an `open` card, or one whose agent gave no
+   `recommendation`). There is nothing to reveal with `r`, so under 20261111mby8 the chat would
+   stay neutral for good. E1a tells the session the card has no pick and keeps it neutral (no
+   view of its own); whether it may give its own view on such a card is the question.

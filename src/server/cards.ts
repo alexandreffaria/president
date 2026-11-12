@@ -460,6 +460,7 @@ function withUndoEntry(decided: LoadedCard, before: string): string {
 function changedSince(action: CardActionType | undefined): string {
   switch (action) {
     case "note":
+    case "chat":
     case "neither":
       return "the card changed since (an agent may already have read your note), so it can't be taken back; add another note to correct it";
     case "defer":

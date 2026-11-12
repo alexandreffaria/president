@@ -10,6 +10,13 @@
  *                                            CardDetailDto.writtenByPresident)
  *   POST   /api/cards/:project/:id/actions   { type, ..., revision }  (see core/actions.ts)
  *   POST   /api/cards/:project/:id/undo      { revision }  revision = what the action returned
+ *   GET    /api/chats/:project/:id           the card's conversation on this machine (ChatDto)
+ *   POST   /api/chats/:project/:id/messages  { text, revealed?, revision? }  sends a message to
+ *                                            the card's session; the answer streams back as
+ *                                            newline-delimited ChatStreamEvents (chat/)
+ *   POST   /api/chats/:project/:id/summary   { revealed?, revision? }  the session's summary,
+ *                                            for the human to edit; saving it is the "chat"
+ *                                            card action (or "resolve" with `summary`)
  *   GET    /api/sync                         per project: answers not synced, card changes on
  *                                            the remote, the last Sync's result (sync.ts)
  *   POST   /api/sync                         {}  runs Sync in every project; answers when done
@@ -27,6 +34,7 @@ import { upgradeWebSocket } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import { stream } from "hono/streaming";
 import { z } from "zod";
 import { CardActionSchema } from "../core/actions.ts";
 import type {
@@ -34,9 +42,10 @@ import type {
   ApiError,
   CardListResponse,
   CardResponse,
+  ChatStreamEvent,
   LiveMessage,
 } from "../core/api.ts";
-import { CARD_STATUSES, formatIssues } from "../core/schema.ts";
+import { CARD_ID_PATTERN, CARD_STATUSES, formatIssues } from "../core/schema.ts";
 import {
   actOnCard,
   describeProject,
@@ -48,6 +57,7 @@ import {
   toCardDto,
   undoLastAction,
 } from "./cards.ts";
+import { ChatService } from "./chat/service.ts";
 import { UserError } from "./errors.ts";
 import type { Registry } from "./registry.ts";
 import { localOnly } from "./security.ts";
@@ -61,6 +71,8 @@ export interface AppOptions {
   staticDir?: string | undefined;
   /** Runs Sync; one is made for the registry when not given. */
   sync?: SyncService | undefined;
+  /** Card conversations; one is made for the registry when not given. */
+  chat?: ChatService | undefined;
 }
 
 const AddProjectSchema = z.object({
@@ -80,6 +92,14 @@ const RevisionSchema = z.object({
 /** Notes are at most 20 000 characters; anything much bigger is not a card action. */
 const MAX_BODY_BYTES = 128 * 1024;
 
+const ChatMessageSchema = z.object({
+  text: z.string().trim().min(1, { error: "a message is required" }).max(20_000),
+  revealed: z.boolean().optional(),
+  revision: z.string().optional(),
+});
+
+const ChatSummarySchema = ChatMessageSchema.omit({ text: true });
+
 const ListQuerySchema = z.object({
   project: z.string().optional(),
   status: z.enum(CARD_STATUSES).optional(),
@@ -89,6 +109,7 @@ const ListQuerySchema = z.object({
 export function createApp(options: AppOptions): Hono {
   const { registry, bus } = options;
   const sync = options.sync ?? new SyncService(registry, bus);
+  const chat = options.chat ?? new ChatService(registry, bus);
   const writes = new PresidentWrites();
   const app = new Hono();
 
@@ -192,6 +213,13 @@ export function createApp(options: AppOptions): Hono {
       actOnCard(project, c.req.param("id"), action, { revision }),
     );
     writes.record(card.path, revision, card.revision);
+    if (action.type === "chat" || (action.type === "resolve" && action.summary)) {
+      // Bookkeeping: the card is already written, so a failure here is logged, never a 500
+      // (the page would save the summary again).
+      await chat
+        .summarySaved(project, card.id, card.revision)
+        .catch((error: unknown) => console.error("[chat] recording a saved summary:", error));
+    }
     // The watcher will notice too; emitting now makes other tabs update immediately.
     bus.emit({ type: "cards", project: project.name });
     return c.json({ ok: true, card: toCardDetailDto(card, true) } satisfies CardResponse);
@@ -204,8 +232,61 @@ export function createApp(options: AppOptions): Hono {
       undoLastAction(project, c.req.param("id"), revision),
     );
     writes.record(card.path, revision, card.revision);
+    // Bookkeeping, as for summarySaved: the undo itself is done.
+    await chat
+      .undone(revision)
+      .catch((error: unknown) => console.error("[chat] recording an undone summary:", error));
     bus.emit({ type: "cards", project: project.name });
     return c.json({ ok: true, card: toCardDetailDto(card, true) } satisfies CardResponse);
+  });
+
+  api.get("/chats/:project/:id", async (c) => {
+    const project = await requireProject(registry, c.req.param("project"));
+    return c.json(await chat.conversation(project, cardId(c.req.param("id"))));
+  });
+
+  api.post("/chats/:project/:id/messages", async (c) => {
+    const project = await requireProject(registry, c.req.param("project"));
+    const input = parseBody(ChatMessageSchema, await readJson(c.req.raw));
+    const run = await chat.send(project, cardId(c.req.param("id")), input);
+    c.header("content-type", "application/x-ndjson; charset=utf-8");
+    c.header("cache-control", "no-store");
+    // The run goes on if the page goes away: its reply is saved and shown next time.
+    return stream(c, async (out) => {
+      const lines: ChatStreamEvent[] = [];
+      let wake = () => {};
+      const unsubscribe = run.subscribe((event) => {
+        lines.push(event);
+        wake();
+      });
+      // Wake the loop too, so it sees the page went away and the handler ends.
+      out.onAbort(() => {
+        unsubscribe();
+        wake();
+      });
+      try {
+        while (!out.aborted) {
+          const event = lines.shift();
+          if (!event) {
+            await new Promise<void>((resolve) => {
+              wake = resolve;
+            });
+            continue;
+          }
+          await out.write(`${JSON.stringify(event)}
+`);
+          if (event.type === "done" || event.type === "error") break;
+        }
+      } finally {
+        unsubscribe();
+      }
+    });
+  });
+
+  api.post("/chats/:project/:id/summary", async (c) => {
+    const project = await requireProject(registry, c.req.param("project"));
+    const input = parseBody(ChatSummarySchema, await readJson(c.req.raw));
+    return c.json(await chat.summarize(project, cardId(c.req.param("id")), input));
   });
 
   api.get("/sync", async (c) => c.json(await sync.status()));
@@ -297,6 +378,11 @@ async function requireProject(registry: Registry, name: string) {
   const project = await registry.get(name);
   if (!project) throw new UserError(`no project named "${name}"`, { status: 404 });
   return project;
+}
+
+function cardId(id: string): string {
+  if (!CARD_ID_PATTERN.test(id)) throw new UserError(`"${id}" is not a valid card id`);
+  return id;
 }
 
 async function readJson(request: Request): Promise<unknown> {
