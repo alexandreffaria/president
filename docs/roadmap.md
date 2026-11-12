@@ -45,6 +45,10 @@ Then (2026-11-12): C (queue and card UX) is built in the pull request "Queue and
 [Withdrawn cards in the hub](#withdrawn-cards-in-the-hub-0014), which needs D's `withdrawn`
 field (merged in PR #20) and follows in a small pull request. E isn't built.
 
+Then (2026-11-12): F2 (the `president` alias removed; `preside` is the only command) is built
+in the pull request "Remove the president alias (F2)" (branch `feat/remove-president-alias`),
+without waiting the month: the human waived the wait because nobody else uses the command.
+
 ## Build plan
 
 Each row is one pull request (PR 2 may be split, see its section). The order is a suggestion;
@@ -60,7 +64,7 @@ Each row is one pull request (PR 2 may be split, see its section). The order is 
 | D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part), 202611116ff6 (`pending` and `validate`) | PR #7 (it edits `card-format.md` and `SKILL.md`) | **Built** in the pull request "Card format and CLI (D)" (PR #20, branch `feat/card-format-d`) |
 | E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s, 20261112dfik | C (#0010's panel, #0011's notes on decided cards), D (`chat` type) | After C and D |
 | F | [Rename the command to `preside`](#f-rename-the-command-to-preside-0016-20261111dmvt) (agent-facing: the CLI, the skill and every printed command) | #0016, 20261111dmvt | A2 (both edit `SKILL.md`). The npm placeholder is published by the human (an agent prepares it). No card orders it against F; suggested: publish it before F merges (after repeating the name check), so the name F writes everywhere can't be taken meanwhile | **Built** in the pull request "Rename the command to preside (F)" (PR #19, branch `feat/rename-preside`) |
-| F2 | [Remove the `president` alias](#the-president-alias-and-when-it-ends) | 20261111dmvt | F | One month after F ships, or once every registered project's own docs and agent instructions use `preside`, whichever is later |
+| F2 | [Remove the `president` alias](#the-president-alias-and-when-it-ends) | 20261111dmvt | F | **Built** in the pull request "Remove the president alias (F2)" (branch `feat/remove-president-alias`); the human waived the wait on 2026-11-12, see [the alias](#the-president-alias-and-when-it-ends) |
 
 Nothing here needs Sync to be built first: B is early because of #0022, not because the others
 depend on it.
@@ -1341,7 +1345,7 @@ president tab", the page title), `PRESIDENT_PORT`, `$XDG_CONFIG_HOME/president/`
 `$XDG_STATE_HOME/president/`, the package `name`, the repo URL, temp-folder prefixes, the
 decision records in foundations.md and what this roadmap says about built sections and about
 the cards (history). The npm placeholder `preside` is published by the human, separately. F2
-isn't built.
+removed the alias later (see below).
 
 Cards: [0016-rename-the-cli.md](../decisions/0016-rename-the-cli.md), option `rename`, and
 [20261111dmvt-command-name.md](../decisions/20261111dmvt-command-name.md), option `preside`. An
@@ -1395,6 +1399,9 @@ old name from habit still find the installed command, rather than failing and tr
   nothing.
 - Accepted cost: agents keep seeing and typing `president` longer, and the old name has to be
   removed in a second step.
+- **Wait waived (2026-11-12):** the human waived the month and the `grep` ("don't worry about
+  holding the old name, no one uses this"), since nobody else uses the command, so F2 is built
+  the same day as F.
 
 ## Cross-card consequences
 

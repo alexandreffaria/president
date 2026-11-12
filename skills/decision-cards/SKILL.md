@@ -78,9 +78,8 @@ there misses the human's answers and changes only that copy.
 
    Use the `preside` command, not `npx preside` outside the president repo: `npx` would
    fetch a package from npm instead of running yours (and never type `npx president`: an
-   unrelated package has that name). `president` is the command's old name, still an alias
-   for now; write `preside`. If `preside` isn't installed, tell the human (setup is in the
-   president README) and keep going; cards work without the hub running.
+   unrelated package has that name). If `preside` isn't installed, tell the human (setup is
+   in the president README) and keep going; cards work without the hub running.
 
 2. See what is waiting for you:
 
