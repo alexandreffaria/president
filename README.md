@@ -41,7 +41,8 @@ preside help
 
 The command used to be called `president`, and that name no longer works. If you installed it
 under the old name, run the `ln -s` line above from this repo and remove the old link:
-`rm ~/.local/bin/president`.
+`rm ~/.local/bin/president`. If you used `npm link`, run it again (or delete `president` from
+`$(npm prefix -g)/bin`).
 
 **Use `preside`, not `npx preside`, outside this repo.** When a command isn't installed
 locally, `npx` looks for an npm package with that name. The `preside` package on npm is a
@@ -49,8 +50,8 @@ placeholder of ours with no command, so `npx preside` only fails with
 `could not determine executable to run`; it can't run someone else's code, but it doesn't run
 president either. Never type `npx president`: an unrelated package called `president` exists
 on npm, and if a future release of it adds a command, `npx president` would download and run
-it, without asking when there is no terminal (as for an agent). Inside this repo `npx preside` runs
-the local copy.
+it, without asking when there is no terminal (as for an agent). Inside this repo `npx preside`
+runs the local copy.
 
 ### Install the agent skill
 

@@ -1536,6 +1536,13 @@ describe("preside CLI", () => {
       timeout: 9000,
     });
     expect(stdout).toMatch(/Usage:/);
+    // The README installs it as a symlink named preside; run it that way too.
+    const link = join(await tempDir(), "preside");
+    await symlink(BIN, link);
+    const viaLink = await promisify(execFile)(process.execPath, [link, "help"], {
+      timeout: 9000,
+    });
+    expect(viaLink.stdout).toMatch(/Usage:/);
   });
 
   // The `president` alias was removed in F2 (20261111dmvt): `preside` is the only command.
