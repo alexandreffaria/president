@@ -18,6 +18,7 @@ import {
 } from "yaml";
 import {
   CARD_FILENAME_PATTERN,
+  CARD_ID_PATTERN,
   type Frontmatter,
   FrontmatterSchema,
   formatIssues,
@@ -335,17 +336,6 @@ function isFreeText(path: readonly PropertyKey[]): boolean {
 }
 
 /**
- * Plain (unquoted) free text followed by a comment on the same line: in
- * `title: Use C # for it`, YAML reads ` # for it` as a comment and the title as "Use C",
- * and nothing else would notice. Comments on their own line, and after quoted text, a block
- * header (`>-`), a key whose value starts on the next line, or a value that isn't free text
- * (an id, a choice, a type, a timestamp), cut nothing and stay allowed.
- *
- * Text an alias brings into a free-text field (`title: *t`) is checked where it is anchored
- * (`&t`). An alias is followed only to a single value, never into a list or a mapping, so
- * this can't loop.
- */
-/**
  * Unquoted ids that YAML reads as some other number, such as `20261111e123` (a float) or
  * `20261111e001` (202611110). Digits only, such as `0007` or `202611111234`, are fine.
  */
@@ -357,7 +347,7 @@ function unquotedIds(doc: Document, yaml: string, fileLine: (offset: number) => 
     const range = node.range;
     if (!range) return;
     const text = yaml.slice(range[0], range[1]).trim();
-    if (/^\d+$/.test(text)) return;
+    if (/^\d+$/.test(text) || !CARD_ID_PATTERN.test(text)) return;
     out.push(
       `${formatPath(path)}: YAML reads ${text} as the number ${String(node.value)} (line ${fileLine(range[0])}); write ids in quotes: ${example(text)}`,
     );
@@ -372,6 +362,17 @@ function unquotedIds(doc: Document, yaml: string, fileLine: (offset: number) => 
   return out;
 }
 
+/**
+ * Plain (unquoted) free text followed by a comment on the same line: in
+ * `title: Use C # for it`, YAML reads ` # for it` as a comment and the title as "Use C",
+ * and nothing else would notice. Comments on their own line, and after quoted text, a block
+ * header (`>-`), a key whose value starts on the next line, or a value that isn't free text
+ * (an id, a choice, a type, a timestamp), cut nothing and stay allowed.
+ *
+ * Text an alias brings into a free-text field (`title: *t`) is checked where it is anchored
+ * (`&t`). An alias is followed only to a single value, never into a list or a mapping, so
+ * this can't loop.
+ */
 export function truncatedTexts(
   doc: Document,
   yaml: string,

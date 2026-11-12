@@ -350,6 +350,8 @@ describe("dated ids (#0013)", () => {
     expect(expectCard(cardText({ id: "202611111234" }), "202611111234-a.md").id).toBe(
       "202611111234",
     );
+    // Text that wouldn't be a valid id even in quotes is left as before.
+    expect(expectCard(cardText({ id: "+9" }), "9-a.md").id).toBe("9");
   });
 
   it("gives the short form of a dated id and its date, and nothing for other ids", () => {
