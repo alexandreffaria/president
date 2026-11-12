@@ -367,7 +367,7 @@ merged code, since PR #12 changed after that):
   `skippedUnsynced > 0`.
 
 **Merging with PR #12.** PR #12 branched from an older main (`03efd6f`). Checked with
-`git merge-tree` against `origin/feat/sync` at `6201eaa`: the only conflict in this file is the
+`git merge-tree` against `origin/feat/sync` at `0b126cc`: the only conflict in this file is the
 build-plan table, because PR #12 carries the table as it was before PRs #11, #13 and #14.
 Resolve it by keeping main's table as it is: its B row already says "Built in PR #12", and
 PR #12's side has no row to add (its A, E and F rows point at questions that have been
@@ -378,17 +378,14 @@ with its list of settled details and main's "Decided while PR 12 was open" text.
 built. Recheck after PR #12's next round, which may change these lines again. PR #12 leaves a
 skipped project's answers out of every count; B2 adds them on a line of their own.
 
-**Projects with submodules.** PR #12's next review round (not on `origin/feat/sync` when this
-was written) also skips a project whose repository has git submodules ("Not synced: web is
-skipped because it has git submodules"), at Sync time rather than in `Repo.unavailable()`. If it
-merges that way, such a project is a project Sync skips, which is what this card's question and
-`count-apart` are about ("per skipped project"), so B2 covers it too: its count goes on its own
-line, never in the button's number. That round should already leave such a project out of
-`unsynced`, as PR #12 does for every other skipped project, because the button's number means
-"what pressing Sync will send or bring in". If it merges with them still in `unsynced`
-(`unavailable()` doesn't see submodules), B2 moves them out. Either way B2 counts them for the
-line with `localCardChanges` and the project's own upstream, since the project is its own
-repository. The line's wording comes from the card's example; "(Sync skips it)" fits both reasons.
+**Projects with submodules.** PR #12's round 4 (`0b126cc`) also skips a project whose
+repository has git submodules (a `.gitmodules` file, or a gitlink in the index), in
+`Repo.unavailable()` ("it has git submodules, which Sync doesn't handle"), so like every other
+skipped project its answers are left out of `unsynced`. Such a project is a project Sync skips,
+which is what this card's question and `count-apart` are about ("per skipped project"), so B2
+covers it too: its count goes on its own line, never in the button's number. B2 counts it with
+`localCardChanges` and the project's own upstream, since the project is its own repository.
+The line's wording comes from the card's example; "(Sync skips it)" fits every reason.
 
 ## C. Queue and card UX
 
