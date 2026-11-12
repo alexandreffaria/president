@@ -15,10 +15,11 @@ Status on 2026-11-11: none of this is built. Cards #0001 to #0024 are all decide
 
 Update on 2026-11-12, which replaces the status line above: A (PR #10) and B (Sync, PR #12)
 are built; the rest isn't. PR #12 (branch `feat/sync` until it merges) also carries both Sync
-follow-ups: 2026111209dq needed nothing, and 20261112xp4s is commit `b672fe1`. Cards #0001 to #0024, the 13 cards of batch 3 (PR #11), which answered every
-question of the earlier [Needs a card](#needs-a-card) list, and the two Sync follow-ups from
-PR #12's review (PR #13) are all decided, each with its recommended option and no note. The new
-questions they leave are in [Needs a card](#needs-a-card).
+follow-ups: 2026111209dq needed nothing, and 20261112xp4s is commit `b672fe1`. Cards #0001 to
+#0024, the 13 cards of batch 3 (PR #11), which answered every question of the earlier
+[Needs a card](#needs-a-card) list, and the two Sync follow-ups from PR #12's review (PR #13)
+are all decided, each with its recommended option and no note. The new questions they leave
+are in [Needs a card](#needs-a-card).
 
 ## Build plan
 
@@ -252,10 +253,11 @@ Sync would then refuse whenever an agent has work in progress.
   (#0022), conversation summaries (#0003, #0023), `defer_until` (#0017) and `withdrawn` (#0014).
   Session ids, the hub's copy of conversations and the "not summarized" list never travel
   (#0018, #0021, #0024): they live outside the project.
-- Document Sync in the README (Usage) when it ships, and remove `SKILL.md`'s *Until Sync
-  exists* note. Under 2026111209dq (below) its rule stays true for a project Sync skips, so
-  keep it for those: their card changes reach git only by a hand commit in the main folder,
-  done when the human asks, never in a pull request.
+- The README documents Sync (PR #12). Still to do: `SKILL.md`'s *Until Sync exists* note,
+  which PR #12 doesn't touch and which says Sync is "not built yet". Under 2026111209dq
+  (below) its rule stays true for a project Sync skips, so narrow it to those rather than
+  remove it: their card changes reach git only by a hand commit in the main folder, done when
+  the human asks, never in a pull request.
 
 ### Decided while PR 12 was open (2026111209dq, 20261112xp4s)
 
@@ -294,8 +296,8 @@ text, and a picked option is cleared.
 - From the card's technical detail: `SyncService` keeps, per project, the card revisions its
   last pull brought in (it already reports the `received` cards); the card endpoint adds
   `changedBySync` to `CardDetailDto` next to `writtenByPresident`, and `CardView` picks the
-  sentence from it (today `setChangedBy(card.writtenByPresident ? "other-tab" : "agent")` on
-  `feat/sync`). The watcher can reload the card mid-pull, before the Sync knows what it brought
+  sentence from it (on `feat/sync` since `b672fe1`: `setChangedBy(card.writtenByPresident ?
+  "other-tab" : card.changedBySync ? "sync" : "agent")`). The watcher can reload the card mid-pull, before the Sync knows what it brought
   in, so record the revisions before emitting the `cards` event and pick the sentence again on
   that reload.
 - Accepted costs: the notice doesn't say whether it was you on the other machine, an agent or
