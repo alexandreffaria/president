@@ -129,17 +129,49 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 describe("the session's command line (#0004)", () => {
   it("has exactly the read-only flags, the session first", () => {
-    expect(claudeArgs({ session: { start: "s-1" } })).toEqual([
+    const id = "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b";
+    expect(claudeArgs({ session: { start: id } })).toEqual([
       "-p",
       "--output-format",
       "stream-json",
       "--verbose",
       "--session-id",
-      "s-1",
+      id,
       ...READONLY_FLAGS,
     ]);
-    expect(claudeArgs({ session: { resume: "s-1" } }).slice(4, 6)).toEqual(["--resume", "s-1"]);
+    expect(claudeArgs({ session: { resume: id } }).slice(4, 6)).toEqual(["--resume", id]);
     expect(claudeArgs({ session: { oneOff: true } })).toContain("--no-session-persistence");
+  });
+
+  it("only passes a strict UUID as the session id", async () => {
+    for (const bad of ["-".repeat(36), "--dangerously-skip-permissions", "s-1", ""]) {
+      expect(() => claudeArgs({ session: { resume: bad } })).toThrow(/not a session id/);
+      expect(() => claudeArgs({ session: { start: bad } })).toThrow(/not a session id/);
+    }
+    const t = await setup();
+    const result = await runClaude({
+      bin: FAKE,
+      cwd: t.demo,
+      session: { resume: "-".repeat(36) },
+      message: "hi",
+      env: { ...process.env, FAKE_CLAUDE_DIR: join(t.root, "fake") },
+    });
+    expect(result).toMatchObject({ ok: false, started: false });
+    expect(await t.calls()).toEqual([]);
+
+    // A hand-edited sessions.json: the bad id is never resumed; a fresh session starts.
+    await t.send("One");
+    const file = join(t.root, "state", "sessions.json");
+    const table = await t.sessions();
+    const old = table["demo/0002"]?.session as string;
+    await mkdir(join(t.root, "claude", "projects", "x"), { recursive: true });
+    await writeFile(join(t.root, "claude", "projects", "x", `${"-".repeat(36)}.jsonl`), "");
+    await writeFile(file, (await readFile(file, "utf8")).replace(old, "-".repeat(36)));
+    expect((await t.conversation()).remembers).toBe(false);
+    await t.send("Two");
+    const second = (await t.calls())[1];
+    expect(second?.args).not.toContain("--resume");
+    expect(second?.args[second.args.indexOf("--session-id") + 1]).toMatch(UUID);
   });
 
   it("never puts the message on the command line", async () => {
