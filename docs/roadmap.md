@@ -1536,7 +1536,8 @@ only); the build PR named in brackets fixes each.
 
 - `docs/card-format.md` and the skill, picking an id ("add one to the highest number"):
   replaced by #0013's dated ids [D; fixed in PR #20].
-- `docs/card-format.md`, `session_id` "Reserved for the per-card chat": unused under #0021 [E].
+- `docs/card-format.md`, `session_id` "Reserved for the per-card chat": unused under #0021 [E;
+  fixed in PR #25].
 - `docs/card-format.md`, feedback types (`neither | note | defer | reopen | undo`): gains `chat`
   (#0023) [D; fixed in PR #20]; fields: gains `withdrawn` (#0014) [D; fixed in PR #20] and
   `defer_until` (#0017) [C or D; fixed by C in PR #21].
@@ -1587,4 +1588,22 @@ The two questions this list held after the Withdrawn section's pull request (PR 
 answered on 2026-11-12: 1 (Defer on a withdrawn card) by 20261112tiuq and 2 (a decided card's
 page) by 20261112jdyg; see [Withdrawn cards in the hub](#withdrawn-cards-in-the-hub-0014).
 
-None for now.
+Left open by "Card chat (E1a)" (PR #25); cards for them are being written.
+
+**E1b (the side panel)**
+
+1. **Hiding the panel vs. closing the conversation.** #0002's panel has a close button and a
+   toggle key, and #0020/#0024 say "closing the conversation offers the summary box". No card
+   says whether hiding the panel closes the conversation (and offers the summary) or only hides
+   it.
+2. **The same session or a fresh one after a saved summary.** E1a keeps one session per card
+   (#0021 `local`, the `"project/id" → session id` store) and the next summary covers only what
+   came after the last saved one. #0021's "starting a fresh conversation on the same card would
+   then need a counter" suggests a new session per conversation could also have been meant.
+
+**E1b and E1c (the chat on the page)**
+
+3. **The chat on a card with no pick** (an `open` card, or one whose agent gave no
+   `recommendation`). There is nothing to reveal with `r`, so under 20261111mby8 the chat would
+   stay neutral for good. E1a tells the session the card has no pick and keeps it neutral (no
+   view of its own); whether it may give its own view on such a card is the question.
