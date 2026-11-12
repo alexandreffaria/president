@@ -168,7 +168,7 @@ export async function runServer(out: Output = console): Promise<number> {
   try {
     hub = await startHub();
   } catch (error) {
-    out.error(`preside: ${startupError(error)}`);
+    out.error(`president: ${startupError(error)}`);
     return 1;
   }
   out.log(`president is running at ${hub.url}`);

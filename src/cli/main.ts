@@ -1,6 +1,7 @@
 /**
  * The `preside` command line (`president`, its old name, is an alias until F2). Used by
- * humans to run the hub and by agents to register projects, validate the cards they wrote and find cards that need their attention.
+ * humans to run the hub and by agents to register projects, validate the cards they wrote and
+ * find cards that need their attention.
  */
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

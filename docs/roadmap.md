@@ -32,7 +32,7 @@ Later still: A2 (the skill's rule for delivering new cards and rewrites, 2026111
 built in PR #17. B2 (20261112l9vh) is built in PR #18 (branch `feat/sync-followups`), with
 three follow-ups from PR #12's review: S7-4, S4-6 and S8-1.
 
-Later on 2026-11-12: F (the command is now `preside`, #0016 and 20261111dmvt) is built in the
+After that (2026-11-12): F (the command is now `preside`, #0016 and 20261111dmvt) is built in the
 pull request "Rename the command to preside (F)" (PR #19, branch `feat/rename-preside`), with
 `president` kept as an alias. F2, which removes the alias, isn't built.
 
@@ -1436,6 +1436,7 @@ old name from habit still find the installed command, rather than failing and tr
 - **#0016 `rename` + 20261111dmvt `preside` touch everything.** Every printed command and doc
   line in A2 to E changes name. If F comes later, those PRs write `president`; F renames them
   with the rest, and the alias keeps anything missed working until F2.
+  F is built (PR #19), so C, D and E write `preside`.
 
 ### Existing docs that now contradict a decision
 

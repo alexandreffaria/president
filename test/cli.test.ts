@@ -1318,7 +1318,7 @@ describe("preside CLI", () => {
     try {
       const result = await cli("serve");
       expect(result.code).toBe(1);
-      expect(result.err).toMatch(/^preside: the port is already in use/);
+      expect(result.err).toMatch(/^president: the port is already in use/);
     } finally {
       blocker.close();
     }
