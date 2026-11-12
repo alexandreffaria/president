@@ -1131,6 +1131,32 @@ describe("withdrawn cards (#0014, 202611116ff6)", () => {
     await until(() => !text().includes("Withdrawn by agents"), "the Withdrawn list gone");
     expect(queueIds()).toEqual(["0001", "0003"]);
     expect(host.querySelectorAll(".queue-link")[1]?.textContent).not.toContain("depends on");
+
+    // Reopened, it is still withdrawn, and the toast says where it went.
+    await act(async () => navigate("/card/demo/0002"));
+    await until(() => text().includes("This decision is made"), "the decided card");
+    await act(async () => button("Reopen")?.click());
+    await until(() => text().includes("Reopened #0002"), "the reopen toast");
+    expect(text()).toContain(
+      "Reopened #0002; it is still withdrawn by the agent, so it is listed under Withdrawn by agents.",
+    );
+    await act(async () => navigate("/"));
+    await until(() => text().includes("Withdrawn by agents (1)"), "the Withdrawn list");
+    expect(queueIds()).toEqual(["0001", "0003"]);
+  });
+
+  it("shows a withdrawn card's request for new options under the withdrawal", async () => {
+    await editFile(
+      apiFile(),
+      "status: open\n",
+      `${withdrawal("open", "Moot.")}needs_new_options: true\n`,
+    );
+    await open("/card/demo/0002", () => text().includes("Withdrawn by the agent"), "the card");
+    const notices = [...host.querySelectorAll(".notice")].map((n) => n.textContent ?? "");
+    const withdrawn = notices.findIndex((n) => n.includes("Withdrawn by the agent: Moot."));
+    const asked = notices.findIndex((n) => n.includes("You asked for different options."));
+    expect(withdrawn).toBeGreaterThanOrEqual(0);
+    expect(asked).toBe(withdrawn + 1);
   });
 
   it("ignores a withdrawn deferred card's date until Back to queue, which Undo takes back", async () => {

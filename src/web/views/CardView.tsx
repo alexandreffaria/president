@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CardAction } from "../../core/actions.ts";
 import type { BrokenCardDto, CardDetailDto, CardDto } from "../../core/api.ts";
-import { CUSTOM_CHOICE } from "../../core/model.ts";
+import { CUSTOM_CHOICE, withdrawalOf } from "../../core/model.ts";
 import {
   activeWithdrawal,
   buildQueue,
@@ -722,25 +722,28 @@ function StatusNotice({ card }: { card: CardDetailDto }) {
       </div>
     );
   }
+  const newOptionsNotice = (
+    <p className="notice notice-info">
+      You asked for different options. An agent will rewrite this card; you can still pick one of
+      these.
+    </p>
+  );
   // #0014: above the options, which still work. Shown instead of a deferred card's date,
-  // which is ignored while the card is withdrawn (202611116ff6).
+  // which is ignored while the card is withdrawn (202611116ff6), but not instead of the
+  // human's own request for new options.
   const withdrawal = activeWithdrawal(card);
   if (withdrawal) {
     return (
-      <p className="notice notice-info">
-        <strong>Withdrawn by the agent:</strong> {withdrawal.reason}
-      </p>
+      <>
+        <p className="notice notice-info">
+          <strong>Withdrawn by the agent:</strong> {withdrawal.reason}
+        </p>
+        {fm.needs_new_options === true && newOptionsNotice}
+      </>
     );
   }
   // Open, or back from deferral (R1-1): either way it waits on the agent.
-  if (isWaitingOnAgent(card)) {
-    return (
-      <p className="notice notice-info">
-        You asked for different options. An agent will rewrite this card; you can still pick one of
-        these.
-      </p>
-    );
-  }
+  if (isWaitingOnAgent(card)) return newOptionsNotice;
   if (fm.status === "deferred") {
     // #0017 snooze; a deferred card without a date counts as due (202611112hzh, back-now).
     const until = fm.defer_until;
@@ -913,7 +916,16 @@ function ActionBar(props: {
               className="button"
               disabled={busy}
               onClick={() =>
-                void props.onAct({ type: "reopen" }, { done: `Reopened #${card.id}.` })
+                void props.onAct(
+                  { type: "reopen" },
+                  {
+                    // A decision keeps `withdrawn` (D), so the reopened card is open with the
+                    // field and listed under Withdrawn by agents, not the queue (#0014).
+                    done: withdrawalOf(fm)
+                      ? `Reopened #${card.id}; it is still withdrawn by the agent, so it is listed under Withdrawn by agents.`
+                      : `Reopened #${card.id}.`,
+                  },
+                )
               }
             >
               Reopen
