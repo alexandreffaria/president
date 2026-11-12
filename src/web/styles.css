@@ -621,6 +621,12 @@ input:disabled {
   font-family: var(--font-reading);
 }
 
+/* 20261112jdyg: under a decision, the reason an agent had withdrawn the card. Agent-written,
+   so it wraps a long path like any notice (.notice's overflow-wrap). */
+.notice .withdrawal-note {
+  margin-top: 0.4rem;
+}
+
 /* Queue */
 
 .queue {

@@ -700,6 +700,9 @@ function StatusNotice({ card }: { card: CardDetailDto }) {
   const fm = card.frontmatter;
   if (fm.status === "resolved" && fm.resolution) {
     const option = fm.options.find((o) => o.id === fm.resolution?.choice);
+    // 20261112jdyg (quiet-line): a decision keeps `withdrawn` (#0014 D), and the withdrawal is
+    // a field, not in the card's history, so say it under the decision, muted.
+    const withdrawal = withdrawalOf(fm);
     return (
       <div className="notice notice-done">
         <p>
@@ -719,6 +722,11 @@ function StatusNotice({ card }: { card: CardDetailDto }) {
             : "Waiting for an agent to apply it to the project."}
         </p>
         {fm.resolution.note && <p className="resolution-note">{fm.resolution.note}</p>}
+        {withdrawal && (
+          <p className="withdrawal-note muted small">
+            An agent had withdrawn this card: {withdrawal.reason}
+          </p>
+        )}
       </div>
     );
   }

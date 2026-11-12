@@ -152,10 +152,13 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
    A card an agent withdrew (it no longer matters, the agent says why) leaves the queue for the
    collapsed **Withdrawn by agents** list, even if it was deferred: its date is ignored while it
    is withdrawn. Its page shows the agent's reason, and you can still decide it, add a note or
-   reject its options. **Back to queue** puts it back (with a "Back in the queue" note, so the
-   agent hears of it); a deferred one goes back under Deferred if its date is still ahead,
-   otherwise straight to the queue. Cards that depend on it stay at the bottom, marked "depends
-   on #0042, withdrawn", until you decide it.
+   reject its options, but not defer it (`d`, `D` and the Defer buttons are gone there). **Back
+   to queue** puts it back (with a "Back in the queue" note, so the agent hears of it); a
+   deferred one goes back under Deferred if its date is still ahead, otherwise straight to the
+   queue, and you can defer it from there. Cards that depend on it stay at the bottom, marked
+   "depends on #0042, withdrawn", until you decide it. Once you decide it, its page keeps the
+   agent's reason in a muted line under the decision: "An agent had withdrawn this card:
+   <reason>".
 
    If an agent changes a card while you have it open, president shows what changed and refuses
    to send anything until you press **I've read it**, so you never decide on text you didn't see.

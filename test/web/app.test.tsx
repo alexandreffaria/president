@@ -950,6 +950,8 @@ describe("notes on decided cards (#0011)", () => {
     await open("/card/demo/0004", () => text().includes("This decision is made"), "the card");
     expect(button("Note…")).toBeDefined();
     expect(button("Reopen")).toBeDefined();
+    // Never withdrawn: no withdrawal line under the decision (20261112jdyg).
+    expect(host.querySelector(".withdrawal-note")).toBeNull();
     await press("m", document.body);
     await typeInto(host.querySelector("#panel-text"), "Keep the old tiles as a fallback.");
     await panelCtrlEnter();
@@ -1135,6 +1137,14 @@ describe("withdrawn cards (#0014, 202611116ff6)", () => {
     // Reopened, it is still withdrawn, and the toast says where it went.
     await act(async () => navigate("/card/demo/0002"));
     await until(() => text().includes("This decision is made"), "the decided card");
+    // 20261112jdyg (quiet-line): a muted line under the Decided notice keeps the reason.
+    const decided = host.querySelector(".notice-done");
+    expect(decided?.textContent).toContain("Decided:");
+    const line = decided?.querySelector(".withdrawal-note");
+    expect(line?.textContent).toBe("An agent had withdrawn this card: We dropped the API client.");
+    expect(line?.classList.contains("muted")).toBe(true);
+    expect(line?.classList.contains("small")).toBe(true);
+    expect(text()).not.toContain("Withdrawn by the agent:");
     await act(async () => button("Reopen")?.click());
     await until(() => text().includes("Reopened #0002"), "the reopen toast");
     expect(text()).toContain(
