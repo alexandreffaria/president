@@ -18,6 +18,10 @@ export interface Draft {
   /** The Neither and Note panels' text. */
   neither: string;
   note: string;
+  /** A message to the card's session, not sent yet. */
+  chat: string;
+  /** A conversation summary being edited, not saved yet (#0003). */
+  summary: string;
 }
 
 const EMPTY: Draft = {
@@ -27,6 +31,8 @@ const EMPTY: Draft = {
   answer: "",
   neither: "",
   note: "",
+  chat: "",
+  summary: "",
 };
 
 export type Panel = "neither" | "note";
@@ -40,7 +46,14 @@ const key = (project: string, id: string) => `${project}\0${id}`;
 
 /** Typed text that hasn't been sent. */
 export function unsentText(draft: Draft): boolean {
-  return [draft.decisionNote, draft.answer, draft.neither, draft.note].some((t) => t.trim());
+  return [
+    draft.decisionNote,
+    draft.answer,
+    draft.neither,
+    draft.note,
+    draft.chat,
+    draft.summary,
+  ].some((t) => t.trim());
 }
 
 function worthKeeping(draft: Draft): boolean {

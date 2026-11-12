@@ -14,9 +14,10 @@ import {
   unknownDependencies,
 } from "../../core/queue.ts";
 import { api, RequestError } from "../api.ts";
-import { wroteHere } from "../app-writes.ts";
+import { decidedHere, forgetDecision, recordDecision, wroteHere } from "../app-writes.ts";
 import { describeChanges } from "../card-changes.ts";
-import { CardAssistant } from "../components/CardAssistant.tsx";
+import { useCardChat, useMinWidth } from "../chat.ts";
+import { CardChat } from "../components/CardChat.tsx";
 import { CardId } from "../components/CardId.tsx";
 import { FeedbackHistory } from "../components/FeedbackHistory.tsx";
 import { Markdown } from "../components/Markdown.tsx";
@@ -34,7 +35,7 @@ import { useHub } from "../hub.tsx";
 import { type KeyMap, useKeyboard, useKeyLayer } from "../keyboard.ts";
 import { cardPath, Link, navigate } from "../router.tsx";
 import { dateInputValue, nextMonth, startOfDay, tomorrow } from "../snooze.ts";
-import { useDismissToasts, useToast } from "../toast.tsx";
+import { useDismissToasts, useToast, useToastShown } from "../toast.tsx";
 
 type Loaded =
   | { state: "loading" }
@@ -76,7 +77,12 @@ const NO_DRAFT: Draft = {
   answer: "",
   neither: "",
   note: "",
+  chat: "",
+  summary: "",
 };
+
+/** Below this window width the conversation sits in the page's flow, not beside it (#0002). */
+const SIDE_PANEL_MIN_PX = 1100;
 
 /** How many views of each card are mounted ("project/id"). */
 const openViews = new Map<string, number>();
@@ -85,6 +91,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const hub = useHub();
   const toast = useToast();
   const dismissToasts = useDismissToasts();
+  const toastShown = useToastShown();
   const [loaded, setLoaded] = useState<Loaded>({ state: "loading" });
   // `latest` is read inside async callbacks, where `draft` would be stale.
   const [draft, updateDraft, latest] = useDraft(project, id);
@@ -122,6 +129,45 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const [focusNotice, setFocusNotice] = useState(false);
   const version = (hub.versions[project] ?? 0) + hub.reconnects;
   const undoGroup = `undo:${project}/${id}`;
+  /** The card's conversation on this machine (E). */
+  const cardChat = useCardChat(project, id);
+  const wide = useMinWidth(SIDE_PANEL_MIN_PX);
+  /**
+   * The conversation panel is shown: open by default once the card has a conversation
+   * (#0002), then as the human toggles it (`c`) during this visit.
+   */
+  const [chatOpen, setChatOpen] = useState<boolean>();
+  const chatLoaded = cardChat.chat !== undefined;
+  const hasConversation = (cardChat.chat?.messages.length ?? 0) > 0;
+  useEffect(() => {
+    if (chatLoaded) setChatOpen((open) => open ?? hasConversation);
+  }, [chatLoaded, hasConversation]);
+  /** Set when the human opens the panel (c, the button): focus goes to the message box. */
+  const focusChat = useRef(false);
+  /** Set when the panel hides with focus inside it: focus goes to the button that shows it. */
+  const focusChatToggle = useRef(false);
+  const chatToggle = useRef<HTMLButtonElement>(null);
+  const openChat = () => {
+    focusChat.current = true;
+    setChatOpen(true);
+  };
+  const hideChat = () => {
+    focusChatToggle.current = document.activeElement?.closest(".chat") != null;
+    setChatOpen(false);
+  };
+  useEffect(() => {
+    if (chatOpen || !focusChatToggle.current) return;
+    focusChatToggle.current = false;
+    chatToggle.current?.focus();
+  }, [chatOpen]);
+  /**
+   * For the notice on leaving (#0024): read when the view goes away. A message this tab has
+   * sent counts at once, as it does on the hub, before the copy says so.
+   */
+  const unsummarized = useRef(false);
+  unsummarized.current =
+    cardChat.chat?.unsummarized === true ||
+    (cardChat.live?.saved.some((m) => m.from === "you") ?? false);
 
   const queue = buildQueue(hub.cards, hub.projectFilter);
   const position = queue.findIndex((c) => c.project === project && c.id === id);
@@ -253,8 +299,13 @@ export function CardView({ project, id }: { project: string; id: string }) {
       openViews.set(key, (openViews.get(key) ?? 1) - 1);
       // Checked a moment later: React's StrictMode unmounts and mounts again at once.
       setTimeout(() => {
-        if (!openViews.get(key) && unsentText(latest.current)) {
+        if (openViews.get(key)) return;
+        if (unsentText(latest.current)) {
           toast(`What you typed on #${id} is kept; it's there when you come back.`);
+        }
+        // #0024 (and 202611111ky9 on decided cards): leaving saves nothing and runs nothing.
+        if (unsummarized.current) {
+          toast(`Your conversation on #${id} isn't summarized; it's there when you come back.`);
         }
       }, 0);
     };
@@ -279,6 +330,8 @@ export function CardView({ project, id }: { project: string; id: string }) {
       // The revision the human read, not the newest one: if the card changed since, the
       // server refuses, and they see what changed first.
       const res = await api.act(project, id, action, seen.revision);
+      // A decision's Undo window (see saveSummary) ends with any later action.
+      if (action.type !== "resolve") forgetDecision(project, id);
       setLoaded({ state: "ok", card: res.card });
       acknowledge(res.card);
       // What the action sent, to put back as a draft if it is undone.
@@ -307,6 +360,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
                 return hub.refresh();
               })
               .then(() => {
+                forgetDecision(project, id);
                 restoreDraft(project, id, wasSent, panelToRestore);
                 navigate(cardPath(project, id));
                 toast(
@@ -376,10 +430,28 @@ export function CardView({ project, id }: { project: string; id: string }) {
     if (!card || !fm || !choice) return false;
     const option = fm.options.find((o) => o.id === choice);
     const label = option ? option.title : "your own answer";
-    return act(
+    const ok = await act(
       { type: "resolve", choice, note: note.trim() || undefined },
       { leave: true, done: `Decided #${id}: ${label}.`, sent, ...(panel ? { panel } : {}) },
     );
+    if (ok) recordDecision(project, id);
+    return ok;
+  };
+
+  /**
+   * Saves an edited conversation summary as a `chat` entry (#0003, #0023), on decided cards
+   * too (#0020), but never while the Undo notice of a decision made here is shown (#0006):
+   * saving would take that Undo away.
+   */
+  const saveSummary = (summary: string) => {
+    if (decidedHere(project, id) && toastShown(undoGroup)) {
+      toast(
+        `#${id} was decided a moment ago and can still be undone; save the summary once its Undo notice has closed.`,
+        { tone: "error" },
+      );
+      return Promise.resolve(false);
+    }
+    return act({ type: "chat", note: summary }, { done: "Summary saved.", sent: { summary: "" } });
   };
 
   /**
@@ -455,6 +527,12 @@ export function CardView({ project, id }: { project: string; id: string }) {
       reveal(false);
     },
     escape: () => navigate("/"),
+    // Shows or hides the conversation (#0002).
+    c: () => {
+      if (!chatLoaded) return false;
+      if (chatOpen) hideChat();
+      else openChat();
+    },
   };
   // Shift+d opens the Defer menu (#0017); `d` itself never waits for a second key.
   keys.D = () => {
@@ -493,7 +571,9 @@ export function CardView({ project, id }: { project: string; id: string }) {
     : -1;
 
   return (
-    <div className={`page card-page${fm.kind === "ab" ? " card-page-wide" : ""}`}>
+    <div
+      className={`page card-page${fm.kind === "ab" ? " card-page-wide" : ""}${chatOpen && wide ? " card-page-chat" : ""}`}
+    >
       <nav className="card-nav" aria-label="Queue navigation">
         <Link to="/" className="button button-quiet">
           ← Queue
@@ -668,7 +748,30 @@ export function CardView({ project, id }: { project: string; id: string }) {
       <Markdown className="card-appendix">{card.sections.appendix}</Markdown>
 
       <FeedbackHistory feedback={fm.feedback} seenAt={fm.seen_at} />
-      <CardAssistant card={card} />
+      {chatOpen ? (
+        <CardChat
+          card={card}
+          chat={cardChat}
+          context={{ revealed, revision: card.revision }}
+          layout={wide ? "side" : "inline"}
+          draft={draft}
+          onDraft={updateDraft}
+          onClose={hideChat}
+          focusOnOpen={focusChat}
+          onSaveSummary={saveSummary}
+        />
+      ) : (
+        chatLoaded && (
+          <p className="chat-closed">
+            <button type="button" className="button" ref={chatToggle} onClick={openChat}>
+              {hasConversation ? "Show the conversation" : "Ask about this card"} <kbd>c</kbd>
+            </button>
+            {cardChat.chat?.unsummarized && (
+              <span className="muted small"> Conversation not summarized yet.</span>
+            )}
+          </p>
+        )
+      )}
 
       <p className="muted small file-path">
         File: <code>{card.path}</code>

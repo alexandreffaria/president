@@ -308,7 +308,7 @@ describe("a conversation", () => {
       await next;
       // Once from onAbort, once from the handler's finally: the loop woke up and ended.
       await vi.waitFor(() => expect(unsubscribed).toBe(2), { timeout: 300 });
-      expect((await t.conversation()).running).toBe(true);
+      expect((await t.conversation()).running).toBe("reply");
       await vi.waitFor(async () => expect((await t.conversation()).running).toBe(false));
       expect((await t.conversation()).messages.at(-1)?.text).toBe("Echo: slow");
     } finally {
@@ -324,8 +324,21 @@ describe("a conversation", () => {
     const busy = await t.post("/api/chats/demo/0002/messages", { text: "again" });
     expect(busy.status).toBe(409);
     expect(await busy.json()).toMatchObject({ code: "chat_busy" });
-    expect((await t.conversation()).running).toBe(true);
+    expect((await t.conversation()).running).toBe("reply");
     await (await slow).text();
+    expect((await t.conversation()).running).toBe(false);
+  });
+
+  it("is unsummarized once the message is in, and says which run is going on (R1-5, R1-9)", async () => {
+    const t = await setup();
+    await t.script([{ delayMs: 400 }, { delayMs: 400, text: "A summary." }]);
+    const slow = t.post("/api/chats/demo/0002/messages", { text: "slow" });
+    await vi.waitFor(async () => expect((await t.conversation()).messages).toHaveLength(1));
+    expect(await t.conversation()).toMatchObject({ running: "reply", unsummarized: true });
+    await (await slow).text();
+    const summary = t.post("/api/chats/demo/0002/summary", {});
+    await vi.waitFor(async () => expect((await t.conversation()).running).toBe("summary"));
+    expect((await summary).status).toBe(200);
     expect((await t.conversation()).running).toBe(false);
   });
 
@@ -431,7 +444,7 @@ describe("when Claude Code no longer has the session (#0018, #0021)", () => {
     await vi.waitFor(async () => expect((await t.sessions())["demo/0002"]?.session).toBeDefined());
     const session = (await t.sessions())["demo/0002"]?.session as string;
     expect(await transcriptExists(join(t.root, "claude"), session)).toBe(false);
-    expect(await t.conversation()).toMatchObject({ running: true, remembers: true });
+    expect(await t.conversation()).toMatchObject({ running: "reply", remembers: true });
     await (await reply).text();
     expect(await t.conversation()).toMatchObject({ running: false, remembers: true });
   });
@@ -559,6 +572,40 @@ describe("summaries (#0003, #0019, #0020, #0024, 20261111paot)", () => {
     expect((await t.conversation()).unsummarized).toBe(true);
     await t.post("/api/chats/demo/0002/summary", {});
     expect((await t.calls()).at(-1)?.stdin).toMatch(/cover only what came after it/);
+  });
+
+  it("keeps a message saved while the summary is saved unsummarized (R2-2)", async () => {
+    const t = await setup();
+    await t.send("Does our client throw?");
+    await t.post("/api/chats/demo/0002/summary", {});
+    const key = { project: "demo", id: "0002" };
+    const store = t.chat.store;
+    const original = store.updateEntry.bind(store);
+    let first = true;
+    // A message lands (copy and mark) just before the summary's bookkeeping takes the lock.
+    vi.spyOn(store, "updateEntry").mockImplementation(async (k, change) => {
+      if (first) {
+        first = false;
+        await store.append(key, {
+          from: "you",
+          text: "And on 500?",
+          at: new Date().toISOString(),
+        });
+        await original(key, (e) => ({ ...e, unsummarized: true }));
+      }
+      return original(k, change);
+    });
+    try {
+      await t.chat.summarySaved(
+        { name: "demo" } as Parameters<typeof t.chat.summarySaved>[0],
+        "0002",
+        "rev-x",
+      );
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect((await t.sessions())["demo/0002"]?.unsummarized).toBe(true);
+    expect((await t.sessions())["demo/0002"]?.summarized).toBe(2);
   });
 
   it("undoing a saved summary makes the conversation unsummarized again", async () => {

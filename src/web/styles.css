@@ -1041,15 +1041,131 @@ ul.broken {
   white-space: pre-wrap;
 }
 
-.assistant-placeholder {
-  padding: 1rem 1.1rem;
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius);
+/* The conversation about a card (E). From about 1100 px wide it is a panel beside the card
+   (#0002), fixed to the right of the card's column so it keeps its own scroll while you move
+   around the card; the page grows by the panel's width, so the card column (and an A/B
+   card's two option columns, 20261111sblu) keeps its place. Narrower, it sits in the page's
+   flow under the options. */
+
+.card-page {
+  --page-max: 50rem;
+  --chat-width: 24rem;
+  --chat-gap: 1.5rem;
 }
 
-.assistant-placeholder p {
+.card-page-wide {
+  --page-max: 72rem;
+}
+
+.card-page-chat {
+  max-width: calc(var(--page-max) + var(--chat-width) + var(--chat-gap));
+  padding-right: calc(var(--chat-width) + var(--chat-gap));
+}
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.chat-side {
+  position: fixed;
+  z-index: 4;
+  top: 4.5rem;
+  bottom: 6rem;
+  /* % of the viewport without its scrollbar, as the page is centred in (100vw includes it). */
+  right: max(1.25rem, calc((100% - var(--page-max) - var(--chat-width) - var(--chat-gap)) / 2));
+  width: var(--chat-width);
+  box-shadow: var(--shadow);
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.chat-header .section-heading {
   margin: 0;
-  font-size: 0.92rem;
+}
+
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chat-side .chat-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.chat-message {
+  min-width: 0;
+}
+
+.chat-meta {
+  margin: 0 0 0.15rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.chat-text {
+  margin: 0;
+  font-size: 0.95rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-agent .chat-text {
+  white-space: normal;
+}
+
+.chat-hub .chat-text {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.chat-empty,
+.chat-status,
+.chat-note {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.chat-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.chat-summary p {
+  margin: 0;
+}
+
+.chat-compose {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.chat-compose textarea {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-closed {
+  margin: 2rem 0 0;
 }
 
 .file-path {
@@ -1082,6 +1198,11 @@ ul.broken {
 
 .card-page-wide .action-bar-inner {
   max-width: 72rem;
+}
+
+/* With the conversation beside the card, the bar spans both (see .card-page-chat). */
+.card-page-chat .action-bar-inner {
+  max-width: calc(var(--page-max) + var(--chat-width) + var(--chat-gap));
 }
 
 .choice-summary {

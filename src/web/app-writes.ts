@@ -24,4 +24,25 @@ export function wroteHere(project: string, id: string, revision: string): boolea
 /** For tests: forget every recorded write. */
 export function clearWrites(): void {
   writes.clear();
+  decisions.clear();
+}
+
+/**
+ * Cards this tab decided whose decision is the latest thing done to them here: while the
+ * decision's Undo notice is shown, nothing else may write the card from this page (#0006,
+ * #0020). Forgotten when the decision is undone or another action follows it.
+ */
+const decisions = new Set<string>();
+
+export function recordDecision(project: string, id: string): void {
+  decisions.add(key(project, id));
+}
+
+export function forgetDecision(project: string, id: string): void {
+  decisions.delete(key(project, id));
+}
+
+/** Whether the latest action this tab took on the card was a decision. */
+export function decidedHere(project: string, id: string): boolean {
+  return decisions.has(key(project, id));
 }

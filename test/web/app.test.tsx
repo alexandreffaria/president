@@ -188,6 +188,26 @@ async function open(path: string, ready: () => boolean, what: string, timeoutMs 
   window.history.replaceState(null, "", path);
   act(() => root.render(<App />));
   await until(ready, what, timeoutMs);
+  await settled();
+}
+
+/**
+ * Waits until no request the page started is still out. A card page loads the card, the
+ * queue (which j and k follow) and the card's conversation separately, in no set order: a
+ * key pressed when only the card has arrived would find no queue to move along.
+ */
+async function settled(): Promise<void> {
+  for (let quiet = 0; quiet < 3; ) {
+    if (inFlight.size > 0) {
+      quiet = 0;
+      await act(async () => {
+        await Promise.allSettled([...inFlight]);
+      });
+    } else {
+      quiet++;
+      await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    }
+  }
 }
 
 const text = () => host.textContent ?? "";

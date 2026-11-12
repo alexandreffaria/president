@@ -124,8 +124,8 @@ export interface ChatDto {
    * starts from the summaries." (#0018). True otherwise, also when there is no conversation.
    */
   remembers: boolean;
-  /** A run of the card's session is going on now (a reply, a summary). */
-  running: boolean;
+  /** The run of the card's session going on now: a reply, a summary, or none (false). */
+  running: false | "reply" | "summary";
 }
 
 /**
