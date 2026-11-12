@@ -45,6 +45,23 @@ Then (2026-11-12): C (queue and card UX) is built in the pull request "Queue and
 [Withdrawn cards in the hub](#withdrawn-cards-in-the-hub-0014), which needs D's `withdrawn`
 field (merged in PR #20) and follows in a small pull request. E isn't built.
 
+Then (2026-11-12): 2026111276n0 (should the hub move to an always-on server) is decided:
+`local`, a hub on each machine as today, no server. It builds nothing; E stays as planned,
+run by the hub next to the project on each machine, with its per-machine stores.
+
+Then (2026-11-12): F2 (the `president` alias removed; `preside` is the only command) is built
+in the pull request "Remove the president alias (F2)" (branch `feat/remove-president-alias`),
+without waiting the month: the human waived the wait because nobody else uses the command.
+
+Then (2026-11-12): the Withdrawn section (#0014's and 202611116ff6's hub part) is built in the
+pull request "Withdrawn cards in the hub" (PR #24, branch `feat/withdrawn-section`), so C is fully
+built. E isn't built.
+
+Then (2026-11-12): the two questions PR #24 left in [Needs a card](#needs-a-card) are decided:
+20261112tiuq `hidden` (no Defer on a withdrawn card, as built) and 20261112jdyg `quiet-line` (a
+decided card's page says an agent had withdrawn it), built in the pull request "Apply
+20261112tiuq and 20261112jdyg". [Needs a card](#needs-a-card) is empty again.
+
 Then (2026-11-12): E is being built in a stack of pull requests. Its first, "Card chat (E1a):
 session, per-machine stores and API" (branch `feat/card-chat`), runs the card's session with
 #0004's flags and adds the four per-machine stores, the conversation API, summaries (written
@@ -62,11 +79,11 @@ Each row is one pull request (PR 2 may be split, see its section). The order is 
 | A2 | [Agent rules: how agents deliver new cards and rewrites](#a2-agent-rules-how-agents-deliver-new-cards-and-rewrites-20261111st0c) (agent-facing: the skill) | 20261111st0c | A (built) | **Built** in PR #17 |
 | B | [Sync](#b-sync-0001) | #0001, #0022, 2026111209dq, 20261112xp4s | nothing | **Built** in PR #12, together with [the two follow-up decisions](#decided-while-pr-12-was-open-2026111209dq-20261112xp4s): 09dq is what it already did, and xp4s is commit `b672fe1` |
 | B2 | [Sync: count a skipped project's answers apart](#b2-sync-count-a-skipped-projects-answers-apart-20261112l9vh) | 20261112l9vh | B (PR #12) merged | **Built** in the follow-up pull request (PR #18, branch `feat/sync-followups`) |
-| C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | **Built** in the pull request "Queue and card UX (C)" (PR #21, branch `feat/queue-card-ux-c`), except the [Withdrawn section](#withdrawn-cards-in-the-hub-0014) (#0014's and 202611116ff6's hub part), a follow-up now that D is merged (PR #20) |
+| C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | **Built** in the pull request "Queue and card UX (C)" (PR #21, branch `feat/queue-card-ux-c`), and the [Withdrawn section](#withdrawn-cards-in-the-hub-0014) (#0014's and 202611116ff6's hub part) in the follow-up pull request "Withdrawn cards in the hub" (PR #24, branch `feat/withdrawn-section`) |
 | D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part), 202611116ff6 (`pending` and `validate`) | PR #7 (it edits `card-format.md` and `SKILL.md`) | **Built** in the pull request "Card format and CLI (D)" (PR #20, branch `feat/card-format-d`) |
 | E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s, 20261112dfik | C (#0010's panel, #0011's notes on decided cards), D (`chat` type) | **In progress**, as a stack of pull requests: E1a (the session, the per-machine stores, the API and summaries on the server) in "Card chat (E1a)" (branch `feat/card-chat`); the page, Teach me, deciding while open and Neither's run follow |
 | F | [Rename the command to `preside`](#f-rename-the-command-to-preside-0016-20261111dmvt) (agent-facing: the CLI, the skill and every printed command) | #0016, 20261111dmvt | A2 (both edit `SKILL.md`). The npm placeholder is published by the human (an agent prepares it). No card orders it against F; suggested: publish it before F merges (after repeating the name check), so the name F writes everywhere can't be taken meanwhile | **Built** in the pull request "Rename the command to preside (F)" (PR #19, branch `feat/rename-preside`) |
-| F2 | [Remove the `president` alias](#the-president-alias-and-when-it-ends) | 20261111dmvt | F | One month after F ships, or once every registered project's own docs and agent instructions use `preside`, whichever is later |
+| F2 | [Remove the `president` alias](#the-president-alias-and-when-it-ends) | 20261111dmvt | F | **Built** in the pull request "Remove the president alias (F2)" (branch `feat/remove-president-alias`); the human waived the wait on 2026-11-12, see [the alias](#the-president-alias-and-when-it-ends) |
 
 Nothing here needs Sync to be built first: B is early because of #0022, not because the others
 depend on it.
@@ -535,7 +552,8 @@ Hub changes (`src/core/queue.ts`, `src/core/actions.ts`, `src/web/views/QueueVie
 They can ship together or one by one.
 
 Built in the pull request "Queue and card UX (C)" (PR #21), except
-[Withdrawn cards in the hub](#withdrawn-cards-in-the-hub-0014). That PR also added
+[Withdrawn cards in the hub](#withdrawn-cards-in-the-hub-0014), which is built in the
+follow-up pull request "Withdrawn cards in the hub" (PR #24, branch `feat/withdrawn-section`). PR #21 also added
 `defer_until` to `preside update`'s guarded fields, the skill and `docs/card-format.md` (the
 Snooze section allowed it in D).
 
@@ -684,8 +702,11 @@ Card: [0017-deferred-resurfacing.md](../decisions/0017-deferred-resurfacing.md),
 Card: [0014-withdrawn-status.md](../decisions/0014-withdrawn-status.md), option `field`. The
 format part is in D.
 
-Not built yet: it needs D's `withdrawn` field (merged in PR #20), so it follows C's pull
-request in a small one.
+**Built** in the pull request "Withdrawn cards in the hub" (PR #24, branch `feat/withdrawn-section`),
+after D's `withdrawn` field (PR #20) and C's pull request (PR #21), as written below. Back to
+queue is a new action, `unwithdraw` (`src/core/actions.ts`); the queue's rules are in
+`src/core/queue.ts` (`activeWithdrawal`, `buildWithdrawn`, `describeDependencies`). The skill's
+"until then the hub still shows it in the queue" clause is dropped.
 
 - The queue leaves out open cards that have a `withdrawn` field and lists them in a collapsed
   **Withdrawn by agents (n)** section. A withdrawn **deferred** card is listed under
@@ -697,6 +718,17 @@ request in a small one.
   202611112hzh's rule: the date, missing or not, is what is ignored.
 - The card page shows "Withdrawn by the agent: <reason>" above the options, which still work:
   you can decide, note, or reject a withdrawn card as usual.
+- **No Defer on a withdrawn card** ([20261112tiuq-defer-withdrawn-card.md](../decisions/20261112tiuq-defer-withdrawn-card.md),
+  option `hidden`, as PR #24 built it): its page offers no Defer buttons and `d` and `D` do
+  nothing (`canDefer` in `src/web/views/CardView.tsx`); Back to queue takes their place, and
+  the card can be deferred once it is back. Nothing on the page writes a date that would be
+  ignored. Accepted: putting a withdrawn card off takes two steps, and `d` silently does
+  nothing there (no hint).
+- **A decided card that kept `withdrawn`** ([20261112jdyg-decided-withdrawn-page.md](../decisions/20261112jdyg-decided-withdrawn-page.md),
+  option `quiet-line`): under the "Decided" notice, a muted line says "An agent had withdrawn
+  this card: <reason>" (`StatusNotice` in `src/web/views/CardView.tsx`), since the withdrawal
+  is a field, not in the card's history, and the hub would otherwise show it nowhere once the
+  card is decided. Built in the pull request "Apply 20261112tiuq and 20261112jdyg".
 - A **Back to queue** button removes the field **and** appends a note to `feedback` (the card's
   example: "Back in the queue"). The note is required: `preside update` doesn't compare
   `withdrawn`, so without it an agent's update made from an earlier read would withdraw the card
@@ -710,6 +742,12 @@ request in a small one.
   option's stated cost). What `preside pending` and `validate` say is in D.
 - When this ships, drop the "until then the hub still shows it in the queue" clause from the
   skill's *Withdrawing a card* (added by D in PR #20).
+- Settled by the rules above (not open questions): **Reopen on a decided card that kept
+  `withdrawn`** gives an open card with the field (a decision keeps it, D, and Reopen is
+  unchanged), so by the first rule it is listed under Withdrawn by agents, and the toast says
+  so. **A withdrawn card the human had said "neither" to** is an open card with the field, so it
+  is listed under Withdrawn by agents too (#0014, option `field`); its page shows the withdrawal
+  notice and, below it, "You asked for different options".
 
 ## D. Card format and CLI
 
@@ -1347,7 +1385,7 @@ president tab", the page title), `PRESIDENT_PORT`, `$XDG_CONFIG_HOME/president/`
 `$XDG_STATE_HOME/president/`, the package `name`, the repo URL, temp-folder prefixes, the
 decision records in foundations.md and what this roadmap says about built sections and about
 the cards (history). The npm placeholder `preside` is published by the human, separately. F2
-isn't built.
+removed the alias later (see below).
 
 Cards: [0016-rename-the-cli.md](../decisions/0016-rename-the-cli.md), option `rename`, and
 [20261111dmvt-command-name.md](../decisions/20261111dmvt-command-name.md), option `preside`. An
@@ -1401,6 +1439,9 @@ old name from habit still find the installed command, rather than failing and tr
   nothing.
 - Accepted cost: agents keep seeing and typing `president` longer, and the old name has to be
   removed in a second step.
+- **Wait waived (2026-11-12):** the human waived the month and the `grep` ("don't worry about
+  holding the old name, no one uses this"), since nobody else uses the command, so F2 is built
+  the same day as F.
 
 ## Cross-card consequences
 
@@ -1425,9 +1466,11 @@ old name from habit still find the installed command, rather than failing and tr
 - **Four per-machine stores, one folder.** Session ids (#0021), the hub's copy (#0018), the
   "not summarized" list if it is kept rather than derived (#0024), and the "first found
   missing" dates 202611114wet's cleanup records all live in `$XDG_STATE_HOME/president/`, keyed
-  by project name and card id, and none travels with Sync. 2026111272fu adds the
-  per-conversation "revealed" flag, with which recommendation was revealed; its card suggests
-  keeping it next to the session id, so on the same machine and not in the card.
+  by project name and card id, and none travels with Sync. 2026111276n0 (`local`, no
+  server hub) keeps it that way: a conversation stays on the machine that had it.
+  2026111272fu adds the per-conversation "revealed" flag, with which recommendation was
+  revealed; its card suggests keeping it next to the session id, so on the same machine and
+  not in the card.
 - **202611111gpm `shown-no-reminder` + #0002 + 20261111sblu.** Every "neither" now gives the card
   a stored conversation, and #0002 opens the panel by default once a card has one, so after a
   "neither" the panel is open on that card (three columns on an A/B card). The run's
@@ -1540,4 +1583,8 @@ The three questions this list held after PR #14 were answered on 2026-11-12: 1 b
 The question this list held after PR #15 (the same card open in a second tab while the run
 waits for Undo) was answered on 2026-11-12 by 20261112dfik.
 
-None at the moment.
+The two questions this list held after the Withdrawn section's pull request (PR #24) were
+answered on 2026-11-12: 1 (Defer on a withdrawn card) by 20261112tiuq and 2 (a decided card's
+page) by 20261112jdyg; see [Withdrawn cards in the hub](#withdrawn-cards-in-the-hub-0014).
+
+None for now.

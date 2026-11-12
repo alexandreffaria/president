@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Entry point for the `preside` command (and its old name `president`, see president.js).
+// Entry point for the `preside` command.
 // Node 24 runs the TypeScript sources directly (type stripping), so the CLI works from a
 // checkout without a build step.
 import "./check-node.js";
