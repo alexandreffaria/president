@@ -28,9 +28,8 @@ request (row B2); 72fu and 160s are part of E. 160s left one new question, about
 tab; card 20261112dfik answered it (`refuse-undo`, its recommended option, no note), also part
 of E. [Needs a card](#needs-a-card) is empty for now.
 
-B2 (20261112l9vh) is built in the pull request "Sync follow-ups: count skipped projects apart
-(B2), S7-4, S4-6, S8-1" (branch `feat/sync-followups`), with three follow-ups from PR #12's
-review: S7-4, S4-6 and S8-1.
+B2 (20261112l9vh) is built in PR #18 (branch `feat/sync-followups`), with three follow-ups
+from PR #12's review: S7-4, S4-6 and S8-1.
 
 ## Build plan
 
@@ -42,7 +41,7 @@ Each row is one pull request (PR 2 may be split, see its section). The order is 
 | A | [Agent rules: the skill line for #0022](#a-agent-rules-the-skill-line-for-0022) | #0022 | PR #7 (it edits `SKILL.md`) | **Built** in PR #10 |
 | A2 | [Agent rules: how agents deliver new cards and rewrites](#a2-agent-rules-how-agents-deliver-new-cards-and-rewrites-20261111st0c) (agent-facing: the skill) | 20261111st0c | A (built) | **First**, before any agent writes the next card: the skill today tells agents to write new cards straight into the main folder with no review, the reading st0c did not choose |
 | B | [Sync](#b-sync-0001) | #0001, #0022, 2026111209dq, 20261112xp4s | nothing | **Built** in PR #12, together with [the two follow-up decisions](#decided-while-pr-12-was-open-2026111209dq-20261112xp4s): 09dq is what it already did, and xp4s is commit `b672fe1` |
-| B2 | [Sync: count a skipped project's answers apart](#b2-sync-count-a-skipped-projects-answers-apart-20261112l9vh) | 20261112l9vh | B (PR #12) merged | **Built** in the follow-up pull request (branch `feat/sync-followups`) |
+| B2 | [Sync: count a skipped project's answers apart](#b2-sync-count-a-skipped-projects-answers-apart-20261112l9vh) | 20261112l9vh | B (PR #12) merged | **Built** in the follow-up pull request (PR #18, branch `feat/sync-followups`) |
 | C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | Alongside B; before PR 2, which builds on #0010's Neither panel and #0011's notes on decided cards |
 | D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part), 202611116ff6 (`pending` and `validate`) | PR #7 (it edits `card-format.md` and `SKILL.md`) | Before or with C and PR 2; `chat` must exist before PR 2 writes it |
 | E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s, 20261112dfik | C (#0010's panel, #0011's notes on decided cards), D (`chat` type) | After C and D |
@@ -419,7 +418,7 @@ option `count-apart`: "The top bar adds, per skipped project, a line such as "we
 synced (Sync skips it)"; the number on the Sync button still counts only what Sync can move."
 
 **Built** in the pull request "Sync follow-ups: count skipped projects apart (B2), S7-4, S4-6,
-S8-1" (branch `feat/sync-followups`), as written below: `Repo.skippedCardChanges` and
+S8-1" (PR #18, branch `feat/sync-followups`), as written below: `Repo.skippedCardChanges` and
 `repoStatus` in `src/server/sync.ts`, `skippedUnsynced` in `ProjectSyncStatus`
 (`src/core/api.ts`), and `SyncSkipped` in `src/web/components/Sync.tsx`, a list under the top
 bar's first line (`.sync-skipped`). The count runs for every skipped project:
