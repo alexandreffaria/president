@@ -55,9 +55,16 @@ export interface ChatContext {
 }
 
 /**
+ * The reply stopped arriving after the hub accepted the message (the connection dropped, a
+ * line didn't parse): the message is saved, and the reply will be in the hub's copy.
+ */
+export class StreamError extends Error {}
+
+/**
  * Sends a message to the card's session and yields the reply's events as they arrive
  * (newline-delimited JSON, see ChatStreamEvent). A refused send (the agent is still
- * answering) throws a RequestError before anything is yielded.
+ * answering, the hub unreachable) throws a RequestError before anything is yielded: the
+ * message wasn't sent. Once the hub has accepted it, a broken stream throws a StreamError.
  */
 async function* sendChat(
   project: string,
@@ -83,16 +90,25 @@ async function* sendChat(
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
   let buffer = "";
   for (;;) {
-    const { done, value } = await reader.read();
-    if (value) buffer += value;
-    let newline = buffer.indexOf("\n");
-    while (newline >= 0) {
-      const line = buffer.slice(0, newline).trim();
-      buffer = buffer.slice(newline + 1);
-      if (line) yield JSON.parse(line) as ChatStreamEvent;
-      newline = buffer.indexOf("\n");
+    const events: ChatStreamEvent[] = [];
+    let finished: boolean;
+    try {
+      const { done, value } = await reader.read();
+      finished = done;
+      if (value) buffer += value;
+      let newline = buffer.indexOf("\n");
+      while (newline >= 0) {
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        if (line) events.push(JSON.parse(line) as ChatStreamEvent);
+        newline = buffer.indexOf("\n");
+      }
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      throw new StreamError((error as Error).message);
     }
-    if (done) break;
+    yield* events;
+    if (finished) break;
   }
 }
 

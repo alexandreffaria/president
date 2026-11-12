@@ -27,18 +27,22 @@ export function clearWrites(): void {
   decisions.clear();
 }
 
-/** When this tab last decided each card (ms), for the Undo window (#0006, #0020). */
-const decisions = new Map<string, number>();
+/**
+ * Cards this tab decided whose decision is the latest thing done to them here: while the
+ * decision's Undo notice is shown, nothing else may write the card from this page (#0006,
+ * #0020). Forgotten when the decision is undone or another action follows it.
+ */
+const decisions = new Set<string>();
 
-/** How long after a decision nothing else may write the card from this page (#0020). */
-export const UNDO_WINDOW_MS = 10_000;
-
-export function recordDecision(project: string, id: string, at = Date.now()): void {
-  decisions.set(key(project, id), at);
+export function recordDecision(project: string, id: string): void {
+  decisions.add(key(project, id));
 }
 
-/** Whether this tab decided the card less than UNDO_WINDOW_MS ago. */
-export function decidedRecently(project: string, id: string, now = Date.now()): boolean {
-  const at = decisions.get(key(project, id));
-  return at !== undefined && now - at < UNDO_WINDOW_MS;
+export function forgetDecision(project: string, id: string): void {
+  decisions.delete(key(project, id));
+}
+
+/** Whether the latest action this tab took on the card was a decision. */
+export function decidedHere(project: string, id: string): boolean {
+  return decisions.has(key(project, id));
 }

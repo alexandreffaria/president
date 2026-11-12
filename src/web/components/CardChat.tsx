@@ -10,8 +10,11 @@
  * - Summaries: "Conversation not summarized yet. [Write summary]" while messages aren't
  *   covered by a saved summary (#0024, 202611111ky9); the agent writes one, the human edits
  *   it, and only what they save is added to the card as a `chat` entry (#0003, #0023).
+ *   Closing the box (Esc, Cancel) keeps the edited text as a draft, like the other panels.
+ * - Agent text never loads anything: images in it are links (a page the session read could
+ *   have asked for an image whose address carries project text).
  */
-import { useEffect, useRef, useState } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import type { CardDetailDto, ChatMessageDto } from "../../core/api.ts";
 import type { ChatContext } from "../api.ts";
 import type { CardChat as ChatState } from "../chat.ts";
@@ -20,6 +23,9 @@ import { fullDate, timeAgo } from "../format.ts";
 import { useKeyLayer } from "../keyboard.ts";
 import { useToast } from "../toast.tsx";
 import { Markdown } from "./Markdown.tsx";
+
+/** How close to the bottom (px) the list counts as at the bottom, following new messages. */
+const AT_BOTTOM_PX = 24;
 
 export function CardChat(props: {
   card: CardDetailDto;
@@ -30,6 +36,8 @@ export function CardChat(props: {
   onDraft: (patch: Partial<Draft>) => void;
   /** Hides the panel; the conversation stays as it is. */
   onClose: () => void;
+  /** Set when the human opened the panel: the message box takes focus (then it is reset). */
+  focusOnOpen: RefObject<boolean>;
   /** Saves the edited summary on the card; true when it was saved. */
   onSaveSummary: (summary: string) => Promise<boolean>;
 }) {
@@ -38,20 +46,59 @@ export function CardChat(props: {
   const messages = chat.chat?.messages ?? [];
   const live = chat.live;
   const [writing, setWriting] = useState(false);
-  const [boxOpen, setBoxOpen] = useState(() => draft.summary.trim() !== "");
+  const hasSummaryDraft = draft.summary.trim() !== "";
+  const [boxOpen, setBoxOpen] = useState(hasSummaryDraft);
   const [saving, setSaving] = useState(false);
   const list = useRef<HTMLOListElement>(null);
+  const atBottom = useRef(true);
+  const messageBox = useRef<HTMLTextAreaElement>(null);
+  const summaryBox = useRef<HTMLTextAreaElement>(null);
+  const editButton = useRef<HTMLButtonElement>(null);
+  /** Where focus goes once the summary box opens or closes. */
+  const focusAfterBox = useRef<"box" | "edit" | null>(null);
   const shown = [...messages, ...(live?.saved ?? [])];
-  const running = live !== undefined || chat.chat?.running === true;
+  const answering = live !== undefined && !live.lost;
+  const running = answering || Boolean(chat.chat?.running);
   const remembers = chat.chat?.remembers ?? true;
   const unsummarized = chat.chat?.unsummarized === true;
-  const summaryShown = boxOpen || draft.summary.trim() !== "";
+  const status = answering
+    ? (live.activity ?? "The agent is answering…")
+    : writing || chat.chat?.running === "summary"
+      ? "The agent is writing a summary…"
+      : chat.chat?.running === "reply"
+        ? "The agent is answering…"
+        : "";
 
-  // Keep the newest message in view as the conversation grows (the panel scrolls itself).
+  // Opened with c or the button: straight to the message box (inline, that scrolls it into
+  // view; beside the card, it is otherwise after the whole card in tab order).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: on opening only
+  useEffect(() => {
+    if (!props.focusOnOpen.current) return;
+    props.focusOnOpen.current = false;
+    messageBox.current?.focus();
+    if (props.layout === "inline") messageBox.current?.scrollIntoView?.({ block: "nearest" });
+  }, []);
+
+  // A summary draft that appears (the agent wrote one, an Undo put a saved one back) opens
+  // the box; closing the box keeps the draft without reopening it.
+  useEffect(() => {
+    if (hasSummaryDraft) setBoxOpen(true);
+  }, [hasSummaryDraft]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once the box opened or closed
+  useEffect(() => {
+    const target = focusAfterBox.current;
+    focusAfterBox.current = null;
+    if (target === "box") summaryBox.current?.focus();
+    if (target === "edit") editButton.current?.focus();
+  }, [boxOpen]);
+
+  // Keep the newest message in view as the conversation grows (the panel scrolls itself),
+  // unless the human has scrolled up to read.
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when anything is added
   useEffect(() => {
     const el = list.current;
-    if (el && props.layout === "side") el.scrollTop = el.scrollHeight;
+    if (el && props.layout === "side" && atBottom.current) el.scrollTop = el.scrollHeight;
   }, [shown.length, live?.text.length, props.layout]);
 
   const send = async () => {
@@ -60,9 +107,10 @@ export function CardChat(props: {
     props.onDraft({ chat: "" });
     const failure = await chat.send(text, context);
     if (failure) {
-      toast(failure, { tone: "error" });
-      // Refused before it was sent (the agent was busy, the hub unreachable): keep the text.
-      if (!failure.startsWith("No reply")) props.onDraft({ chat: text });
+      toast(failure.error, { tone: "error" });
+      // Refused before the hub saved it (the agent was busy, the hub unreachable): keep the
+      // text. Once saved, it is in the conversation; sending it again would send it twice.
+      if (failure.notSent) props.onDraft({ chat: text });
     }
   };
 
@@ -70,6 +118,7 @@ export function CardChat(props: {
     setWriting(true);
     try {
       const { summary } = await chat.summarize(context);
+      focusAfterBox.current = "box";
       props.onDraft({ summary });
       setBoxOpen(true);
     } catch (error) {
@@ -79,9 +128,18 @@ export function CardChat(props: {
     }
   };
 
+  /** Closes the summary box; what is in it stays as a draft (Esc never throws text away). */
   const closeBox = () => {
-    props.onDraft({ summary: "" });
+    if (hasSummaryDraft) {
+      toast("Your summary is kept as a draft; it isn't saved on the card yet.");
+      focusAfterBox.current = "edit";
+    }
     setBoxOpen(false);
+  };
+
+  const reopenBox = () => {
+    focusAfterBox.current = "box";
+    setBoxOpen(true);
   };
 
   const save = async () => {
@@ -96,7 +154,7 @@ export function CardChat(props: {
   };
 
   // The summary box holds text not saved yet: Esc closes it, and the page's keys wait.
-  useKeyLayer({ escape: closeBox }, summaryShown);
+  useKeyLayer({ escape: closeBox }, boxOpen);
 
   return (
     <section className={`chat chat-${props.layout}`} aria-labelledby={`chat-heading-${card.id}`}>
@@ -105,32 +163,44 @@ export function CardChat(props: {
           Conversation
         </h2>
         <button type="button" className="button button-quiet" onClick={props.onClose}>
-          Hide <kbd>c</kbd>
+          Hide conversation <kbd>c</kbd>
         </button>
       </header>
 
-      <ol className="chat-messages" ref={list} aria-live="polite">
+      {/* Busy while a reply streams in: it is read out once, when it is complete. */}
+      <ol
+        className="chat-messages"
+        ref={list}
+        aria-live="polite"
+        aria-busy={answering}
+        onScroll={(event) => {
+          const el = event.currentTarget;
+          atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < AT_BOTTOM_PX;
+        }}
+      >
         {shown.length === 0 && !live && (
           <li className="chat-empty muted">
             Ask the card's agent about this card. It reads the project and searches the web; it
             can't change anything.
           </li>
         )}
-        {shown.map((message, i) => (
-          // The copy is append-only, so the index is a stable key.
+        {[
+          ...shown,
+          ...(live && live.text.length > 0
+            ? [{ from: "agent" as const, text: live.text.join("\n\n"), at: undefined }]
+            : []),
+        ].map((message, i) => (
+          // The copy is append-only, so the index is a stable key; the reply streaming in
+          // has the index its saved copy will have, so it stays the same item (one list, so
+          // React matches them up) and isn't announced again when the copy replaces it.
           // biome-ignore lint/suspicious/noArrayIndexKey: append-only list
           <Message key={i} message={message} />
         ))}
-        {live && live.text.length > 0 && (
-          <li className="chat-message chat-agent">
-            <p className="chat-meta">agent</p>
-            <Markdown className="chat-text">{live.text.join("\n\n")}</Markdown>
-          </li>
-        )}
-        {running && (
-          <li className="chat-status muted">{live?.activity ?? "The agent is answering…"}</li>
-        )}
       </ol>
+
+      <p className="chat-status muted" role="status">
+        {status}
+      </p>
 
       {!remembers && shown.length > 0 && (
         <p className="chat-note muted">
@@ -139,7 +209,7 @@ export function CardChat(props: {
         </p>
       )}
 
-      {summaryShown ? (
+      {boxOpen ? (
         <form
           className="chat-summary"
           onSubmit={(event) => {
@@ -156,6 +226,7 @@ export function CardChat(props: {
           </p>
           <textarea
             id={`chat-summary-${card.id}`}
+            ref={summaryBox}
             rows={5}
             value={draft.summary}
             onChange={(event) => props.onDraft({ summary: event.target.value })}
@@ -179,10 +250,16 @@ export function CardChat(props: {
             </button>
           </div>
         </form>
-      ) : writing ? (
-        <p className="chat-note muted">Writing a summary…</p>
+      ) : hasSummaryDraft ? (
+        <p className="chat-note">
+          Summary draft kept, not saved yet.{" "}
+          <button type="button" className="button" ref={editButton} onClick={reopenBox}>
+            Edit summary
+          </button>
+        </p>
       ) : (
-        unsummarized && (
+        unsummarized &&
+        !writing && (
           <p className="chat-note">
             {remembers ? "Conversation not summarized yet." : "Not summarized yet."}{" "}
             <button
@@ -205,6 +282,7 @@ export function CardChat(props: {
         }}
       >
         <textarea
+          ref={messageBox}
           aria-label="Message to the card's agent"
           placeholder="Ask about this card…"
           rows={2}
@@ -235,17 +313,29 @@ const WHO: Record<ChatMessageDto["from"], string> = {
   hub: "president",
 };
 
-function Message({ message }: { message: ChatMessageDto }) {
+/** A message; `at` is undefined for the reply still streaming in. */
+function Message({
+  message,
+}: {
+  message: Pick<ChatMessageDto, "from" | "text"> & { at: string | undefined };
+}) {
   return (
     <li className={`chat-message chat-${message.from}`}>
       <p className="chat-meta">
-        {WHO[message.from]},{" "}
-        <time dateTime={message.at} title={fullDate(message.at)}>
-          {timeAgo(message.at)}
-        </time>
+        {WHO[message.from]}
+        {message.at && (
+          <>
+            ,{" "}
+            <time dateTime={message.at} title={fullDate(message.at)}>
+              {timeAgo(message.at)}
+            </time>
+          </>
+        )}
       </p>
       {message.from === "agent" ? (
-        <Markdown className="chat-text">{message.text}</Markdown>
+        <Markdown className="chat-text" imagesAsLinks>
+          {message.text}
+        </Markdown>
       ) : (
         <p className="chat-text">{message.text}</p>
       )}

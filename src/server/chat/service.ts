@@ -169,6 +169,7 @@ export class ChatService {
   async conversation(project: Project, id: string): Promise<ChatDto> {
     const key = { project: project.name, id };
     const [messages, entry] = await Promise.all([this.store.messages(key), this.store.entry(key)]);
+    const run = this.#running.get(keyName(key));
     return {
       messages,
       unsummarized: entry?.unsummarized === true,
@@ -178,7 +179,7 @@ export class ChatService {
         !entry?.session ||
         this.#starting.has(keyName(key)) ||
         (await transcriptExists(this.#claudeDir, entry.session)),
-      running: this.#running.has(keyName(key)),
+      running: run === undefined ? false : run === "summary" ? "summary" : "reply",
     };
   }
 
@@ -232,6 +233,9 @@ export class ChatService {
     let startOver = !resume && startsOver();
     if (startOver) await save(this.#startOverNotice());
     await save(this.#message("you", input.text));
+    // Unsummarized from the moment the message is in (#0024): leaving while the agent
+    // thinks still gets the reminder.
+    await this.store.updateEntry(key, (e) => ({ ...e, unsummarized: true }));
 
     let revealed = resume ? (revealedNow ?? entry?.revealed) : revealedNow;
     const texts: string[] = [];

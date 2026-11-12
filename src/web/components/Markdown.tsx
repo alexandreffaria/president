@@ -9,17 +9,40 @@ const components: Components = {
 };
 
 /**
- * Renders card markdown (GitHub flavoured, with highlighted code).
- * Raw HTML in cards is not rendered, only shown as text.
+ * For text an agent wrote from what it read (a page it fetched may tell it what to write):
+ * an image is a plain link, so showing the text never makes the browser load anything.
  */
-export const Markdown = memo(function Markdown(props: { children: string; className?: string }) {
+const noImages: Components = {
+  ...components,
+  img: ({ src, alt }) => {
+    const label = `Image: ${alt?.trim() || (typeof src === "string" ? src : "")}`;
+    return typeof src === "string" && src ? (
+      <a href={src} target="_blank" rel="noopener noreferrer">
+        {label}
+      </a>
+    ) : (
+      <span>{label}</span>
+    );
+  },
+};
+
+/**
+ * Renders card markdown (GitHub flavoured, with highlighted code).
+ * Raw HTML in cards is not rendered, only shown as text. With `imagesAsLinks`, images are
+ * links instead of images (nothing loads until the human opens one).
+ */
+export const Markdown = memo(function Markdown(props: {
+  children: string;
+  className?: string;
+  imagesAsLinks?: boolean;
+}) {
   if (!props.children.trim()) return null;
   return (
     <div className={`markdown ${props.className ?? ""}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[[rehypeHighlight, { detect: false, ignoreMissing: true }]]}
-        components={components}
+        components={props.imagesAsLinks ? noImages : components}
       >
         {props.children}
       </ReactMarkdown>

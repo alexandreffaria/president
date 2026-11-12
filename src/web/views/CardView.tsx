@@ -14,7 +14,7 @@ import {
   unknownDependencies,
 } from "../../core/queue.ts";
 import { api, RequestError } from "../api.ts";
-import { decidedRecently, recordDecision, wroteHere } from "../app-writes.ts";
+import { decidedHere, forgetDecision, recordDecision, wroteHere } from "../app-writes.ts";
 import { describeChanges } from "../card-changes.ts";
 import { useCardChat, useMinWidth } from "../chat.ts";
 import { CardChat } from "../components/CardChat.tsx";
@@ -35,7 +35,7 @@ import { useHub } from "../hub.tsx";
 import { type KeyMap, useKeyboard, useKeyLayer } from "../keyboard.ts";
 import { cardPath, Link, navigate } from "../router.tsx";
 import { dateInputValue, nextMonth, startOfDay, tomorrow } from "../snooze.ts";
-import { useDismissToasts, useToast } from "../toast.tsx";
+import { useDismissToasts, useToast, useToastShown } from "../toast.tsx";
 
 type Loaded =
   | { state: "loading" }
@@ -91,6 +91,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const hub = useHub();
   const toast = useToast();
   const dismissToasts = useDismissToasts();
+  const toastShown = useToastShown();
   const [loaded, setLoaded] = useState<Loaded>({ state: "loading" });
   // `latest` is read inside async callbacks, where `draft` would be stale.
   const [draft, updateDraft, latest] = useDraft(project, id);
@@ -141,9 +142,32 @@ export function CardView({ project, id }: { project: string; id: string }) {
   useEffect(() => {
     if (chatLoaded) setChatOpen((open) => open ?? hasConversation);
   }, [chatLoaded, hasConversation]);
-  /** For the notice on leaving (#0024): read when the view goes away. */
+  /** Set when the human opens the panel (c, the button): focus goes to the message box. */
+  const focusChat = useRef(false);
+  /** Set when the panel hides with focus inside it: focus goes to the button that shows it. */
+  const focusChatToggle = useRef(false);
+  const chatToggle = useRef<HTMLButtonElement>(null);
+  const openChat = () => {
+    focusChat.current = true;
+    setChatOpen(true);
+  };
+  const hideChat = () => {
+    focusChatToggle.current = document.activeElement?.closest(".chat") != null;
+    setChatOpen(false);
+  };
+  useEffect(() => {
+    if (chatOpen || !focusChatToggle.current) return;
+    focusChatToggle.current = false;
+    chatToggle.current?.focus();
+  }, [chatOpen]);
+  /**
+   * For the notice on leaving (#0024): read when the view goes away. A message this tab has
+   * sent counts at once, as it does on the hub, before the copy says so.
+   */
   const unsummarized = useRef(false);
-  unsummarized.current = cardChat.chat?.unsummarized === true;
+  unsummarized.current =
+    cardChat.chat?.unsummarized === true ||
+    (cardChat.live?.saved.some((m) => m.from === "you") ?? false);
 
   const queue = buildQueue(hub.cards, hub.projectFilter);
   const position = queue.findIndex((c) => c.project === project && c.id === id);
@@ -306,6 +330,8 @@ export function CardView({ project, id }: { project: string; id: string }) {
       // The revision the human read, not the newest one: if the card changed since, the
       // server refuses, and they see what changed first.
       const res = await api.act(project, id, action, seen.revision);
+      // A decision's Undo window (see saveSummary) ends with any later action.
+      if (action.type !== "resolve") forgetDecision(project, id);
       setLoaded({ state: "ok", card: res.card });
       acknowledge(res.card);
       // What the action sent, to put back as a draft if it is undone.
@@ -334,6 +360,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
                 return hub.refresh();
               })
               .then(() => {
+                forgetDecision(project, id);
                 restoreDraft(project, id, wasSent, panelToRestore);
                 navigate(cardPath(project, id));
                 toast(
@@ -413,10 +440,11 @@ export function CardView({ project, id }: { project: string; id: string }) {
 
   /**
    * Saves an edited conversation summary as a `chat` entry (#0003, #0023), on decided cards
-   * too (#0020), but never inside the Undo window of a decision made here (#0006).
+   * too (#0020), but never while the Undo notice of a decision made here is shown (#0006):
+   * saving would take that Undo away.
    */
   const saveSummary = (summary: string) => {
-    if (decidedRecently(project, id)) {
+    if (decidedHere(project, id) && toastShown(undoGroup)) {
       toast(
         `#${id} was decided a moment ago and can still be undone; save the summary once its Undo notice has closed.`,
         { tone: "error" },
@@ -502,7 +530,8 @@ export function CardView({ project, id }: { project: string; id: string }) {
     // Shows or hides the conversation (#0002).
     c: () => {
       if (!chatLoaded) return false;
-      setChatOpen((open) => !open);
+      if (chatOpen) hideChat();
+      else openChat();
     },
   };
   // Shift+d opens the Defer menu (#0017); `d` itself never waits for a second key.
@@ -727,13 +756,14 @@ export function CardView({ project, id }: { project: string; id: string }) {
           layout={wide ? "side" : "inline"}
           draft={draft}
           onDraft={updateDraft}
-          onClose={() => setChatOpen(false)}
+          onClose={hideChat}
+          focusOnOpen={focusChat}
           onSaveSummary={saveSummary}
         />
       ) : (
         chatLoaded && (
           <p className="chat-closed">
-            <button type="button" className="button" onClick={() => setChatOpen(true)}>
+            <button type="button" className="button" ref={chatToggle} onClick={openChat}>
               {hasConversation ? "Show the conversation" : "Ask about this card"} <kbd>c</kbd>
             </button>
             {cardChat.chat?.unsummarized && (

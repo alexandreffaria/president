@@ -136,14 +136,15 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
    | `d` | defer for a week: the card leaves the queue and comes back, marked "back from deferral", when the week is over |
    | `D` | defer until another date: tomorrow, next month or a day you pick (also the **Defer until…** button) |
    | `j` / `k` | next / previous card |
-   | `u` | undo the last action on a card: a decision, deferral, "neither", note or reopen (while its notice is shown); an undone note or "neither" comes back in its panel |
+   | `u` | undo the last action on a card: a decision, deferral, "neither", note, saved conversation summary or reopen (while its notice is shown); an undone note, "neither" or summary comes back in its panel or box |
    | `?` | all shortcuts |
 
    Shortcuts never act while you are typing or while the help is open. `Enter` and `Space` on a
-   focused button or link press that control instead. While the Neither or Note panel is open,
-   only `Esc` works (it closes the panel). What you type on a card and haven't sent (a note, a
-   "why", your own answer) is kept until you send it, even if you close the panel or leave the
-   card, and deferring (`d`, `D` or the Defer buttons) is refused while there is any.
+   focused button or link press that control instead. While the Neither or Note panel or the
+   summary box is open, only `Esc` works (it closes the panel). What you type on a card and
+   haven't sent (a note, a "why", your own answer, a message, a summary you are editing) is
+   kept until you send it, even if you close the panel or leave the card, and deferring (`d`,
+   `D` or the Defer buttons) is refused while there is any.
 
    The queue shows cards that are ready first, then the ones that depend on a card you haven't
    decided yet; each group by priority, then oldest first. A deferred card stays under
