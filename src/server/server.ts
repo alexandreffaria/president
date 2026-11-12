@@ -162,6 +162,8 @@ type Output = { log: (line: string) => void; error: (line: string) => void };
 /**
  * Runs the hub until SIGINT or SIGTERM, for `npm start` and `preside serve`. Expected
  * failures (port in use, a broken config file) are printed as one line; returns the exit code.
+ * The startup-error prefix is `president:` because this is the product's server, shared by
+ * `npm start` and `preside serve`.
  */
 export async function runServer(out: Output = console): Promise<number> {
   let hub: RunningHub;

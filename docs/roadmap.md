@@ -1291,7 +1291,8 @@ from `preside pending` and runs `preside applied` (in the main folder, #0022). F
 `feat/rename-preside`), as written below. `bin/preside.js` is the entry point and
 `bin/president.js` is the alias, a one-line script that imports it, so links made with the old
 install line keep working; `package.json` lists both in `bin`. What the CLI prints about itself
-(help, `done:` lines, usage lines, the `preside:` prefix of its errors, warnings and notes) and
+(help, `done:` lines, usage lines, the `preside:` prefix of its errors, warnings and notes,
+except `preside serve`'s startup failure, which shares `npm start`'s `president:` prefix) and
 every instruction in the skill, `README.md`, `docs/card-format.md`, the web UI and the
 sections of this roadmap that aren't built yet say `preside`. Kept as they were: the product
 name president wherever it means the app or hub ("president doesn't follow symlinks", "another
