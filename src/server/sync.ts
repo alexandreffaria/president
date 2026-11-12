@@ -608,7 +608,7 @@ async function runSequence(
       : (
           await repo.paths(
             ["diff", "--name-only", "-z", "--no-renames", `HEAD...${expected}`],
-            `The online copy of ${name} changed too many files for Sync to check. Pull by hand (git pull --rebase --autostash in ${dir}) when no agent is working there, then press Sync again.`,
+            `The online copy of ${name} changed too many files for Sync to compare with the uncommitted edits here. Press Sync again once those edits are committed and pushed, or put away.`,
           )
         ).filter((path) => edited.has(path));
   if (clash.length > 0) {

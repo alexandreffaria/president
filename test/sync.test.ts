@@ -4,7 +4,7 @@
  * (see git-sandbox.ts); nothing here runs git anywhere else.
  */
 import { execFileSync } from "node:child_process";
-import { chmod, rename, rm } from "node:fs/promises";
+import { chmod, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { createServer as createTcpServer, type Socket, type Server as TcpServer } from "node:net";
 import { join } from "node:path";
@@ -274,6 +274,81 @@ describe("Sync: the checks say not now and change nothing", () => {
     );
     expect(snapshot(s)).toEqual(before);
     expect(await s.read(s.laptop, "app.js")).toBe("x = wip\n");
+  });
+
+  it("refuses when the remote renamed a file the agent has uncommitted edits to (S7-1)", async () => {
+    const s = await gitSandbox();
+    s.git(s.desktop, "mv", "lib.js", "lib2.js");
+    s.push(s.desktop, "rename");
+    await answerAndAgentWork(s);
+    const before = snapshot(s);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result.outcome).toBe("not-now");
+    expect(result.message).toBe(
+      "Not now: an agent in shop has uncommitted edits to lib.js, which also changed on the remote",
+    );
+    expect(snapshot(s)).toEqual(before);
+  });
+
+  it("refuses when a staged rename here moves a file the remote changed (S7-1)", async () => {
+    const s = await gitSandbox();
+    await desktopPushes(s, { "lib.js": "y = remote\n" });
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+    s.git(s.laptop, "mv", "lib.js", "lib2.js");
+    const before = snapshot(s);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result.outcome).toBe("not-now");
+    expect(result.message).toBe(
+      "Not now: an agent in shop has uncommitted edits to lib.js, which also changed on the remote",
+    );
+    expect(snapshot(s)).toEqual(before);
+  });
+
+  it("refuses when the agent's edit to a file the remote changed is staged (S7-1)", async () => {
+    const s = await gitSandbox();
+    await desktopPushes(s, { "lib.js": "y = remote\n" });
+    await answerAndAgentWork(s);
+    s.git(s.laptop, "add", "lib.js");
+    const before = snapshot(s);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result.outcome).toBe("not-now");
+    expect(result.message).toBe(
+      "Not now: an agent in shop has uncommitted edits to lib.js, which also changed on the remote",
+    );
+    expect(snapshot(s)).toEqual(before);
+    expect(await s.read(s.laptop, "lib.js")).toBe("y = wip\n");
+  });
+
+  it("finds the clash on a file name that isn't UTF-8 (S6-1)", async ({ skip }) => {
+    const s = await gitSandbox();
+    // n\xe9.js: é in Latin-1. Some file systems (APFS, for one) refuse such a name.
+    const latin1 = (repo: string) =>
+      Buffer.concat([Buffer.from(`${repo}/n`), Buffer.from([0xe9]), Buffer.from(".js")]);
+    try {
+      await writeFile(latin1(s.laptop), "z = 1\n");
+    } catch {
+      skip("this file system refuses a file name that isn't UTF-8");
+    }
+    s.push(s.laptop, "a Latin-1 name");
+    s.git(s.desktop, "pull", "--quiet");
+    await writeFile(latin1(s.desktop), "z = remote\n");
+    s.push(s.desktop, "remote edit");
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+    await writeFile(latin1(s.laptop), "z = wip\n");
+    const before = snapshot(s);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result.outcome).toBe("not-now");
+    expect(result.message).toMatch(/^Not now: an agent in shop has uncommitted edits to n.+\.js,/);
+    expect(snapshot(s)).toEqual(before);
+    expect(await readFile(latin1(s.laptop), "utf8")).toBe("z = wip\n");
   });
 
   it("refuses on any branch but the remote's default", async () => {
@@ -1127,7 +1202,7 @@ describe("a list too large to read (S5-1, S6-2)", () => {
     expect(s.remoteLog()[0]).toBe("decisions from laptop: 0001");
   });
 
-  it("says to pull by hand when the remote's change list is cut", async () => {
+  it("says to commit and push or put away the edits here when the remote's change list is cut", async () => {
     const s = await gitSandbox();
     await desktopPushes(s, manyFiles("v\n"));
     await answerAndAgentWork(s);
@@ -1137,7 +1212,8 @@ describe("a list too large to read (S5-1, S6-2)", () => {
 
     expect(result).toMatchObject({
       outcome: "not-synced",
-      action: `The online copy of shop changed too many files for Sync to check. Pull by hand (git pull --rebase --autostash in ${s.laptop}) when no agent is working there, then press Sync again.`,
+      action:
+        "The online copy of shop changed too many files for Sync to compare with the uncommitted edits here. Press Sync again once those edits are committed and pushed, or put away.",
     });
     expect(result.gitError).toMatch(/^git output too large: git diff/);
     expect(snapshot(s)).toEqual(before);
