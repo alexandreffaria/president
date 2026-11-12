@@ -281,6 +281,27 @@ mine: 1
     }
   });
 
+  it("removes only the withdrawal's lines on Back to queue, and appends the note (#0014)", () => {
+    const text = cardText({
+      status: "deferred",
+      defer_until: "2026-12-01T00:00:00Z",
+      withdrawn: '\n  at: 2026-11-09T10:00:00Z\n  reason: "We dropped the map screen."',
+      mine: "1",
+    });
+    const { out } = write(text, { type: "unwithdraw" });
+    // cardText writes "withdrawn: " (a trailing space) before a nested value.
+    expect(diffLines(text, out).removed.map((r) => r.text)).toEqual([
+      "withdrawn: ",
+      "  at: 2026-11-09T10:00:00Z",
+      '  reason: "We dropped the map screen."',
+    ]);
+    expect(out).toContain("status: deferred\n");
+    expect(out).toContain("defer_until: 2026-12-01T00:00:00Z\n");
+    expect(parsed(out).raw.feedback).toEqual([
+      { at: "2026-11-10T12:00:00Z", type: "note", note: "Back in the queue" },
+    ]);
+  });
+
   it("takes indented comments with a removed field only when they'd fall into a block above", () => {
     const text = cardText({
       status: "resolved",

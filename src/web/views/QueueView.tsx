@@ -1,7 +1,10 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { BrokenCardDto, CardDto } from "../../core/api.ts";
 import {
+  activeWithdrawal,
   buildQueue,
+  buildWithdrawn,
+  describeDependencies,
   isBackFromDeferral,
   isSnoozed,
   isWaitingOnAgent,
@@ -22,6 +25,8 @@ export function QueueView() {
   const waiting = cards.filter((c) => isWaitingOnAgent(c) && inFilter(c));
   // Deferred cards whose date hasn't passed; the others are back in the queue (#0017).
   const deferred = cards.filter((c) => isSnoozed(c) && inFilter(c));
+  // Undecided cards an agent withdrew, deferred ones included (#0014, 202611116ff6).
+  const withdrawn = buildWithdrawn(cards, projectFilter);
   const brokenHere = broken.filter(inFilter);
   const [selected, setSelected] = useState(0);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -116,7 +121,7 @@ export function QueueView() {
             <QueueItem
               key={`${card.project}/${card.id}`}
               card={card}
-              blockers={openDependencies(card, cards)}
+              blockers={describeDependencies(card, openDependencies(card, cards), cards)}
               showProject={!projectFilter && projects.length > 1}
               selected={i === selected}
             />
@@ -153,6 +158,21 @@ export function QueueView() {
         </details>
       )}
 
+      {withdrawn.length > 0 && (
+        <details className="section">
+          <summary className="section-heading">Withdrawn by agents ({withdrawn.length})</summary>
+          <ul className="compact-list">
+            {withdrawn.map((card) => (
+              <CompactItem
+                key={`${card.project}/${card.id}`}
+                card={card}
+                note={activeWithdrawal(card)?.reason}
+              />
+            ))}
+          </ul>
+        </details>
+      )}
+
       {brokenHere.length > 0 && <BrokenList broken={brokenHere} />}
     </div>
   );
@@ -160,7 +180,8 @@ export function QueueView() {
 
 function QueueItem(props: {
   card: CardDto;
-  blockers: string[];
+  /** The dependency mark ("#0003", "#0042, withdrawn"); empty when there is none. */
+  blockers: string;
   showProject: boolean;
   selected: boolean;
 }) {
@@ -199,11 +220,7 @@ function QueueItem(props: {
               </span>
             )}
             {isBackFromDeferral(card) && <span className="back">back from deferral</span>}
-            {props.blockers.length > 0 && (
-              <span className="blocked">
-                depends on {props.blockers.map((id) => `#${id}`).join(", ")}
-              </span>
-            )}
+            {props.blockers && <span className="blocked">depends on {props.blockers}</span>}
           </span>
         </span>
         {fm.tags.length > 0 && (

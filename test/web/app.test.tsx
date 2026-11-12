@@ -1079,3 +1079,120 @@ describe("snooze (#0017, 202611112hzh) and the queue order (#0009, #0015)", () =
     await until(() => pathname() === "/card/demo/0002", "the dependent card next");
   });
 });
+
+describe("withdrawn cards (#0014, 202611116ff6)", () => {
+  const withdrawal = (status: string, reason: string) =>
+    `status: ${status}\nwithdrawn:\n  at: 2026-11-11T10:00:00Z\n  reason: "${reason}"\n`;
+  const apiFile = () => join(demo, "decisions", "0002-api-errors.md");
+  const copyFile = () => join(demo, "decisions", "0003-first-run-copy.md");
+
+  it("lists a withdrawn card apart, keeps its dependents sunk and marked, and lets it be decided", async () => {
+    await editFile(apiFile(), "status: open\n", withdrawal("open", "We dropped the API client."));
+    // 0003 (back from deferral) depends on the withdrawn 0002.
+    await editFile(copyFile(), "depends_on: []", 'depends_on: ["0002"]');
+    await open("/", () => text().includes("Withdrawn by agents (1)"), "the Withdrawn list");
+    expect(queueIds()).toEqual(["0001", "0003"]);
+    const list = [...host.querySelectorAll("details")].find((d) =>
+      d.textContent?.startsWith("Withdrawn by agents"),
+    );
+    expect(list?.open).toBe(false);
+    expect(list?.textContent).toContain("How should the API client report errors?");
+    expect(list?.textContent).toContain("We dropped the API client.");
+    expect(host.querySelectorAll(".queue-link")[1]?.textContent).toContain(
+      "depends on #0002, withdrawn",
+    );
+    // The project chip and the nav count leave it out too.
+    expect(text()).toContain("2 decisions waiting");
+
+    await act(async () => navigate("/card/demo/0003"));
+    await until(() => text().includes("This depends on"), "the dependent card");
+    expect(text()).toContain("This depends on #0002, withdrawn, which isn't decided yet.");
+
+    // The withdrawn card's page: the reason above the options, which still work.
+    await act(async () => navigate("/card/demo/0002"));
+    await until(() => text().includes("Withdrawn by the agent:"), "the withdrawn card");
+    expect(text()).toContain("Withdrawn by the agent: We dropped the API client.");
+    const notice = [...host.querySelectorAll(".notice")].find((n) =>
+      n.textContent?.includes("Withdrawn by the agent"),
+    );
+    const options = host.querySelector(".options");
+    expect(notice && options && notice.compareDocumentPosition(options)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(button("Back to queue")).toBeDefined();
+    expect(button("Neither…")).toBeDefined();
+    expect(button("Defer a week")).toBeUndefined();
+    await press("2", document.body);
+    await press("Enter", document.body);
+    await until(() => text().includes("Decided #0002"), "the decision toast");
+    // The decision keeps the field; decided, it no longer holds 0003 back.
+    expect(await io(() => readFile(apiFile(), "utf8"))).toContain("withdrawn:");
+    await act(async () => navigate("/"));
+    await until(() => !text().includes("Withdrawn by agents"), "the Withdrawn list gone");
+    expect(queueIds()).toEqual(["0001", "0003"]);
+    expect(host.querySelectorAll(".queue-link")[1]?.textContent).not.toContain("depends on");
+  });
+
+  it("ignores a withdrawn deferred card's date until Back to queue, which Undo takes back", async () => {
+    // Deferred with no date: back at once by 202611112hzh, but not while withdrawn.
+    await editFile(copyFile(), "status: deferred\n", withdrawal("deferred", "Copy is done."));
+    const withdrawn = await io(() => readFile(copyFile(), "utf8"));
+    await open("/", () => text().includes("Withdrawn by agents (1)"), "the Withdrawn list");
+    expect(queueIds()).not.toContain("0003");
+    expect(text()).not.toContain("Deferred (");
+    expect(text()).not.toContain("back from deferral");
+
+    await act(async () => navigate("/card/demo/0003"));
+    await until(() => text().includes("Withdrawn by the agent: Copy is done."), "the card");
+    expect(text()).not.toContain("Back from deferral");
+    // d defers nothing on a withdrawn card.
+    await press("d", document.body);
+    await settle();
+    expect(text()).not.toContain("Deferred #0003");
+    await act(async () => button("Back to queue")?.click());
+    await until(() => text().includes("Moved #0003 back to the queue."), "the toast");
+    const after = await io(() => readFile(copyFile(), "utf8"));
+    expect(after).not.toContain("withdrawn:");
+    expect(after).toMatch(/^status: deferred$/m);
+    expect(after).toMatch(/type: note\n\s+note: Back in the queue\n/);
+
+    await press("u", document.body);
+    await until(() => text().includes("Undone. #0003 is back as it was"), "the undo toast");
+    expect(await io(() => readFile(copyFile(), "utf8"))).toBe(withdrawn);
+
+    await settle();
+    await act(async () => button("Back to queue")?.click());
+    await until(
+      () => (host.querySelector(".toasts")?.textContent ?? "").includes("Moved #0003"),
+      `the toast again (toasts: ${host.querySelector(".toasts")?.textContent})`,
+    );
+    await act(async () => navigate("/"));
+    await until(() => queueIds().includes("0003"), "the card back in the queue");
+    expect(text()).not.toContain("Withdrawn by agents");
+    expect(text()).toContain("back from deferral");
+  });
+
+  it("puts a withdrawn card whose date is ahead back under Deferred", async () => {
+    await editFile(
+      apiFile(),
+      "status: open\n",
+      `${withdrawal("deferred", "Moot.")}defer_until: 2099-01-01T00:00:00Z\n`,
+    );
+    await open("/card/demo/0002", () => text().includes("Withdrawn by the agent"), "the card");
+    expect(text()).not.toContain("Deferred until");
+    await act(async () => button("Back to queue")?.click());
+    await until(() => text().includes("is no longer withdrawn"), "the toast");
+    expect(text()).toContain("#0002 is no longer withdrawn; it stays deferred until");
+    await until(() => text().includes("Deferred until"), "the deferred notice");
+    await act(async () => navigate("/"));
+    await until(() => text().includes("Deferred (1)"), "the Deferred list");
+    expect(text()).not.toContain("Withdrawn by agents");
+  });
+
+  it("tells the human when an agent withdraws the card they have open", async () => {
+    await open("/card/demo/0002", () => text().includes("report errors"), "the card");
+    await agentEdits(apiFile(), "status: open\n", withdrawal("open", "Moot now."));
+    await until(() => text().includes("An agent withdrew it: Moot now."), "the change notice");
+    expect(text()).toContain("Withdrawn by the agent: Moot now.");
+  });
+});

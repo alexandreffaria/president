@@ -466,6 +466,8 @@ function changedSince(action: CardActionType | undefined): string {
       return "the card changed since you deferred it, so it can't be undone; reopen it if needed";
     case "reopen":
       return "the card changed since you reopened it (an agent may already be acting on it), so it can't be undone; decide it again if needed";
+    case "unwithdraw":
+      return "the card changed since you put it back in the queue (an agent may already have read your note), so it can't be undone; decide it if it no longer matters";
     default:
       return "the card changed after this action, so it can't be undone; review it and reopen it if needed";
   }

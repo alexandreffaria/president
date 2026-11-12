@@ -195,6 +195,14 @@ withdrawn:
 - The card stays answerable: the human can still decide it, add a note or reject its options,
   and a decision keeps the field. Cards that depend on a withdrawn card keep waiting for it
   until it is decided.
+- The hub leaves an open or deferred card with `withdrawn` out of the queue and lists it under
+  **Withdrawn by agents**, with the reason; a deferred one's `defer_until` is ignored while it
+  is withdrawn. A decided card that kept the field is listed with the other decisions.
+- The hub's **Back to queue** removes the field and appends a `note` entry, "Back in the
+  queue", to `feedback`. `status` and `defer_until` stay, so a deferred card's date applies
+  again. The note is what makes `preside update` refuse an agent's version made from an
+  earlier read, which would otherwise withdraw the card again: `update` compares `feedback`,
+  not `withdrawn`.
 - `preside validate` says a card is withdrawn and why:
   `ok      20261111k7q2-map-tiles.md (withdrawn: We dropped the map screen.)`.
   `preside pending` lists a withdrawn card only when it would anyway (the human added a note,
