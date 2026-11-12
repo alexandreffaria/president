@@ -107,19 +107,26 @@ where the hub doesn't read it, check and review it there, then copy it into
 `<main>/decisions/`. Nothing checks that the review ran, and the card looks the same without
 it, so don't skip it.
 
-1. Pick the id: list `<main>/decisions/` (not a worktree's copy), take the highest number and
-   add one, zero-padded to 4 digits (`0001` when there are no cards yet). The file name is
-   `<id>-<short-slug>.md`, e.g. `0012-empty-state-copy.md`. Write the draft:
+1. Make the id: today's UTC date plus 4 random lowercase letters and digits, for example
+   `20261110q4m8`. Don't make it up or count cards; run:
+
+   ```sh
+   echo "$(date -u +%Y%m%d)$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c4)"
+   ```
+
+   Older cards in the folder may have numbered ids (`0007`); leave them as they are, and use
+   their full ids in `depends_on`. The file name is `<id>-<short-slug>.md`, e.g.
+   `20261110q4m8-empty-state-copy.md`. Write the draft:
    - **in a worktree**: in the worktree's own `decisions/` (under the project's subfolder, if
      the project is one; create the folder if the worktree has none), e.g.
-     `<worktree>/decisions/0012-empty-state-copy.md`, and never commit it;
+     `<worktree>/decisions/20261110q4m8-empty-state-copy.md`, and never commit it;
    - **in the main folder itself**: outside `decisions/`, in a scratch folder outside the
      project (for example one made with `mktemp -d`), e.g.
-     `<scratch>/0012-empty-state-copy.md`. Not under a `.` or `_` name inside `decisions/`:
-     the hub ignores those, but `preside validate` refuses them ("is not a card file").
+     `<scratch>/20261110q4m8-empty-state-copy.md`. Not under a `.` or `_` name inside
+     `decisions/`: the hub ignores those, but `preside validate` refuses them ("is not a card
+     file").
 
-   Another agent may take the same number while your draft is under review; step 7 checks
-   for that.
+   Two cards almost never get the same id this way; step 7 checks for it anyway.
 2. Get the current time for `created`; don't guess it or copy the example's:
 
    ```sh
@@ -137,7 +144,7 @@ it, so don't skip it.
 
 ````markdown
 ---
-id: "0012"
+id: "20261110q4m8"
 title: What should the empty trip list say?
 status: open
 kind: choice
@@ -197,7 +204,7 @@ options:
 
    ```markdown
    ---
-   id: "0013"
+   id: "20261110w2zd"
    title: What should the app say the first time someone opens it?
    status: open
    kind: open
@@ -211,7 +218,7 @@ options:
    ```
 
 5. Check the draft: `preside validate <draft>` (for example
-   `preside validate <worktree>/decisions/0012-empty-state-copy.md`) must print `ok`. Fix
+   `preside validate <worktree>/decisions/20261110q4m8-empty-state-copy.md`) must print `ok`. Fix
    anything it reports (each problem names the field and the line). In a worktree, two things
    it may say are not problems with the card:
    - a note that the worktree "is not registered with the hub ... Register it: preside add
@@ -230,21 +237,21 @@ options:
    and have a fresh session review the fixed draft, round after round, until a review finds
    nothing should-fix. If you can't start a fresh session, don't copy the card in: tell the
    human where the draft is.
-7. List `<main>/decisions/` again. If another card has taken your id meanwhile, renumber the
-   draft to the next free id (change its `id` and rename the file to match). Check that every
+7. List `<main>/decisions/` again. If another card has your id, give the draft a new one
+   (make it as in step 1, change its `id` and rename the file to match). Check that every
    id in the draft's `depends_on` is a card in that list; if one isn't, fix the draft. If
    you changed the draft, validate it again. Then copy it into the main folder, by absolute
-   path (`<main>/decisions/0012-empty-state-copy.md`), never over an existing file, and run
-   `preside validate <main>/decisions/0012-empty-state-copy.md`: it must print `ok` and no
-   `warning` line.
+   path (`<main>/decisions/20261110q4m8-empty-state-copy.md`), never over an existing file,
+   and run `preside validate <main>/decisions/20261110q4m8-empty-state-copy.md`: it must
+   print `ok` and no `warning` line.
    - If it warns that a `depends_on` "is not a card in this project" (that card went away
      since you looked), the card is already in the human's queue: fix it with
      `preside update` (see **Changing a card**), not by editing it or copying over it.
-   - If it reports `id "0012" is also used by ...` (another agent copied the same id in
-     since you looked), your copy is the newer card: renumber the file in `<main>/decisions/`,
-     not the draft (it is broken, so edit its `id` directly and rename it, see **Changing a
-     card**), to the next free id there. Then validate it and the other card's file again; if
-     yours is reported as a duplicate again, renumber it again. Leave the other card alone.
+   - If it reports `id "20261110q4m8" is also used by ...` (another agent copied the same id
+     in since you looked), your copy is the newer card: give the file in `<main>/decisions/`
+     a new id, not the draft (it is broken, so edit its `id` directly and rename it, see
+     **Changing a card**). Then validate it and the other card's file again; if yours is
+     reported as a duplicate again, give it a new id again. Leave the other card alone.
 
    Then delete the draft (and the scratch folder, if you made one), so your branch never
    commits it. The card is in the human's queue now; leave it uncommitted.
@@ -265,8 +272,8 @@ options:
   use `depends_on`.
 - `priority: high` only when work is blocked on it.
 
-YAML pitfalls: quote ids (`id: "0012"`, `depends_on: ["0003"]`); quote any text containing ` #`
-or `: ` (unquoted, ` #` starts a comment and cuts the text off); use `>-` for long text;
+YAML pitfalls: quote ids (`id: "20261110q4m8"`, `depends_on: ["0003"]`); quote any text
+containing ` #` or `: ` (unquoted, ` #` starts a comment and cuts the text off); use `>-` for long text;
 timestamps need a timezone (`Z`).
 
 ## Applying resolved cards
@@ -331,9 +338,12 @@ When the human rejects all options, president appends their note to `feedback` (
 ## New notes from the human
 
 The human can add a note to an open or deferred card without deciding, give a reason when
-deferring, reopen a decided card, or take back a decision with Undo. These land in `feedback`
-(`type: note`, `defer`, `reopen` or `undo`), and `preside pending` lists every card with
-feedback newer than its `seen_at`. Two of them need care:
+deferring, reopen a decided card, take back a decision with Undo, or save the summary of a
+conversation they had with an agent about the card. These land in `feedback` (`type: note`,
+`defer`, `reopen`, `undo` or `chat`), and `preside pending` lists every card with feedback
+newer than its `seen_at`. A `chat` entry (printed `chat <time>: <text>`) is a conversation
+summary the human edited: read it as a note from them about a conversation you didn't see.
+Two of them need care:
 
 - **`undo`**: the human took back a decision right after making it (`previous_resolution` is
   the decision). If you recorded it in the docs or changed code for it, revert that. If you
@@ -354,6 +364,33 @@ For each:
 3. Run the card's `done:` line from `pending` (`preside seen <file> --token <token>`). Don't
    edit or remove `feedback`.
 
+## Withdrawing a card
+
+When an open or deferred card no longer matters (the feature was dropped, another decision
+answered it, the code moved on), withdraw it rather than leaving it in the human's queue.
+Don't delete the file, change its `status` or rewrite it into a "Drop this question" option.
+Add a `withdrawn` field with **Changing a card** below (`preside update`):
+
+```yaml
+withdrawn:
+  at: 2026-11-14T10:00:00Z
+  reason: "The map screen was dropped, so the tiles no longer matter."
+```
+
+- `at` is the current UTC time (`date -u +%Y-%m-%dT%H:%M:%SZ`). `reason` is one or two
+  sentences for the human; quote it, since a ` #` (as in `#0015`) or a `: ` would otherwise
+  cut or break it.
+- Keep everything else as it is, `status` included.
+- If you change your mind, remove the field with another `preside update`.
+- A decided card can't be withdrawn (`update` refuses it): apply the decision instead.
+- Once the hub has its "Withdrawn by agents" section, it lists the card there with your
+  reason, and the human can put it back; until then the hub still shows it in the queue, so
+  tell the human you withdrew it and why. Either way the human can still decide it or add a
+  note, so keep handling what `preside pending` shows for it. Cards that depend on it keep
+  waiting until the human decides it.
+- `preside validate` prints `ok      <file> (withdrawn: <reason>)` for it, and `preside pending`
+  marks it "(withdrawn)" after its title, with your reason on the next line.
+
 ## Changing a card
 
 The human can add a note, decide or undo at any moment, and president writes that into the
@@ -363,15 +400,15 @@ what the human added since, without any sign. Instead:
 
 1. Read the card.
 2. Write your whole new version of it to a file next to it whose name starts with `.` (president
-   ignores those), for example `<main>/decisions/.0012-empty-state-copy.md.new`: the card as
+   ignores those), for example `<main>/decisions/.20261110q4m8-empty-state-copy.md.new`: the card as
    you read it, with your changes. Keep `status`, `resolution`, `feedback`, `seen_at` and
    `applied_at` exactly as they were.
 3. Replace the card with it, then remove your file:
 
    ```sh
-   preside update <main>/decisions/0012-empty-state-copy.md \
-     <main>/decisions/.0012-empty-state-copy.md.new &&
-     rm <main>/decisions/.0012-empty-state-copy.md.new
+   preside update <main>/decisions/20261110q4m8-empty-state-copy.md \
+     <main>/decisions/.20261110q4m8-empty-state-copy.md.new &&
+     rm <main>/decisions/.20261110q4m8-empty-state-copy.md.new
    ```
 
    It checks your version like `preside validate`, and replaces the card only if what the

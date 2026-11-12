@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { parseDocument } from "yaml";
 import {
@@ -9,6 +11,7 @@ import {
   truncatedTexts,
 } from "../src/core/card-file.ts";
 import { updateCardText } from "../src/core/card-writer.ts";
+import { CARD_ID_PATTERN, datedCardId, withdrawalOf } from "../src/core/model.ts";
 import { cardText, DEMO_PROJECT, sizedCard } from "./helpers.ts";
 
 function expectErrors(text: string, fileName = "0001-colour.md"): string[] {
@@ -294,6 +297,137 @@ describe("docs/card-format.md", () => {
     expect(truncatedTexts(parseDocument(bad), bad, (offset) => offset)).toEqual([
       expect.stringMatching(/^resolution\.note: the text stops at "Keep it short"/),
     ]);
+  });
+});
+
+describe("dated ids (#0013)", () => {
+  it("accepts a dated id, which sorts after numbered ones", () => {
+    const card = expectCard(cardText({ id: '"20261111k7q2"' }), "20261111k7q2-sync-shortcut.md");
+    expect(card.id).toBe("20261111k7q2");
+    expect(["20261111k7q2-a.md", "0013-b.md"].sort()).toEqual(["0013-b.md", "20261111k7q2-a.md"]);
+  });
+
+  it("makes a valid dated id with the command the docs and the skill give", async () => {
+    for (const file of [
+      join(import.meta.dirname, "..", "docs", "card-format.md"),
+      join(import.meta.dirname, "..", "skills", "decision-cards", "SKILL.md"),
+    ]) {
+      const text = await readFile(file, "utf8");
+      const command = /^ *(echo "\$\(date -u \+%Y%m%d\).*urandom.*)$/m.exec(text)?.[1];
+      expect(command, file).toBeDefined();
+      const today = () => new Date().toISOString().slice(0, 10);
+      const before = today();
+      const { stdout } = await promisify(execFile)("sh", ["-c", command ?? ""]);
+      const id = stdout.trim();
+      expect(id).toMatch(CARD_ID_PATTERN);
+      // Either side of a UTC midnight.
+      expect([before, today()]).toContain(datedCardId(id)?.date);
+    }
+  });
+
+  it("asks for quotes when YAML reads an unquoted dated id as another number", () => {
+    expect(expectErrors(cardText({ id: "20261111e123" }), "20261111e123-a.md")).toEqual([
+      expect.stringMatching(
+        /^id: YAML reads 20261111e123 as the number .*; write ids in quotes: id: "20261111e123"$/,
+      ),
+    ]);
+    expect(expectErrors(cardText({ id: "20261111e001" }), "20261111e001-a.md")).toEqual([
+      expect.stringMatching(
+        /^id: YAML reads 20261111e001 as the number 202611110 .*id: "20261111e001"$/,
+      ),
+    ]);
+    expect(
+      expectErrors(
+        cardText({ id: '"20261111k7q2"', depends_on: "[0001, 20261111e002]" }),
+        "20261111k7q2-a.md",
+      ),
+    ).toEqual([
+      expect.stringMatching(
+        /^depends_on\[1\]: YAML reads 20261111e002 .*depends_on: \["20261111e002"\]$/,
+      ),
+    ]);
+    // Digits only read back as the same id.
+    expect(expectCard(cardText({ id: "202611111234" }), "202611111234-a.md").id).toBe(
+      "202611111234",
+    );
+    // Text that wouldn't be a valid id even in quotes is left as before.
+    expect(expectCard(cardText({ id: "+9" }), "9-a.md").id).toBe("9");
+  });
+
+  it("gives the short form of a dated id and its date, and nothing for other ids", () => {
+    expect(datedCardId("20261111k7q2")).toEqual({ short: "k7q2", date: "2026-11-11" });
+    expect(datedCardId("202611116ff6")).toEqual({ short: "6ff6", date: "2026-11-11" });
+    for (const id of [
+      "0013",
+      "0001",
+      "20261111k7q",
+      "20261111k7q2x",
+      "20261341k7q2",
+      "abcd1111k7q2",
+    ]) {
+      expect(datedCardId(id), id).toBeUndefined();
+    }
+  });
+});
+
+describe("the withdrawn field (#0014)", () => {
+  const withdrawn = `
+  at: 2026-11-14T10:00:00Z
+  reason: "The queue was rewritten in #0015; dependencies no longer affect ordering."`;
+
+  it("accepts a withdrawal on an open, a deferred or a decided card, and keeps the status", () => {
+    for (const status of ["open", "deferred"]) {
+      const card = expectCard(cardText({ status, withdrawn }));
+      expect(card.frontmatter.status).toBe(status);
+      expect(withdrawalOf(card.frontmatter)).toEqual({
+        at: "2026-11-14T10:00:00Z",
+        reason: "The queue was rewritten in #0015; dependencies no longer affect ordering.",
+      });
+    }
+    // The human can still decide a withdrawn card; the decision keeps the field.
+    const decided = expectCard(
+      cardText({
+        status: "resolved",
+        withdrawn,
+        resolution: "\n  choice: a\n  resolved_at: 2026-11-15T10:00:00Z",
+      }),
+    );
+    expect(withdrawalOf(decided.frontmatter)?.reason).toMatch(/^The queue/);
+    expect(withdrawalOf(expectCard(cardText()).frontmatter)).toBeUndefined();
+  });
+
+  it("needs a timestamp and a reason", () => {
+    expect(expectErrors(cardText({ withdrawn: "\n  at: 2026-11-14T10:00:00Z" }))).toEqual([
+      "withdrawn.reason: is required (line 15)",
+    ]);
+    expect(expectErrors(cardText({ withdrawn: '\n  at: yesterday\n  reason: "  "' }))).toEqual([
+      expect.stringMatching(/^withdrawn\.at: expected a date/),
+      expect.stringMatching(/^withdrawn\.reason: must not be empty/),
+    ]);
+    expect(expectErrors(cardText({ withdrawn: "true" }))[0]).toMatch(/^withdrawn: /);
+  });
+
+  it("reports a reason cut by an unquoted comment, as for other free text", () => {
+    expect(
+      expectErrors(cardText({ withdrawn: "\n  at: 2026-11-14\n  reason: Dropped # see #0015" })),
+    ).toEqual([
+      'withdrawn.reason: the text stops at "Dropped" because " #" starts a YAML comment (line 16); put the whole text in quotes: reason: "Dropped # see #0015"',
+    ]);
+  });
+});
+
+describe("the chat feedback type (#0023)", () => {
+  it("accepts a conversation summary entry", () => {
+    const card = expectCard(
+      cardText({
+        feedback:
+          "\n  - at: 2026-11-12T09:14:00Z\n    type: chat\n    note: I now see that B's extra code is one line per call with a helper.",
+      }),
+    );
+    expect(card.frontmatter.feedback[0]?.type).toBe("chat");
+    expect(
+      expectErrors(cardText({ feedback: "\n  - at: 2026-11-12\n    type: talk\n    note: x" }))[0],
+    ).toMatch(/^feedback\[0\]\.type: /);
   });
 });
 
@@ -662,7 +796,7 @@ describe("skills/decision-cards/SKILL.md", async () => {
 
   it("has a template that validate refuses until the placeholders are replaced", () => {
     expect(template).not.toBe("");
-    const errors = expectErrors(`${template}\n`, "0012-empty-state-copy.md");
+    const errors = expectErrors(`${template}\n`, "20261110q4m8-empty-state-copy.md");
     expect(errors.every((e) => /placeholder|only "\.\.\."/.test(e))).toBe(true);
     expect(errors.length).toBeGreaterThanOrEqual(3);
   });
@@ -671,7 +805,7 @@ describe("skills/decision-cards/SKILL.md", async () => {
   // card (R5-13): every value and section meant for the agent's own text is a placeholder.
   it("has no instructions written as values in its template", () => {
     const filled = template.replaceAll("...", "Real text");
-    const card = expectCard(`${filled}\n`, "0012-empty-state-copy.md");
+    const card = expectCard(`${filled}\n`, "20261110q4m8-empty-state-copy.md");
     const { recommendation, options } = card.frontmatter;
     expect(recommendation?.why).toBe("Real text");
     for (const option of options) {
@@ -693,7 +827,7 @@ describe("skills/decision-cards/SKILL.md", async () => {
   it("has an open card example that is valid", () => {
     const example = /^ {3}```markdown\n([\s\S]*?)\n {3}```$/m.exec(skill)?.[1];
     expect(example).toBeDefined();
-    const card = expectCard(`${example?.replace(/^ {3}/gm, "")}\n`, "0013-first-run.md");
+    const card = expectCard(`${example?.replace(/^ {3}/gm, "")}\n`, "20261110w2zd-first-run.md");
     expect(card.frontmatter.kind).toBe("open");
   });
 });

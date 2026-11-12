@@ -13,12 +13,24 @@ disagree, fix one of them.
 <project>/decisions/<id>-<slug>.md
 ```
 
-- `<id>` is lowercase letters and digits only, no dashes. Use zero-padded numbers: `0001`, `0002`, ...
-  To pick the next id, list `decisions/` and add one to the highest number (`0001` for the first
-  card). If two agents pick the same id at once, both cards show as broken; the one who wrote the
-  newer card gives it the next free id (its `id` and its file name).
-- `<slug>` is a few lowercase words joined by dashes: `0007-error-handling.md`. It is only for humans
-  browsing the folder; the slug can change without breaking anything. A `done:` line that
+- `<id>` is lowercase letters and digits only (1 to 32), no dashes. A new card's id is the UTC
+  date plus 4 random lowercase letters and digits, for example `20261111k7q2`, so it never
+  depends on what is in the folder (decision #0013): agents on other branches and worktrees
+  can't pick the same one. Make it with
+
+  ```sh
+  echo "$(date -u +%Y%m%d)$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c4)"
+  ```
+
+  Cards written before this rule keep their numbered ids (`0001`, `0002`, ...); nothing is
+  renumbered, so a folder can hold both styles, and the numbered ones sort first. In the rare
+  case that two cards get the same id, both show as broken; the one who wrote the newer card
+  gives it a new id (its `id` and its file name).
+- The hub shows a dated id in its short form, `#k7q2` (unique within its day), next to a date;
+  a numbered id shows in full (`#0007`). Everything else uses the full id: file names,
+  `depends_on`, `preside pending`.
+- `<slug>` is a few lowercase words joined by dashes: `20261111k7q2-error-handling.md`. It is
+  only for humans browsing the folder; the slug can change without breaking anything. A `done:` line that
   `preside pending` printed before a rename still works: it finds the card by its id and says
   which file it used.
 - Status lives in the frontmatter. Files are never moved between folders.
@@ -69,6 +81,7 @@ title: How should the API client report errors?
 | `resolution` | when resolved | `{choice, note?, resolved_at}` | The human's answer. `choice` is an option id, or `custom` with the answer in `note`. |
 | `applied_at` | no | timestamp | Set by an agent after it has acted on the resolution (updated the docs): `preside applied <file> --token <token>`. Only on resolved cards. |
 | `seen_at` | no | timestamp | The `at` of the newest feedback entry an agent has read. `preside seen` and `preside applied` set it to the newest entry `preside pending` showed. Feedback newer than this is listed by `preside pending`. |
+| `withdrawn` | no | `{at, reason}` | Set by an agent that retracts an open or deferred card that no longer matters: `at` is a timestamp, `reason` says why. `status` doesn't change. See [withdrawing a card](#withdrawing-a-card). |
 | `session_id` | no | string | Reserved for the per-card chat (a later version): the id of the card's Claude Code session, whose full log stays on the machine that ran it. What travels with the card is a summary in `feedback` (decision #0003, see `docs/roadmap.md`). |
 
 Any other field is allowed and is kept untouched when president updates the card, so agents can
@@ -109,12 +122,13 @@ options:
 ```yaml
 feedback:
   - at: 2026-11-05T18:40:00Z
-    type: neither        # neither | note | defer | reopen | undo
+    type: neither        # neither | note | defer | reopen | undo | chat
     note: Both options assume a server. Only compare on-device storage.
 ```
 
 `type` tells agents what the human did: `neither` rejected all options, `note` added a comment,
-`defer` postponed it, `reopen` reopened a resolved card. A `reopen` entry keeps the old
+`defer` postponed it, `reopen` reopened a resolved card, `chat` saved a conversation summary.
+A `reopen` entry keeps the old
 resolution in `previous_resolution`, and `previous_applied_at` when an agent had applied it:
 
 ```yaml
@@ -145,9 +159,47 @@ byte for byte.
       resolved_at: 2026-11-10T15:20:00Z
 ```
 
+`chat` is the summary of a conversation the human had with an agent about the card (decision
+#0023): the agent drafted it and the human edited it. History labels it "Conversation summary",
+and `preside pending` prints it as `chat <time>: <text>`. Treat it like a note from the human.
+A version of president older than this type shows a card with a `chat` entry as broken.
+
+```yaml
+  - at: 2026-11-12T09:14:00Z
+    type: chat
+    note: I now see that B's extra code is one line per call with a helper.
+```
+
 Feedback written after `seen_at` (or all of it, when there is no `seen_at`) has not been read by
 an agent yet. president gives each new entry an `at` later than every earlier entry and than
 `seen_at`; when that second is already taken it adds milliseconds (`2026-11-05T18:40:00.001Z`).
+
+### Withdrawing a card
+
+When an open or deferred card stops mattering (the feature was dropped, another decision
+answered it), the agent doesn't delete it or change its `status`: it adds `withdrawn` through
+`preside update` (decision #0014):
+
+```yaml
+withdrawn:
+  at: 2026-11-14T10:00:00Z
+  reason: "The queue was rewritten in #0015; dependencies no longer affect ordering."
+```
+
+- `at` is when (`date -u +%Y-%m-%dT%H:%M:%SZ`), `reason` is one or two sentences for the human.
+  Always quote the reason: a ` #` (as in `#0015`) or a `: ` would otherwise cut or break it.
+- To take the withdrawal back, the agent removes the field with another `preside update`.
+- `update`'s guard applies as for any rewrite: if the human acted on the card since the agent
+  read it, the withdrawal is refused.
+- The card stays answerable: the human can still decide it, add a note or reject its options,
+  and a decision keeps the field. Cards that depend on a withdrawn card keep waiting for it
+  until it is decided.
+- `preside validate` says a card is withdrawn and why:
+  `ok      20261111k7q2-map-tiles.md (withdrawn: We dropped the map screen.)`.
+  `preside pending` lists a withdrawn card only when it would anyway (the human added a note,
+  decided it), with "(withdrawn)" after its title and the reason on the next line; in its
+  `--json` output such a card has a `withdrawn` field (`{at, reason}`), which other cards
+  don't.
 
 ## Body
 
@@ -297,12 +349,14 @@ resolution:
 
 - Quote strings that contain `: ` (colon and space) or ` #` (space and hash), or start with
   `[`, `{`, `*`, `&`, `!`, `|`, `>`, `'`, `"`, `%` or `@`.
-- Quote ids: `id: "0007"`, `depends_on: ["0003"]`.
+- Quote ids: `id: "20261111k7q2"`, `depends_on: ["0003"]`. YAML can read an unquoted
+  dated id as a number (`202611111234`, or `20261111e123`, a float).
 - ` #` starts a comment, so in `title: Write it in C # or Rust?` the title is just "Write it
   in C". In the free-text fields (`title`, `created_by`, `tags`, the options' `title`,
   `summary`, `pros` and `cons`, `recommendation.why`, `feedback[].note`,
-  `feedback[].previous_resolution.note` and `resolution.note`), `validate` reports unquoted
-  text followed by a comment on the same line, with the line, as an error: quote the text
+  `feedback[].previous_resolution.note`, `resolution.note` and `withdrawn.reason`),
+  `validate` reports unquoted text followed by a comment on the same line, with the line, as
+  an error: quote the text
   (`title: "Write it in C # or Rust?"`). Text a single-value alias (`title: *t`, `- *p`)
   brings into one of them is checked where it is anchored; an alias that stands for a whole
   list or mapping is not checked. Fields president doesn't know are not checked, since it can't

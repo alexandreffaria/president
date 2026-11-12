@@ -2,6 +2,7 @@ import { useRef } from "react";
 import type { CardDto } from "../../core/api.ts";
 import { CUSTOM_CHOICE } from "../../core/model.ts";
 import { buildLog } from "../../core/queue.ts";
+import { CardId } from "../components/CardId.tsx";
 import { useHeadingFocus } from "../focus.ts";
 import { fullDate, optionLabel, timeAgo } from "../format.ts";
 import { useHub } from "../hub.tsx";
@@ -67,7 +68,7 @@ function LogItem({ card }: { card: CardDto }) {
           {fm.title}
         </Link>
         <span className="muted small">
-          {card.project} #{card.id} ·{" "}
+          {card.project} <CardId id={card.id} withDate /> ·{" "}
           <time dateTime={resolution.resolved_at} title={fullDate(resolution.resolved_at)}>
             {timeAgo(resolution.resolved_at)}
           </time>

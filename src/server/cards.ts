@@ -146,7 +146,7 @@ function collect(
         fileName: card.fileName,
         id: card.id,
         errors: [
-          `id "${card.id}" is also used by ${others.join(", ")}; give each card its own id. If you wrote one of them, give yours (the newer one) the next free id: change its id and rename its file to match`,
+          `id "${card.id}" is also used by ${others.join(", ")}; give each card its own id. If you wrote one of them, give yours (the newer one) a new dated id (the current date plus 4 random characters, see docs/card-format.md): change its id and rename its file to match`,
         ],
       });
     } else {

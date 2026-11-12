@@ -36,6 +36,11 @@ After that (2026-11-12): F (the command is now `preside`, #0016 and 20261111dmvt
 pull request "Rename the command to preside (F)" (PR #19, branch `feat/rename-preside`), with
 `president` kept as an alias. F2, which removes the alias, isn't built.
 
+Then (2026-11-12): D (dated card ids #0013, the `withdrawn` field's format and CLI #0014 and
+202611116ff6, the `chat` feedback type #0023) is built in the pull request "Card format and
+CLI (D)" (PR #20, branch `feat/card-format-d`). C, which shows withdrawn cards in the hub,
+isn't built.
+
 ## Build plan
 
 Each row is one pull request (PR 2 may be split, see its section). The order is a suggestion;
@@ -48,7 +53,7 @@ Each row is one pull request (PR 2 may be split, see its section). The order is 
 | B | [Sync](#b-sync-0001) | #0001, #0022, 2026111209dq, 20261112xp4s | nothing | **Built** in PR #12, together with [the two follow-up decisions](#decided-while-pr-12-was-open-2026111209dq-20261112xp4s): 09dq is what it already did, and xp4s is commit `b672fe1` |
 | B2 | [Sync: count a skipped project's answers apart](#b2-sync-count-a-skipped-projects-answers-apart-20261112l9vh) | 20261112l9vh | B (PR #12) merged | **Built** in the follow-up pull request (PR #18, branch `feat/sync-followups`) |
 | C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | Alongside B; before PR 2, which builds on #0010's Neither panel and #0011's notes on decided cards |
-| D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part), 202611116ff6 (`pending` and `validate`) | PR #7 (it edits `card-format.md` and `SKILL.md`) | Before or with C and PR 2; `chat` must exist before PR 2 writes it |
+| D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part), 202611116ff6 (`pending` and `validate`) | PR #7 (it edits `card-format.md` and `SKILL.md`) | **Built** in the pull request "Card format and CLI (D)" (PR #20, branch `feat/card-format-d`) |
 | E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s, 20261112dfik | C (#0010's panel, #0011's notes on decided cards), D (`chat` type) | After C and D |
 | F | [Rename the command to `preside`](#f-rename-the-command-to-preside-0016-20261111dmvt) (agent-facing: the CLI, the skill and every printed command) | #0016, 20261111dmvt | A2 (both edit `SKILL.md`). The npm placeholder is published by the human (an agent prepares it). No card orders it against F; suggested: publish it before F merges (after repeating the name check), so the name F writes everywhere can't be taken meanwhile | **Built** in the pull request "Rename the command to preside (F)" (PR #19, branch `feat/rename-preside`) |
 | F2 | [Remove the `president` alias](#the-president-alias-and-when-it-ends) | 20261111dmvt | F | One month after F ships, or once every registered project's own docs and agent instructions use `preside`, whichever is later |
@@ -685,11 +690,33 @@ format part is in D.
   changes: in the queue and in the card page's notice it says the dependency was withdrawn, for
   example "depends on #0042, withdrawn". There is no button to accept a withdrawal (the
   option's stated cost). What `preside pending` and `validate` say is in D.
+- When this ships, drop the "until then the hub still shows it in the queue" clause from the
+  skill's *Withdrawing a card* (added by D in PR #20).
 
 ## D. Card format and CLI
 
 Changes to `docs/card-format.md`, `skills/decision-cards/SKILL.md`, `src/core/` and
 `src/cli/`. Wait for PR #7, which edits the same two docs.
+
+**Built** in the pull request "Card format and CLI (D)" (PR #20, branch
+`feat/card-format-d`), as written below:
+
+- Dated ids: `docs/card-format.md` (where cards live) and the skill (*Writing a card*, steps
+  1 and 7, and its examples) give the rule and the command; a duplicate id gets a new dated
+  id. `datedCardId` (`src/core/model.ts`) splits `20261111k7q2` into `k7q2` and its date, and
+  the hub's `CardId` (`src/web/components/CardId.tsx`) shows `#k7q2` on the queue rows, the
+  card page and the Log, with the full id in its tooltip; where a row shows no created date
+  (the Log, the compact lists under the queue) it adds the id's date. Dependency marks and
+  notices keep the full id.
+- `withdrawn`: `WithdrawnSchema` (`{at, reason}`, both required, extra keys kept) in
+  `src/core/schema.ts`, optional on every status (the human can decide a withdrawn card and the
+  decision keeps it), its type `Withdrawn`, and `withdrawalOf` / `Withdrawal` in
+  `src/core/model.ts` for C's Withdrawn section. `withdrawn.reason` is checked for a ` #`
+  comment like other free text. `validate` and `pending` (text and `--json`) label it as
+  below; `pending`'s text adds the reason on a line under the title. Documented in
+  `docs/card-format.md` (*Withdrawing a card*) and the skill (*Withdrawing a card*).
+- `chat`: in `FEEDBACK_TYPES`, labelled "Conversation summary" in History, documented in
+  `docs/card-format.md` and the skill's *New notes from the human*.
 
 ### Dated card ids (#0013)
 
@@ -719,11 +746,13 @@ Card: [0013-card-ids.md](../decisions/0013-card-ids.md), option `dated`.
   ```yaml
   withdrawn:
     at: 2026-11-14T10:00:00Z
-    reason: The queue was rewritten in #0015; dependencies no longer affect ordering.
+    reason: "The queue was rewritten in #0015; dependencies no longer affect ordering."
   ```
 
-  and changes its mind by removing it with another `preside update`. `status` doesn't change.
-  `update`'s guard already refuses the agent's version if you acted on the card meanwhile.
+  The reason is quoted since D: unquoted, ` #0015` starts a YAML comment and cuts the reason,
+  which `validate` reports. The agent changes its mind by removing the field with another
+  `preside update`. `status` doesn't change. `update`'s guard already refuses the agent's
+  version if you acted on the card meanwhile.
 - Document the field in `docs/card-format.md` and the skill (when and how to withdraw).
 - **`preside pending` and `validate` label a withdrawn card**
   ([202611116ff6-withdrawn-cards-elsewhere.md](../decisions/202611116ff6-withdrawn-cards-elsewhere.md),
@@ -1445,10 +1474,11 @@ Not edited here (this pull request records decisions in `foundations.md` and the
 only); the build PR named in brackets fixes each.
 
 - `docs/card-format.md` and the skill, picking an id ("add one to the highest number"):
-  replaced by #0013's dated ids [D].
+  replaced by #0013's dated ids [D; fixed in PR #20].
 - `docs/card-format.md`, `session_id` "Reserved for the per-card chat": unused under #0021 [E].
 - `docs/card-format.md`, feedback types (`neither | note | defer | reopen | undo`): gains `chat`
-  (#0023) [D]; fields: gains `withdrawn` (#0014) [D] and `defer_until` (#0017) [C or D].
+  (#0023) [D; fixed in PR #20]; fields: gains `withdrawn` (#0014) [D; fixed in PR #20] and
+  `defer_until` (#0017) [C or D].
 - `docs/card-format.md` Lifecycle, notes only on open and deferred cards: #0011 allows them on
   resolved cards [C].
 - README `d` row ("defer"): under #0017 `d` defers for a week [C].
