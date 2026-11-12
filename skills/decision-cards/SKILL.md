@@ -44,14 +44,21 @@ there misses the human's answers and changes only that copy.
   with `president add`.
 - **Never commit card files in your pull request; Sync carries them.** Your branch and pull
   request hold only the docs and code you changed, never a file under `decisions/`. (Sync is
-  the hub's button that commits and pushes the human's card changes; see **Until Sync
-  exists** below.) Stage your files by path, not with `git add -A` or `git commit -a`: changes
-  under `decisions/` in `git status` are the human's and Sync's.
-- Not decided yet: whether that line also covers card changes you make outside an apply (new
-  cards, `president update` rewrites). That question is the human's, asked in a card
-  (president's `docs/roadmap.md`, "Needs a card" 1). Until they answer, read the line
-  literally: write new cards and `update` drafts only in `<main>/decisions/`, by absolute
-  path, pick a new card's id there, and leave them uncommitted.
+  the hub's button that commits and pushes the card changes in the main folder; see
+  **Projects Sync skips** below for the ones it doesn't.) Stage your files by path, not with
+  `git add -A` or `git commit -a`: changes under `decisions/` in `git status` are the human's
+  and Sync's.
+- The line covers every card change you make, not only answers and `applied`: no pull request
+  carries a file under `decisions/`, not even one that only writes cards. The cards you write
+  or change reach the human in the main folder, and Sync (or a hand commit, in a project Sync
+  skips) puts them in git:
+  - **a new card** is drafted outside `<main>/decisions/`, validated, reviewed by a fresh
+    session until nothing should-fix is left, and only then copied into `<main>/decisions/`
+    and validated there (see **Writing a card**);
+  - **a rewrite** of an existing card (new options after "neither", adding or removing
+    `withdrawn`) goes straight to the main folder with `president update`, unreviewed (see
+    **Changing a card**), so its guard compares your version with the card the human has,
+    notes included.
 
 ## At the start of a session
 
@@ -93,14 +100,25 @@ there misses the human's answers and changes only that copy.
 
 ## Writing a card
 
+A new card reaches the human only once a fresh session has reviewed it: you write a draft
+where the hub doesn't read it, check and review it there, then copy it into
+`<main>/decisions/`. Nothing checks that the review ran, and the card looks the same without
+it, so don't skip it.
+
 1. Pick the id: list `<main>/decisions/` (not a worktree's copy), take the highest number and
-   add one, zero-padded to 4 digits (`0001` when there are no cards yet). The file is
-   `<main>/decisions/<id>-<short-slug>.md`, e.g. `<main>/decisions/0012-empty-state-copy.md`;
-   write it there, by absolute path, even when you work in a worktree. Another agent may pick
-   the same number at the same moment; `president validate` (step 5) then reports both cards
-   as broken with `id "0012" is also used by ...`. If it does, renumber your card (the newer
-   one) to the next free id: change its `id` and rename the file to match. Leave the other
-   card alone.
+   add one, zero-padded to 4 digits (`0001` when there are no cards yet). The file name is
+   `<id>-<short-slug>.md`, e.g. `0012-empty-state-copy.md`. Write the draft:
+   - **in a worktree**: in the worktree's own `decisions/`, e.g.
+     `<worktree>/decisions/0012-empty-state-copy.md`, and never commit it;
+   - **in the main folder itself**: outside `decisions/`, in a scratch folder outside the
+     project (for example one made with `mktemp -d`), e.g.
+     `<scratch>/0012-empty-state-copy.md`. Not under a `.` or `_` name inside `decisions/`:
+     the hub ignores those, but `president validate` refuses them ("is not a card file").
+
+   Another agent may pick the same number while your draft is under review; the copy's
+   `president validate` (step 7) then reports both cards as broken with
+   `id "0012" is also used by ...`. If it does, renumber your card (the newer one) to the
+   next free id: change its `id` and rename the file to match. Leave the other card alone.
 2. Get the current time for `created`; don't guess it or copy the example's:
 
    ```sh
@@ -191,8 +209,24 @@ options:
    The first screen is empty: one short line and a button. What tone do you want?
    ```
 
-5. Check it: `president validate <main>/decisions/0012-empty-state-copy.md` must print `ok`.
-   Fix anything it reports (each problem names the field and the line).
+5. Check the draft: `president validate <draft>` (for example
+   `president validate <worktree>/decisions/0012-empty-state-copy.md`) must print `ok`. Fix
+   anything it reports (each problem names the field and the line). In a worktree, two things
+   it may say are not problems with the card:
+   - a note that the worktree "is not registered with the hub ... Register it: president add
+     <worktree>": ignore it, and never register a worktree;
+   - a warning that a `depends_on` "is not a card in this project", for a card that is in
+     `<main>/decisions/`: the worktree's `decisions/` lacks the main folder's uncommitted
+     cards, so its id and dependency checks are not authoritative. Only step 7's validate in
+     the main folder is. (A draft in a scratch folder is checked on its own, without them.)
+6. Have a fresh session (one that didn't write the card) review the draft. Fix what it finds
+   and have the fixes reviewed again, round after round, until a review finds nothing
+   should-fix. Validate the draft again after each fix.
+7. Copy the reviewed draft into the main folder, by absolute path
+   (`<main>/decisions/0012-empty-state-copy.md`), and run
+   `president validate <main>/decisions/0012-empty-state-copy.md` there: it must print `ok`
+   (for a duplicate id, see step 1). Then delete the draft, so your branch never commits it.
+   The card is in the human's queue now; leave it uncommitted.
 
 ### What makes a good card
 
@@ -248,11 +282,14 @@ For each one that `president pending <main>` lists:
    took it back with Undo, or reopened it before you finished), revert the docs entry and the
    work you did for it, then run `president pending <main>` again.
 
-### Until Sync exists
+### Projects Sync skips
 
-The Sync button is decided but not built yet. Until it is, the human's answers reach the main
-branch only when someone commits `decisions/` on it by hand, in the main folder. Do that only
-when the human asks you to, and never in a pull request.
+Sync (the hub's Sync button) only works on a project whose folder is the top folder of its
+git repository. It skips a project inside a bigger repository (a monorepo subfolder, a home
+folder kept in git), and pressing Sync says why. In a project Sync skips, the card changes in
+the main folder (the human's answers, your `applied` marks, new cards you copied in,
+rewrites) reach the main branch only when someone commits `decisions/` on it by hand, in the
+main folder. Do that only when the human asks you to, and never in a pull request.
 
 ## Cards that need new options
 
@@ -327,8 +364,10 @@ what the human added since, without any sign. Instead:
    After a refused `update`, the `done:` line you have is from before the new entries: once
    your update went through, run `president pending <main>` again and use its new `done:` line.
 
-A new card has no human edits to lose: write its file directly
-(`<main>/decisions/<id>-<slug>.md`).
+Every rewrite is made this way, straight in the main folder, with no review first. A new
+card is not: it is drafted and reviewed outside `<main>/decisions/` and then copied in (see
+**Writing a card**). Once it is in `<main>/decisions/`, the human can add to it, so change it
+only this way.
 
 A card `president validate` reports as broken (a YAML error, a duplicate id) is the one
 exception: president never writes a broken card, so neither the human nor `president update`

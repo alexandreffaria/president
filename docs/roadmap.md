@@ -28,6 +28,9 @@ request (row B2); 72fu and 160s are part of E. 160s left one new question, about
 tab; card 20261112dfik answered it (`refuse-undo`, its recommended option, no note), also part
 of E. [Needs a card](#needs-a-card) is empty for now.
 
+Later still: A2 (the skill's rule for delivering new cards and rewrites, 20261111st0c) is
+built in PR #XX.
+
 ## Build plan
 
 Each row is one pull request (PR 2 may be split, see its section). The order is a suggestion;
@@ -36,7 +39,7 @@ Each row is one pull request (PR 2 may be split, see its section). The order is 
 | # | Work | Decided by | Depends on | Suggested order |
 |---|---|---|---|---|
 | A | [Agent rules: the skill line for #0022](#a-agent-rules-the-skill-line-for-0022) | #0022 | PR #7 (it edits `SKILL.md`) | **Built** in PR #10 |
-| A2 | [Agent rules: how agents deliver new cards and rewrites](#a2-agent-rules-how-agents-deliver-new-cards-and-rewrites-20261111st0c) (agent-facing: the skill) | 20261111st0c | A (built) | **First**, before any agent writes the next card: the skill today tells agents to write new cards straight into the main folder with no review, the reading st0c did not choose |
+| A2 | [Agent rules: how agents deliver new cards and rewrites](#a2-agent-rules-how-agents-deliver-new-cards-and-rewrites-20261111st0c) (agent-facing: the skill) | 20261111st0c | A (built) | **Built** in PR #XX |
 | B | [Sync](#b-sync-0001) | #0001, #0022, 2026111209dq, 20261112xp4s | nothing | **Built** in PR #12, together with [the two follow-up decisions](#decided-while-pr-12-was-open-2026111209dq-20261112xp4s): 09dq is what it already did, and xp4s is commit `b672fe1` |
 | B2 | [Sync: count a skipped project's answers apart](#b2-sync-count-a-skipped-projects-answers-apart-20261112l9vh) | 20261112l9vh | B (PR #12) merged | A small pull request right after PR #12 merges, not inside PR #12, which is in a late review round and still changing |
 | C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | Alongside B; before PR 2, which builds on #0010's Neither panel and #0011's notes on decided cards |
@@ -151,6 +154,16 @@ authoritative for ids and dependencies.
   done, and nothing shows whether it ran; two rules (new cards reviewed then copied, rewrites
   straight in) and more steps per new card; CI checks the cards only after they reach main;
   rewrites reach the human unreviewed.
+
+**Built** in PR #XX, in the skill only (no code change): *The main folder, and card files in
+git* states the rule, *Writing a card* has the four steps (as steps 1 and 5 to 7), *Changing
+a card* says rewrites go straight in and new cards don't, and *Until Sync exists* became
+*Projects Sync skips*. Step 2's two messages (the "not registered" note and a `depends_on`
+warning in a worktree) are handled by the skill telling the agent to ignore them, not by a
+code change. An agent working in the main folder itself drafts in a scratch folder outside
+the project (for example one made with `mktemp -d`), so the draft is neither read by the hub
+nor left as an untracked file in the checkout. `foundations.md`'s *Engineering process* says
+cards are reviewed in the agent's folder and never carried by a pull request.
 
 ## B. Sync (#0001)
 
@@ -352,11 +365,10 @@ Sync would then refuse whenever an agent has work in progress.
   (#0022), conversation summaries (#0003, #0023), `defer_until` (#0017) and `withdrawn` (#0014).
   Session ids, the hub's copy of conversations and the "not summarized" list never travel
   (#0018, #0021, #0024): they live outside the project.
-- The README documents Sync (PR #12). Still to do: `SKILL.md`'s *Until Sync exists* note,
-  which PR #12 doesn't touch and which says Sync is "not built yet". Under 2026111209dq
-  (below) its rule stays true for a project Sync skips, so narrow it to those rather than
-  remove it: their card changes reach git only by a hand commit in the main folder, done when
-  the human asks, never in a pull request.
+- The README documents Sync (PR #12). `SKILL.md`'s *Until Sync exists* note, which PR #12
+  didn't touch and which said Sync is "not built yet", is narrowed to the projects Sync skips
+  (2026111209dq, below) as *Projects Sync skips* (A2, PR #XX): their card changes reach git
+  only by a hand commit in the main folder, done when the human asks, never in a pull request.
 
 ### Decided while PR 12 was open (2026111209dq, 20261112xp4s)
 
@@ -1403,14 +1415,15 @@ only); the build PR named in brackets fixes each.
   write new cards straight into `<main>/decisions/`, *Writing a card*, step 1, and *Changing a
   card*'s "A new card has no human edits to lose: write its file directly
   (`<main>/decisions/<id>-<slug>.md`)": 20261111st0c has new cards reviewed in the agent's
-  worktree first, then copied [A2].
+  worktree first, then copied [A2; fixed in PR #XX].
 - The skill's pointer "(president's `docs/roadmap.md`, 'Needs a card' 1)": that item has since
-  held other questions (the list is empty now); the card it meant is 20261111st0c, decided [A2].
+  held other questions (the list is empty now); the card it meant is 20261111st0c, decided [A2;
+  fixed in PR #XX, which removes the paragraph that held the pointer].
 - foundations.md, *Engineering process*, "Every task ... ends in a PR" and "the loop repeats
   until **every** finding, non-blocking ones included, is fixed": a task that only writes cards
   now ends with them reviewed in the agent's worktree and copied into the main folder, with no
   pull request, and its review loop stops when nothing should-fix is left (20261111st0c) [A2,
-  when the skill changes].
+  when the skill changes; fixed in PR #XX].
 - The deferred card page, "Deferred. It stays out of the queue until reopened."
   (`CardView.tsx`): a deferred card without a date comes back at once (202611112hzh) [C].
 
