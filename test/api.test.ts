@@ -105,25 +105,30 @@ describe("projects API", () => {
   });
 
   // A typo through a file, or a link loop, is the user's to fix: a 422 that says so (R10-2).
-  it("answers a path through a file or a link loop with what is wrong, not a 500", async () => {
-    const { post } = await setup();
-    const scratch = await tempDir();
-    await writeFile(join(scratch, "file.txt"), "notes");
-    await symlink("loop", join(scratch, "loop"));
-    const project = join(scratch, "project");
-    await mkdir(project);
-    await symlink("decisions", join(project, "decisions"));
-    const cases: [object, string][] = [
-      [{ path: join(scratch, "file.txt", "x") }, "a part of the path is a file, not a folder"],
-      [{ path: join(scratch, "loop") }, "the path goes through a loop of links"],
-      [{ path: project, createDecisions: true }, "the path goes through a loop of links"],
-    ];
-    for (const [body, reason] of cases) {
-      const res = await post("/api/projects", body);
-      expect(res.status).toBe(422);
-      expect((await json(res)).error).toMatch(`: ${reason}`);
-    }
-  });
+  // Windows says a path through a file doesn't exist (ENOENT, not ENOTDIR), and has no
+  // error of its own for a loop of links.
+  it.skipIf(process.platform === "win32")(
+    "answers a path through a file or a link loop with what is wrong, not a 500",
+    async () => {
+      const { post } = await setup();
+      const scratch = await tempDir();
+      await writeFile(join(scratch, "file.txt"), "notes");
+      await symlink("loop", join(scratch, "loop"));
+      const project = join(scratch, "project");
+      await mkdir(project);
+      await symlink("decisions", join(project, "decisions"));
+      const cases: [object, string][] = [
+        [{ path: join(scratch, "file.txt", "x") }, "a part of the path is a file, not a folder"],
+        [{ path: join(scratch, "loop") }, "the path goes through a loop of links"],
+        [{ path: project, createDecisions: true }, "the path goes through a loop of links"],
+      ];
+      for (const [body, reason] of cases) {
+        const res = await post("/api/projects", body);
+        expect(res.status).toBe(422);
+        expect((await json(res)).error).toMatch(`: ${reason}`);
+      }
+    },
+  );
 
   it("validates the request body", async () => {
     const { post } = await setup();
@@ -509,7 +514,8 @@ describe("card actions API", () => {
     await writeFile(file, (await readFile(file, "utf8")).replaceAll("\n", "\r\n"));
     await chmod(file, 0o600);
     expect((await act("0002", { type: "note", note: "Private." })).status).toBe(200);
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    // Windows has no POSIX file modes (chmod there only sets read-only).
+    if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600);
     const text = await readFile(file, "utf8");
     expect(text.replaceAll("\r\n", "")).not.toContain("\n");
     expect(text).toContain("note: Private.\r\n");

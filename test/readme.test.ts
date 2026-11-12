@@ -62,6 +62,11 @@ async function sandbox(initArgs: string[] = []) {
 }
 
 describe("README skill links", () => {
+  // The snippets are for a POSIX shell. Windows has Git Bash's sh, but there `ln -s` copies
+  // instead of linking (unless MSYS=winsymlinks:nativestrict and Developer Mode), and a
+  // Windows path pasted into PRESIDENT=... loses its backslashes.
+  const noPosixShell = process.platform === "win32";
+
   it("has the three snippets, each using ln -sfn", () => {
     expect(snippets).toHaveLength(3);
     for (const snippet of snippets) {
@@ -70,7 +75,7 @@ describe("README skill links", () => {
     }
   });
 
-  it.each([
+  it.skipIf(noPosixShell).each([
     ["local only", 0, "project"],
     ["committed", 1, "project"],
     ["global", 2, "president"],
@@ -92,7 +97,7 @@ describe("README skill links", () => {
   });
 
   // `git init --template=` makes no .git/info/ folder; the snippet makes it (F-5).
-  it.each([
+  it.skipIf(noPosixShell).each([
     ["", []],
     [" in a repo without .git/info/", ["--template="]],
   ] as [string, string[]][])(
@@ -116,7 +121,7 @@ describe("README skill links", () => {
 
   // Run this file again as if from a git hook or `git rebase -x` in a linked worktree, which
   // export GIT_DIR and GIT_INDEX_FILE: the repo they point at must stay untouched (F-2).
-  it.skipIf(process.env[CHILD])(
+  it.skipIf(process.env[CHILD] || noPosixShell)(
     "leaves the repo of an inherited GIT_DIR alone",
     {
       timeout: RUN_MS + 5000,

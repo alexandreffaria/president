@@ -12,11 +12,18 @@
  * A test that expects such output says so with `expectConsole`, and then only matching
  * messages are allowed, and at least one must come.
  */
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { format } from "node:util";
 import { afterAll, afterEach, expect } from "vitest";
+
+// On Windows the temp folder can come as a short 8.3 name (C:\Users\RUNNER~1\...), and
+// president resolves the paths it is given to their real, long names: tests compare those
+// with the temp folders they made, so the temp folder is the long name from the start.
+if (process.platform === "win32") {
+  process.env.TEMP = process.env.TMP = realpathSync.native(tmpdir());
+}
 
 // president's state folder (card conversations, chat/store.ts) is a temp folder in every
 // test, so no test can read or clean up the real ~/.local/state/president, whatever hub it
@@ -28,7 +35,14 @@ process.env.CLAUDE_CONFIG_DIR = join(stateHome, "claude");
 // without one can never run the real Claude Code.
 mkdirSync(join(stateHome, "bin"));
 mkdirSync(join(stateHome, "fake"));
-symlinkSync(join(import.meta.dirname, "fake-claude.mjs"), join(stateHome, "bin", "claude"));
+try {
+  symlinkSync(join(import.meta.dirname, "fake-claude.mjs"), join(stateHome, "bin", "claude"));
+} catch (error) {
+  // Windows without Developer Mode can't make links. A copy still comes first on PATH (Windows
+  // tries the exact name before adding .com or .exe), so the real Claude Code never runs.
+  if (process.platform !== "win32") throw error;
+  copyFileSync(join(import.meta.dirname, "fake-claude.mjs"), join(stateHome, "bin", "claude"));
+}
 process.env.PATH = `${join(stateHome, "bin")}${delimiter}${process.env.PATH ?? ""}`;
 process.env.FAKE_CLAUDE_DIR = join(stateHome, "fake");
 afterAll(() => rmSync(stateHome, { recursive: true, force: true }));

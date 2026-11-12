@@ -70,6 +70,7 @@ async function git(cwd: string, args: string[]): Promise<string | undefined> {
       cwd,
       env: withoutRepoVariables(),
       timeout: 5_000,
+      windowsHide: true,
     });
     return stdout.endsWith("\n") ? stdout.slice(0, -1) : stdout;
   } catch {

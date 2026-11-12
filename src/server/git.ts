@@ -163,6 +163,18 @@ export function runGit(cwd: string, args: string[], options: GitOptions = {}): P
       windowsHide: true,
     });
     const killGroup = (signal: NodeJS.Signals) => {
+      if (process.platform === "win32") {
+        // No process groups: taskkill /T stops git with everything it started (a hook, an
+        // alias's shell, ssh or git-remote-https), whose open pipes would otherwise keep the
+        // run from ending until they exit on their own.
+        if (child.pid === undefined) return;
+        const taskkill = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+          stdio: "ignore",
+          windowsHide: true,
+        });
+        taskkill.on("error", () => child.kill(signal));
+        return;
+      }
       try {
         if (child.pid !== undefined) process.kill(-child.pid, signal);
       } catch {
