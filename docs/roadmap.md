@@ -32,6 +32,10 @@ Later still: A2 (the skill's rule for delivering new cards and rewrites, 2026111
 built in PR #17. B2 (20261112l9vh) is built in PR #18 (branch `feat/sync-followups`), with
 three follow-ups from PR #12's review: S7-4, S4-6 and S8-1.
 
+Later on 2026-11-12: F (the command is now `preside`, #0016 and 20261111dmvt) is built in the
+pull request "Rename the command to preside (F)" (branch `feat/rename-preside`), with
+`president` kept as an alias. F2, which removes the alias, isn't built.
+
 ## Build plan
 
 Each row is one pull request (PR 2 may be split, see its section). The order is a suggestion;
@@ -46,7 +50,7 @@ Each row is one pull request (PR 2 may be split, see its section). The order is 
 | C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | Alongside B; before PR 2, which builds on #0010's Neither panel and #0011's notes on decided cards |
 | D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part), 202611116ff6 (`pending` and `validate`) | PR #7 (it edits `card-format.md` and `SKILL.md`) | Before or with C and PR 2; `chat` must exist before PR 2 writes it |
 | E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s, 20261112dfik | C (#0010's panel, #0011's notes on decided cards), D (`chat` type) | After C and D |
-| F | [Rename the command to `preside`](#f-rename-the-command-to-preside-0016-20261111dmvt) (agent-facing: the CLI, the skill and every printed command) | #0016, 20261111dmvt | A2 (both edit `SKILL.md`). The npm placeholder is published by the human (an agent prepares it). No card orders it against F; suggested: publish it before F merges (after repeating the name check), so the name F writes everywhere can't be taken meanwhile | At a moment with no other pull request open, since it touches about 200 lines everywhere; ideally before E, which adds new printed commands |
+| F | [Rename the command to `preside`](#f-rename-the-command-to-preside-0016-20261111dmvt) (agent-facing: the CLI, the skill and every printed command) | #0016, 20261111dmvt | A2 (both edit `SKILL.md`). The npm placeholder is published by the human (an agent prepares it). No card orders it against F; suggested: publish it before F merges (after repeating the name check), so the name F writes everywhere can't be taken meanwhile | **Built** in the pull request "Rename the command to preside (F)" (branch `feat/rename-preside`) |
 | F2 | [Remove the `president` alias](#the-president-alias-and-when-it-ends) | 20261111dmvt | F | One month after F ships, or once every registered project's own docs and agent instructions use `preside`, whichever is later |
 
 Nothing here needs Sync to be built first: B is early because of #0022, not because the others
@@ -584,7 +588,7 @@ Card: [0011-notes-on-decided-cards.md](../decisions/0011-notes-on-decided-cards.
 - `ALLOWED_FROM.note` in `src/core/actions.ts` gains `resolved`. The note is appended to
   `feedback`; `status`, `resolution` and `applied_at` stay.
 - A resolved card's action bar: "This decision is made. [Note… m] [Reopen]".
-- `president pending` already lists it under "New notes from the human" (`withNotes`), or with
+- `preside pending` already lists it under "New notes from the human" (`withNotes`), or with
   the card under "Resolved, not yet applied" if it isn't applied yet; no change there. The agent
   judges whether the note changes its work.
 - Undo of such a note follows #0012: byte for byte, no trace.
@@ -633,7 +637,7 @@ Card: [0017-deferred-resurfacing.md](../decisions/0017-deferred-resurfacing.md),
     when it comes back.
   - Reopen (Back to queue), resolve, and `neither` (which also makes a deferred card `open`)
     remove `defer_until`.
-  - `defer_until` joins `HUMAN_FIELDS` in `president update` (`src/cli/commands.ts`; the CLI
+  - `defer_until` joins `HUMAN_FIELDS` in `preside update` (`src/cli/commands.ts`; the CLI
     part can go in D), so an agent's rewrite can't drop or change it. Today `update` guards only
     `status`, `resolution`, `feedback`, `applied_at` and `seen_at`, so a rewrite could silently
     drop the field and leave the card deferred for good. The field lists in `SKILL.md`
@@ -652,7 +656,7 @@ Card: [0017-deferred-resurfacing.md](../decisions/0017-deferred-resurfacing.md),
   `defer_until` (the `ALLOWED_FROM.defer` change above). Accepted costs: on the day snooze
   ships, every old deferral lands in the queue at once, and a card deferred by hand comes
   straight back. The demo project's `0003-first-run-copy.md` is such a card, so after this
-  ships `president demo` shows it in the queue, not under Deferred.
+  ships `preside demo` shows it in the queue, not under Deferred.
 - Accepted cost: cards come back whether or not anything changed.
 
 ### Withdrawn cards in the hub (#0014)
@@ -671,7 +675,7 @@ format part is in D.
 - The card page shows "Withdrawn by the agent: <reason>" above the options, which still work:
   you can decide, note, or reject a withdrawn card as usual.
 - A **Back to queue** button removes the field **and** appends a note to `feedback` (the card's
-  example: "Back in the queue"). The note is required: `president update` doesn't compare
+  example: "Back in the queue"). The note is required: `preside update` doesn't compare
   `withdrawn`, so without it an agent's update made from an earlier read would withdraw the card
   again.
 - **A withdrawn card still sinks the cards that depend on it** (202611116ff6, option
@@ -680,7 +684,7 @@ format part is in D.
   with the map screen", is enough) or decide them where they are. Only the dependency mark
   changes: in the queue and in the card page's notice it says the dependency was withdrawn, for
   example "depends on #0042, withdrawn". There is no button to accept a withdrawal (the
-  option's stated cost). What `president pending` and `validate` say is in D.
+  option's stated cost). What `preside pending` and `validate` say is in D.
 
 ## D. Card format and CLI
 
@@ -705,12 +709,12 @@ Card: [0013-card-ids.md](../decisions/0013-card-ids.md), option `dated`.
 - **Existing cards keep their numbers**, so a project mixes both styles (the option's stated
   cost); nothing is renumbered. Old ids sort before dated ones in the folder.
 - The UI shows the short form `#k7q2` (unique within its day) next to the date for dated ids;
-  `0001`-style ids show as today. `depends_on`, file names and `president pending` use the full
+  `0001`-style ids show as today. `depends_on`, file names and `preside pending` use the full
   id.
 
 ### The `withdrawn` field (#0014)
 
-- An agent retracts an open or deferred card by adding, through `president update`:
+- An agent retracts an open or deferred card by adding, through `preside update`:
 
   ```yaml
   withdrawn:
@@ -718,16 +722,16 @@ Card: [0013-card-ids.md](../decisions/0013-card-ids.md), option `dated`.
     reason: The queue was rewritten in #0015; dependencies no longer affect ordering.
   ```
 
-  and changes its mind by removing it with another `president update`. `status` doesn't change.
+  and changes its mind by removing it with another `preside update`. `status` doesn't change.
   `update`'s guard already refuses the agent's version if you acted on the card meanwhile.
 - Document the field in `docs/card-format.md` and the skill (when and how to withdraw).
-- **`president pending` and `validate` label a withdrawn card**
+- **`preside pending` and `validate` label a withdrawn card**
   ([202611116ff6-withdrawn-cards-elsewhere.md](../decisions/202611116ff6-withdrawn-cards-elsewhere.md),
   option `labelled`: "president pending and validate say a card is withdrawn and why"):
   - `validate` adds the reason to the `ok` line:
 
     ```
-    $ president validate
+    $ preside validate
     ok      0042-map-tiles.md (withdrawn: We dropped the map screen.)
     ok      0047-map-pins.md
     ```
@@ -744,7 +748,7 @@ option `chat`.
 - Add `"chat"` to `FEEDBACK_TYPES` in `src/core/model.ts`, the label **Conversation summary** to
   `LABEL` in `src/web/components/FeedbackHistory.tsx`, the type to the feedback section of
   `docs/card-format.md`, and to the skill's "New notes from the human".
-- `president pending` prints it as `chat <time>: <text>` with no change.
+- `preside pending` prints it as `chat <time>: <text>` with no change.
 - In a card:
 
   ```yaml
@@ -800,7 +804,7 @@ with the same checks as today:
 
 - New options (#0007, below) come back as structured output (`--json-schema` with the card's
   `options` shape), and the hub writes them with the same validation and revision checks as
-  `president update`.
+  `preside update`.
 - Conversation summaries are returned as text; the hub writes them as a `chat` feedback entry
   (#0023) after the human has read and edited them.
 
@@ -993,7 +997,7 @@ Cards: [0003-conversation-storage.md](../decisions/0003-conversation-storage.md)
   ```
 
   History labels it "Conversation summary"; it reaches the working agent through
-  `president pending` like any note. The working agent didn't hear the conversation, so the
+  `preside pending` like any note. The working agent didn't hear the conversation, so the
   summary should state what the human concluded and asked for, not just what was discussed.
 - Summaries are card file changes, so they travel between machines with Sync (#0001); the hub
   copy, the session ids and Claude Code's logs don't, and no transcript ever goes into git.
@@ -1047,7 +1051,7 @@ option `remind`: "Remind you, as on open cards"):
   not summarized yet. [Write summary]". The per-machine "not summarized" list includes decided
   cards. Saving the summary uses the action #0020 allows on resolved cards, with the Undo-window
   rule (nothing saved to a card decided less than 10 seconds ago), and it reaches the agent in
-  `president pending` under "New notes from the human". Accepted costs: a quick look-up on an
+  `preside pending` under "New notes from the human". Accepted costs: a quick look-up on an
   old decision also leaves a reminder until you close the conversation; decided cards with
   pending reminders are easy to miss, since decided cards aren't in the queue.
 
@@ -1099,7 +1103,7 @@ Card: [0020-chat-on-decided-cards.md](../decisions/0020-chat-on-decided-cards.md
 
 - The conversation area is the same on a resolved card as on an open one. Closing the
   conversation offers the summary box; saving it appends a `chat` entry to the decided card.
-  `resolution` and `applied_at` stay (as for #0011's notes), and `president pending` lists it
+  `resolution` and `applied_at` stay (as for #0011's notes), and `preside pending` lists it
   under "New notes from the human" (or with the card under "Resolved, not yet applied" if it
   isn't applied yet: `withNotes` leaves out cards listed there, which show their notes with them).
 - The action that saves a summary must be allowed on `resolved` cards in `src/core/actions.ts`
@@ -1125,11 +1129,11 @@ Card: [0007-neither-try-again.md](../decisions/0007-neither-try-again.md), optio
   conversation on this machine, if any, and do research.
 - While it runs, the card says "Writing new options..." and sits under "Waiting for new
   options".
-- When the options come back, the hub writes them with `president update`'s checks (replacing
+- When the options come back, the hub writes them with `preside update`'s checks (replacing
   `options`, the `## Option` sections and `recommendation`, removing `needs_new_options`), and
   the card is back in the queue with a notice: "New options, written from your note at 21:00".
-- The hub does not run `president seen`: the working agent still finds the card in
-  `president pending` (the `neither` entry is unread) and reads options it didn't write. That is
+- The hub does not run `preside seen`: the working agent still finds the card in
+  `preside pending` (the `neither` entry is unread) and reads options it didn't write. That is
   the card's accepted cost, along with one Claude Code run per "neither".
 - With #0010 the panel has two buttons: **Ask for new options** and **Decide this as my
   answer**. (A third, "Ask for new options now", belonged to #0007's `per-card`, not chosen.)
@@ -1269,9 +1273,9 @@ Card: [0007-neither-try-again.md](../decisions/0007-neither-try-again.md), optio
 Card: [0006-who-applies-decisions.md](../decisions/0006-who-applies-decisions.md), option
 `working`. Today's flow stays exactly as it is: Decide only rewrites the card, the card shows
 "Waiting for an agent to apply it to the project.", and the project's working agent applies it
-from `president pending` and runs `president applied` (in the main folder, #0022). For PR 2:
+from `preside pending` and runs `preside applied` (in the main folder, #0022). For PR 2:
 
-- The chat session never records decisions in docs, edits code or runs `president applied`
+- The chat session never records decisions in docs, edits code or runs `preside applied`
   (it couldn't anyway: #0004 gives it no write tools and no Bash). Don't send it instructions
   to apply, and don't add a "Decide and apply now" button.
 - Deciding keeps today's 10-second Undo window (`src/web/toast.tsx`), and nothing may write
@@ -1282,6 +1286,20 @@ from `president pending` and runs `president applied` (in the main folder, #0022
   for #0006.
 
 ## F. Rename the command to `preside` (#0016, 20261111dmvt)
+
+**Built** in the pull request "Rename the command to preside (F)" (branch
+`feat/rename-preside`), as written below. `bin/preside.js` is the entry point and
+`bin/president.js` is the alias, a one-line script that imports it, so links made with the old
+install line keep working; `package.json` lists both in `bin`. What the CLI prints about itself
+(help, `done:` lines, usage lines, the `preside:` prefix of its errors, warnings and notes) and
+every instruction in the skill, `README.md`, `docs/card-format.md`, the web UI and the
+sections of this roadmap that aren't built yet say `preside`. Kept as they were: the product
+name president wherever it means the app or hub ("president doesn't follow symlinks", "another
+president tab", the page title), `PRESIDENT_PORT`, `$XDG_CONFIG_HOME/president/`,
+`$XDG_STATE_HOME/president/`, the package `name`, the repo URL, temp-folder prefixes, the
+decision records in foundations.md and what this roadmap says about built sections and about
+the cards (history). The npm placeholder `preside` is published by the human, separately. F2
+isn't built.
 
 Cards: [0016-rename-the-cli.md](../decisions/0016-rename-the-cli.md), option `rename`, and
 [20261111dmvt-command-name.md](../decisions/20261111dmvt-command-name.md), option `preside`. An
@@ -1437,7 +1455,8 @@ only); the build PR named in brackets fixes each.
 - README, the `n` row ("an agent writes new ones"): under #0007 the hub starts the card's
   session at once [E].
 - README and the skill, "Use `president`, not `npx president`": #0016 renames the command, to
-  `preside` (20261111dmvt) [F].
+  `preside` (20261111dmvt) [F; fixed in the pull request "Rename the command to preside (F)",
+  where the warning is about `npx preside`].
 - The skill's "Not decided yet" paragraph (card changes outside an apply), its interim rule to
   write new cards straight into `<main>/decisions/`, *Writing a card*, step 1, and *Changing a
   card*'s "A new card has no human edits to lose: write its file directly

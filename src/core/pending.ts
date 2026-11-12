@@ -1,5 +1,5 @@
 /**
- * What an agent still has to act on, card by card. Shared by `president pending` and the
+ * What an agent still has to act on, card by card. Shared by `preside pending` and the
  * UI's "seen by an agent" markers.
  */
 import type { FeedbackEntry, Frontmatter } from "./schema.ts";
@@ -43,9 +43,9 @@ export function earlierDecision(card: Card): EarlierDecision | undefined {
 }
 
 /**
- * The agent's receipt for what `president pending` showed it about a card: every feedback
- * entry up to that moment and the resolution (when resolved). `president seen` and
- * `president applied` must be given it, and they only mark what it covers, so a note the
+ * The agent's receipt for what `preside pending` showed it about a card: every feedback
+ * entry up to that moment and the resolution (when resolved). `preside seen` and
+ * `preside applied` must be given it, and they only mark what it covers, so a note the
  * human adds, or a decision they change, while the agent works is never marked as read or
  * applied without the agent having seen it.
  *
@@ -62,13 +62,13 @@ export type TokenCheck =
       ok: true;
       /** The feedback entries the agent was shown, oldest first. */
       shown: FeedbackEntry[];
-      /** Feedback the human added after the agent ran `president pending`. */
+      /** Feedback the human added after the agent ran `preside pending`. */
       newer: FeedbackEntry[];
     }
   | { ok: false; error: string };
 
 const TOKEN = /^(\d{1,6})-([0-9a-z]{6,20})$/;
-const RERUN = "Run `president pending` again, act on what it shows, and use the token it prints.";
+const RERUN = "Run `preside pending` again, act on what it shows, and use the token it prints.";
 
 /** Checks a token from {@link agentToken} against the card as it is now. */
 export function checkAgentToken(
@@ -79,7 +79,7 @@ export function checkAgentToken(
   if (!match) {
     return {
       ok: false,
-      error: `"${token}" is not a token from \`president pending\`. ${RERUN}`,
+      error: `"${token}" is not a token from \`preside pending\`. ${RERUN}`,
     };
   }
   const shown = Number(match[1]);
@@ -95,7 +95,7 @@ function staleReason(card: Card): string {
     card.status === "resolved" && card.resolution
       ? `resolved as "${card.resolution.choice}" (decided at ${card.resolution.resolved_at})`
       : card.status;
-  return `The card changed since you ran \`president pending\`: it is now ${now}. The human may have changed their decision or undone a note, or the token is for another card.`;
+  return `The card changed since you ran \`preside pending\`: it is now ${now}. The human may have changed their decision or undone a note, or the token is for another card.`;
 }
 
 /**

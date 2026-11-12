@@ -26,25 +26,33 @@ npm start            # http://127.0.0.1:4747
 
 president only listens on 127.0.0.1. Set `PRESIDENT_PORT` to use another port.
 
-### Install the `president` command
+### Install the `preside` command
 
-Agents use the `president` command to register projects and check their cards. Put it on your
+Agents use the `preside` command to register projects and check their cards. Put it on your
 PATH by linking the repo's script (no build needed; Node 24 runs the TypeScript directly):
 
 ```sh
 mkdir -p ~/.local/bin
-ln -s "$PWD/bin/president.js" ~/.local/bin/president   # make sure ~/.local/bin is on PATH
-president help
+ln -s "$PWD/bin/preside.js" ~/.local/bin/preside       # make sure ~/.local/bin is on PATH
+ln -s "$PWD/bin/president.js" ~/.local/bin/president   # the old name, an alias for now
+preside help
 ```
 
-(`npm link` works too if your npm prefix is writable.)
+(`npm link` works too if your npm prefix is writable; it links both names.)
 
-**Use `president`, not `npx president`, outside this repo.** When a command isn't installed
-locally, `npx` looks for an npm package with that name, and an unrelated package called
-`president` exists on npm. Today that package has no command, so `npx president` only fails with
-`could not determine executable to run`. But if a future release of it adds a command,
-`npx president` would download and run it, without asking when there is no terminal
-(as for an agent). Inside this repo `npx president` runs the local copy.
+The command used to be called `president`. If you installed it under that name, your link
+still works (it is now an alias, until it is removed in a later release), but add the new one:
+run the `ln -s "$PWD/bin/preside.js" ~/.local/bin/preside` line above from this repo. Everything
+president prints and every doc now says `preside`.
+
+**Use `preside`, not `npx preside`, outside this repo.** When a command isn't installed
+locally, `npx` looks for an npm package with that name. The `preside` package on npm is a
+placeholder of ours with no command, so `npx preside` only fails with
+`could not determine executable to run`; it can't run someone else's code, but it doesn't run
+president either. The old name is worse: an unrelated package called `president` exists on npm,
+and if a future release of it adds a command, `npx president` would download and run it,
+without asking when there is no terminal (as for an agent). Inside this repo `npx preside` runs
+the local copy.
 
 ### Install the agent skill
 
@@ -109,7 +117,7 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
 1. Register a project (or let an agent do it):
 
    ```sh
-   president add ~/projects/my-app --create     # --create makes my-app/decisions/ if missing
+   preside add ~/projects/my-app --create     # --create makes my-app/decisions/ if missing
    ```
 
    You can also add and remove projects on the **Projects** page.
@@ -144,7 +152,7 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
    back as a draft, so you can fix it and send it again. An undone decision also leaves an
    `undo` entry in the card's history, so an agent that already saw it knows to revert its work.
 
-   Notes (`m`) reach agents through `president pending`, which lists notes they haven't read yet.
+   Notes (`m`) reach agents through `preside pending`, which lists notes they haven't read yet.
    An agent marks a card handled with a token from `pending` that records what it was shown, so
    a note you add, or a decision you change, while it works is never marked as read or applied
    by mistake.
@@ -211,45 +219,45 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
 To try it with sample cards:
 
 ```sh
-president demo        # copies examples/demo-project to a temporary folder and registers the copy
+preside demo        # copies examples/demo-project to a temporary folder and registers the copy
 ```
 
 Work on the copy, not on `examples/demo-project` itself: deciding a card rewrites its file. Give
-a folder (`president demo ~/president-demo`) to keep the copy around, and `president remove demo`
+a folder (`preside demo ~/president-demo`) to keep the copy around, and `preside remove demo`
 when you are done.
 
 ### CLI
 
 ```
-president add <path> [--name <name>] [--create]   register a project
-president list [--json]                           show registered projects
-president remove <name-or-path>                   unregister (files are not touched)
-president validate [path]                         check the cards in <path>/decisions, or one card file
-president pending [path] [--json]                 what agents should act on: unapplied decisions,
-                                                  rejected options, unread notes; each card ends
-                                                  with the `done:` command to run once handled
-president applied <card-file> --token <token>     mark a resolved card as applied
-president seen <card-file> --token <token>        mark the human's feedback on a card as read
-president update <card-file> <new-version-file>  replace an undecided card with an agent's rewrite,
-                                                  only if the human changed nothing since the agent
-                                                  read it
-president demo [path] [--name <name>]             copy the sample project and register the copy
-president serve                                   start the hub (same as npm start)
+preside add <path> [--name <name>] [--create]   register a project
+preside list [--json]                           show registered projects
+preside remove <name-or-path>                   unregister (files are not touched)
+preside validate [path]                         check the cards in <path>/decisions, or one card file
+preside pending [path] [--json]                 what agents should act on: unapplied decisions,
+                                                rejected options, unread notes; each card ends
+                                                with the `done:` command to run once handled
+preside applied <card-file> --token <token>     mark a resolved card as applied
+preside seen <card-file> --token <token>        mark the human's feedback on a card as read
+preside update <card-file> <new-version-file>   replace an undecided card with an agent's rewrite,
+                                                only if the human changed nothing since the agent
+                                                read it
+preside demo [path] [--name <name>]             copy the sample project and register the copy
+preside serve                                   start the hub (same as npm start)
 ```
 
 A project is named after its folder unless `--name` says otherwise; when that name is taken, `add`
 uses `<name>-2`, `<name>-3`... and says so. The registry is a folder with one file per project,
 `$XDG_CONFIG_HOME/president/projects/<name>.json` (default `~/.config/president/projects/`),
 holding the project's path. There is no lock: `add` creates its file exclusively (a temp file
-hard-linked into place), so agents that run `president add` at the same time all get
+hard-linked into place), so agents that run `preside add` at the same time all get
 registered, each under its own name. If two `add`s of the same folder race, the folder is still
 listed once, under the name that sorts first, and the duplicate file is removed. A
 `projects.json` from an earlier version is moved into the folder the first time president runs
 (it is kept as `projects.json.migrated`).
 
-A project is its folder's path. If you move a project, run `president remove <name>` and then
-`president add <new path>`: president doesn't follow the move, and a different repository later
-created at the old path would be taken for the old project. `president list` and the Projects
+A project is its folder's path. If you move a project, run `preside remove <name>` and then
+`preside add <new path>`: president doesn't follow the move, and a different repository later
+created at the old path would be taken for the old project. `preside list` and the Projects
 page say when a project's folder, or its `decisions/` folder, is missing.
 
 ## Development
@@ -267,10 +275,10 @@ Layout:
 ```
 src/core/     card format: zod schemas, parser/writer, state transitions, queue ordering (shared)
 src/server/   Hono API, registry, file access, watcher + live events (WebSocket), Sync
-src/cli/      the president command
+src/cli/      the preside command
 src/web/      React UI
 skills/       the Claude Code skill for agents
-examples/     a demo project with sample cards (`president demo` copies it)
+examples/     a demo project with sample cards (`preside demo` copies it)
 test/         vitest suites; test/fixtures/ has the tests' own copy of the demo cards
 ```
 

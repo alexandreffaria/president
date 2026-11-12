@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-// Entry point for the `president` command. Node 24 runs the TypeScript sources directly
-// (type stripping), so the CLI works from a checkout without a build step.
-import "./check-node.js";
-
-const { run } = await import("../src/cli/main.ts");
-process.exitCode = await run(process.argv.slice(2));
+// The old name of the `preside` command, kept as an alias until F2 (docs/roadmap.md) removes
+// it, so links made before the rename and agents typing `president` from habit still work.
+import "./preside.js";

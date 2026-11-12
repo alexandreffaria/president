@@ -160,7 +160,7 @@ export function isWebSocketUpgrade(request: IncomingMessage): boolean {
 type Output = { log: (line: string) => void; error: (line: string) => void };
 
 /**
- * Runs the hub until SIGINT or SIGTERM, for `npm start` and `president serve`. Expected
+ * Runs the hub until SIGINT or SIGTERM, for `npm start` and `preside serve`. Expected
  * failures (port in use, a broken config file) are printed as one line; returns the exit code.
  */
 export async function runServer(out: Output = console): Promise<number> {
@@ -168,7 +168,7 @@ export async function runServer(out: Output = console): Promise<number> {
   try {
     hub = await startHub();
   } catch (error) {
-    out.error(`president: ${startupError(error)}`);
+    out.error(`preside: ${startupError(error)}`);
     return 1;
   }
   out.log(`president is running at ${hub.url}`);

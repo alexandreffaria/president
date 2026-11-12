@@ -10,5 +10,5 @@ To see the cards in your hub, let president copy it and register the copy (click
 the UI changes the card files, so don't register this folder itself):
 
 ```sh
-president demo
+preside demo
 ```

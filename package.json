@@ -9,6 +9,7 @@
     "node": ">=24.9"
   },
   "bin": {
+    "preside": "bin/preside.js",
     "president": "bin/president.js"
   },
   "scripts": {

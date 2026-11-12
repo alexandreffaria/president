@@ -7,7 +7,7 @@
  *
  * - Registering creates the file exclusively (a temp file hard-linked into place, which fails
  *   if the name exists and never shows a half-written file). So two agents that run
- *   `president add` at once can't take the same name: the second link fails and that one
+ *   `preside add` at once can't take the same name: the second link fails and that one
  *   tries the next suffix (`app-2`, ...). Nothing is read, changed and written back, so no
  *   registration can be lost.
  * - Removing deletes the file; listing reads the folder.

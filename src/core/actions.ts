@@ -10,7 +10,7 @@
  *
  * `resolve`, `neither` and `note` also work on deferred cards. `seen` (an agent has read the
  * human's feedback) works in any state; `applied` implies it. Both take the token that
- * `president pending` printed, and mark only what the agent was shown (see agentToken).
+ * `preside pending` printed, and mark only what the agent was shown (see agentToken).
  *
  * New actions (for example the chat panel's "teach me" or "research") belong here too,
  * so the API, the CLI and future agent runners share one set of rules.
@@ -31,7 +31,7 @@ import {
 const Note = z.string().trim().min(1, { error: "a note is required" }).max(20_000);
 const OptionalNote = z.string().trim().max(20_000).optional();
 const AgentToken = z
-  .string({ error: "is required: pass the token `president pending` printed for this card" })
+  .string({ error: "is required: pass the token `preside pending` printed for this card" })
   .min(1)
   .max(100);
 
@@ -220,7 +220,7 @@ function describeNote(resolution: { note?: string | undefined }): string {
  * was before the decision, and `undone` the card with the decision. Undo puts the earlier
  * card back and adds an `undo` feedback entry that keeps the decision in
  * `previous_resolution`, so an agent that was shown the decision (and may have acted on it)
- * finds out from `president pending` that it was taken back, however late it looks.
+ * finds out from `preside pending` that it was taken back, however late it looks.
  */
 export function afterUndoingDecision(
   restored: Pick<ParsedCard, "frontmatter" | "raw">,

@@ -11,8 +11,8 @@ don't guess and don't bury it in chat: write a **decision card**, a markdown fil
 project's `decisions/` folder. The human goes through cards in the president app, picks an
 option (or rejects them all with a note), and you act on the answer.
 
-The full format is in `docs/card-format.md` of the president repo (`president help` and
-`president validate` print its absolute path). This skill has what you need to write cards
+The full format is in `docs/card-format.md` of the president repo (`preside help` and
+`preside validate` print its absolute path). This skill has what you need to write cards
 correctly.
 
 ## When to write a card
@@ -37,11 +37,11 @@ are. A git worktree has its own copy of `decisions/` without them: reading or ma
 there misses the human's answers and changes only that copy.
 
 - Below, `<main>` means the main folder's absolute path; replace it. If you work in a worktree,
-  don't `cd` to the main folder: pass its absolute path to every `president` command (they all
+  don't `cd` to the main folder: pass its absolute path to every `preside` command (they all
   take one; the `done:` lines are already absolute). Find it with `git worktree list`: the
   first entry is the main checkout (plus the project's subfolder, if the project is one). The
-  warning president commands print in a worktree also names it. Never register a worktree
-  with `president add`.
+  warning `preside` commands print in a worktree also names it. Never register a worktree
+  with `preside add`.
 - **Never commit card files in your pull request; Sync carries them.** Your branch and pull
   request hold only the docs and code you changed, never a file under `decisions/`. (Sync is
   the hub's button that commits and pushes the card changes in the main folder; see
@@ -56,7 +56,7 @@ there misses the human's answers and changes only that copy.
     session until nothing should-fix is left, and only then copied into `<main>/decisions/`
     and validated there (see **Writing a card**);
   - **a rewrite** of an existing card (new options after "neither", adding or removing
-    `withdrawn`) goes straight to the main folder with `president update`, unreviewed (see
+    `withdrawn`) goes straight to the main folder with `preside update`, unreviewed (see
     **Changing a card**), so its guard compares your version with the card the human has,
     notes included.
 
@@ -65,10 +65,10 @@ there misses the human's answers and changes only that copy.
 1. Make sure the project's main folder is registered with the hub (safe to repeat):
 
    ```sh
-   president add <main> --create
+   preside add <main> --create
    ```
 
-   If a command says the project is not registered, run the `president add` it prints, unless
+   If a command says the project is not registered, run the `preside add` it prints, unless
    the path in it is a worktree.
 
    The project is named after its folder. If another project already has that name,
@@ -76,14 +76,16 @@ there misses the human's answers and changes only that copy.
    `--name <name>` (letters, digits, `.`, `_` and `-`), for example `--name shop-web` for the
    `web` folder of a `shop` monorepo.
 
-   Use the `president` command, not `npx president` outside the president repo: an unrelated
-   package with the same name exists on npm. If `president` isn't installed, tell the human
-   (setup is in the president README) and keep going; cards work without the hub running.
+   Use the `preside` command, not `npx preside` outside the president repo: `npx` would
+   fetch a package from npm instead of running yours (and never type `npx president`: an
+   unrelated package has that name). `president` is the command's old name, still an alias
+   for now; write `preside`. If `preside` isn't installed, tell the human (setup is in the
+   president README) and keep going; cards work without the hub running.
 
 2. See what is waiting for you:
 
    ```sh
-   president pending <main>
+   preside pending <main>
    ```
 
    It lists cards that were **resolved but not applied**, cards that **need new options**, and
@@ -91,11 +93,11 @@ there misses the human's answers and changes only that copy.
    new work.
 
    Each card in the output ends with a `done:` line, for example
-   `done: president seen /abs/path/decisions/0012-x.md --token 2-0k3j5h2g9fd`. When you have
+   `done: preside seen /abs/path/decisions/0012-x.md --token 2-0k3j5h2g9fd`. When you have
    handled that card, run that line exactly as printed, in a shell (a path that needs it is
    already in single quotes; don't add or remove any). The token records what `pending`
    showed you, so only that is marked as handled. If the human changed the card in the
-   meantime, the command refuses and says so: run `president pending <main>` again and handle
+   meantime, the command refuses and says so: run `preside pending <main>` again and handle
    the card as it is now. Never write a token yourself or reuse one from an earlier run.
 
 ## Writing a card
@@ -114,7 +116,7 @@ it, so don't skip it.
    - **in the main folder itself**: outside `decisions/`, in a scratch folder outside the
      project (for example one made with `mktemp -d`), e.g.
      `<scratch>/0012-empty-state-copy.md`. Not under a `.` or `_` name inside `decisions/`:
-     the hub ignores those, but `president validate` refuses them ("is not a card file").
+     the hub ignores those, but `preside validate` refuses them ("is not a card file").
 
    Another agent may take the same number while your draft is under review; step 7 checks
    for that.
@@ -130,7 +132,7 @@ it, so don't skip it.
    - `choice`: 2 to 4 options shown one under another.
    - `open`: there is no sensible list of options ("what should the welcome text say?").
 4. Write the frontmatter and the body. Template (every `...` is a placeholder you must replace;
-   `president validate` rejects cards that still have them). The question, ids and titles are
+   `preside validate` rejects cards that still have them). The question, ids and titles are
    an example; replace them too:
 
 ````markdown
@@ -208,11 +210,11 @@ options:
    The first screen is empty: one short line and a button. What tone do you want?
    ```
 
-5. Check the draft: `president validate <draft>` (for example
-   `president validate <worktree>/decisions/0012-empty-state-copy.md`) must print `ok`. Fix
+5. Check the draft: `preside validate <draft>` (for example
+   `preside validate <worktree>/decisions/0012-empty-state-copy.md`) must print `ok`. Fix
    anything it reports (each problem names the field and the line). In a worktree, two things
    it may say are not problems with the card:
-   - a note that the worktree "is not registered with the hub ... Register it: president add
+   - a note that the worktree "is not registered with the hub ... Register it: preside add
      <worktree>": ignore it, and never register a worktree;
    - a warning that a `depends_on` "is not a card in this project", for a card that is in
      `<main>/decisions/`: the worktree's `decisions/` lacks the main folder's uncommitted
@@ -233,11 +235,11 @@ options:
    id in the draft's `depends_on` is a card in that list; if one isn't, fix the draft. If
    you changed the draft, validate it again. Then copy it into the main folder, by absolute
    path (`<main>/decisions/0012-empty-state-copy.md`), never over an existing file, and run
-   `president validate <main>/decisions/0012-empty-state-copy.md`: it must print `ok` and no
+   `preside validate <main>/decisions/0012-empty-state-copy.md`: it must print `ok` and no
    `warning` line.
    - If it warns that a `depends_on` "is not a card in this project" (that card went away
      since you looked), the card is already in the human's queue: fix it with
-     `president update` (see **Changing a card**), not by editing it or copying over it.
+     `preside update` (see **Changing a card**), not by editing it or copying over it.
    - If it reports `id "0012" is also used by ...` (another agent copied the same id in
      since you looked), your copy is the newer card: renumber the file in `<main>/decisions/`,
      not the draft (it is broken, so edit its `id` directly and rename it, see **Changing a
@@ -278,7 +280,7 @@ resolution:
   resolved_at: 2026-11-10T15:20:00Z
 ```
 
-For each one that `president pending <main>` lists:
+For each one that `preside pending <main>` lists:
 
 1. Read the whole card, including the resolution's `note` and the new notes `pending` shows.
    The note can change or narrow the chosen option; follow it.
@@ -292,14 +294,14 @@ For each one that `president pending <main>` lists:
 3. Do the work it implies on the same branch, or note it as a follow-up task if it's large.
    Your pull request holds only these docs and code changes, no card file; since it doesn't
    show the decision, link to the card or quote it.
-4. Run the card's `done:` line from `pending` (`president applied <file> --token <token>`;
+4. Run the card's `done:` line from `pending` (`preside applied <file> --token <token>`;
    it marks the card in the main folder and sets `applied_at` and `seen_at`). Don't change
    `status` or `resolution` yourself, and leave the card uncommitted: the human's Sync carries
    their answer and your "applied" to the main branch.
 
    If it refuses because the card changed and the decision you acted on is gone (the human
    took it back with Undo, or reopened it before you finished), revert the docs entry and the
-   work you did for it, then run `president pending <main>` again.
+   work you did for it, then run `preside pending <main>` again.
 
 ### Projects Sync skips
 
@@ -320,17 +322,17 @@ When the human rejects all options, president appends their note to `feedback` (
 1. Read **all** the feedback `pending` shows for the card (every entry newer than `seen_at`, not
    only the latest `neither`). It says what was wrong or what they want instead.
 2. Do any research it calls for.
-3. Change the card with `president update` (see **Changing a card** below): replace `options`
+3. Change the card with `preside update` (see **Changing a card** below): replace `options`
    with new ones that answer the feedback (new ids are fine), rewrite the `## Option <id>`
    sections in the body to match, update `recommendation`, and remove `needs_new_options`.
    Keep `feedback`, `id`, `created` and `status` as they are.
-4. Once `president update` has replaced the card, run the card's `done:` line from `pending`.
+4. Once `preside update` has replaced the card, run the card's `done:` line from `pending`.
 
 ## New notes from the human
 
 The human can add a note to an open or deferred card without deciding, give a reason when
 deferring, reopen a decided card, or take back a decision with Undo. These land in `feedback`
-(`type: note`, `defer`, `reopen` or `undo`), and `president pending` lists every card with
+(`type: note`, `defer`, `reopen` or `undo`), and `preside pending` lists every card with
 feedback newer than its `seen_at`. Two of them need care:
 
 - **`undo`**: the human took back a decision right after making it (`previous_resolution` is
@@ -348,8 +350,8 @@ For each:
 2. Act on them: update the context or the options (and `recommendation`), do the research and
    add sources, or change the code if the note is about work already done. If a note needs an
    answer, put it in the card's body where the human will read it. Change the card only with
-   `president update` (see **Changing a card**).
-3. Run the card's `done:` line from `pending` (`president seen <file> --token <token>`). Don't
+   `preside update` (see **Changing a card**).
+3. Run the card's `done:` line from `pending` (`preside seen <file> --token <token>`). Don't
    edit or remove `feedback`.
 
 ## Changing a card
@@ -367,31 +369,31 @@ what the human added since, without any sign. Instead:
 3. Replace the card with it, then remove your file:
 
    ```sh
-   president update <main>/decisions/0012-empty-state-copy.md \
+   preside update <main>/decisions/0012-empty-state-copy.md \
      <main>/decisions/.0012-empty-state-copy.md.new &&
      rm <main>/decisions/.0012-empty-state-copy.md.new
    ```
 
-   It checks your version like `president validate`, and replaces the card only if what the
+   It checks your version like `preside validate`, and replaces the card only if what the
    human owns is still what you read. It never replaces a decided card (`status: resolved`):
    the decision is about the card as the human saw it, so don't rewrite it; apply the decision
    (see **Applying resolved cards**). Go by the words of the refusal. If it says "the card
    changed since you read it", it lists what changed (a note, a deferral, a reopen, or a
    decision the human made and took back since): read the card again, take that into account
-   too, write your version again from the card as it is now, and run `president update`
+   too, write your version again from the card as it is now, and run `preside update`
    again. If it says "its decision changed", don't write your version again: run
-   `president pending <main>` and handle the card as it shows it now.
+   `preside pending <main>` and handle the card as it shows it now.
 
    After a refused `update`, the `done:` line you have is from before the new entries: once
-   your update went through, run `president pending <main>` again and use its new `done:` line.
+   your update went through, run `preside pending <main>` again and use its new `done:` line.
 
 Every rewrite is made this way, straight in the main folder, with no review first. A new
 card is not: it is drafted and reviewed outside `<main>/decisions/` and then copied in (see
 **Writing a card**). Once it is in `<main>/decisions/`, the human can add to it, so change it
 only this way.
 
-A card `president validate` reports as broken (a YAML error, a duplicate id) is the one
-exception: president never writes a broken card, so neither the human nor `president update`
+A card `preside validate` reports as broken (a YAML error, a duplicate id) is the one
+exception: president never writes a broken card, so neither the human nor `preside update`
 can change it. Fix it by editing the file directly, or rename it for a duplicate id, then
 validate it again.
 
@@ -399,7 +401,7 @@ validate it again.
 
 - Only edit cards to apply the steps above. Never resolve a card yourself, and never change a
   `resolution` the human made.
-- Change existing cards only with `president update` (see **Changing a card**), except to fix
+- Change existing cards only with `preside update` (see **Changing a card**), except to fix
   a broken one.
 - Unknown frontmatter fields are kept by president, so you can add your own bookkeeping fields
-  to an open or deferred card, through `president update`. A decided card can't be changed.
+  to an open or deferred card, through `preside update`. A decided card can't be changed.

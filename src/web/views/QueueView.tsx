@@ -94,7 +94,7 @@ export function QueueView() {
           <p>No projects yet.</p>
           <p className="muted">
             Register a project folder on the <Link to="/projects">Projects</Link> page, or let an
-            agent run <code>president add &lt;path&gt;</code>.
+            agent run <code>preside add &lt;path&gt;</code>.
           </p>
         </div>
       ) : queue.length === 0 ? (
@@ -225,7 +225,7 @@ function BrokenList({ broken }: { broken: BrokenCardDto[] }) {
       <h2 className="section-heading">Broken cards ({broken.length})</h2>
       <p className="muted small">
         These files couldn't be read as cards. Ask an agent to fix them;{" "}
-        <code>president validate</code> shows the same errors.
+        <code>preside validate</code> shows the same errors.
       </p>
       <ul className="broken-list">
         {broken.map((b) => (

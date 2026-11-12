@@ -23,7 +23,7 @@ import { actOnCard, findCard, undoLastAction } from "../src/server/cards.ts";
 import type { Project } from "../src/server/registry.ts";
 import { cardText, copyDemoProject, sizedCard, tempDir } from "./helpers.ts";
 
-const BIN = join(import.meta.dirname, "..", "bin", "president.js");
+const BIN = join(import.meta.dirname, "..", "bin", "preside.js");
 
 /** Runs once, when `parseCard` is given `text`: a moment in the middle of an update. */
 const parsing = vi.hoisted(() => ({ text: "", during: undefined as (() => void) | undefined }));
@@ -69,16 +69,16 @@ async function cli(...args: string[]) {
 }
 
 /**
- * Runs the `done:` command that `president pending` printed for a card file, the way an
- * agent does: the line goes through a real shell, where `president` is a function that
+ * Runs the `done:` command that `preside pending` printed for a card file, the way an
+ * agent does: the line goes through a real shell, where `preside` is a function that
  * hands the words the shell made of it to the CLI.
  */
 async function runDone(pendingOut: string, file: string) {
   const line = pendingOut
     .split("\n")
-    .find((l) => l.trim().startsWith(`done: president `) && l.includes(basename(file)));
+    .find((l) => l.trim().startsWith(`done: preside `) && l.includes(basename(file)));
   if (!line) throw new Error(`no done command for ${file} in:\n${pendingOut}`);
-  const script = `president() { printf '%s\\0' "$@"; }\n${line.trim().replace(/^done: /, "")}`;
+  const script = `preside() { printf '%s\\0' "$@"; }\n${line.trim().replace(/^done: /, "")}`;
   const { stdout } = await promisify(execFile)("sh", ["-c", script]);
   return cli(...stdout.split("\0").slice(0, -1));
 }
@@ -128,7 +128,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe("president CLI", () => {
+describe("preside CLI", () => {
   it("adds, lists and removes projects", async () => {
     const demo = await copyDemoProject();
     expect(await cli("add", demo)).toMatchObject({ code: 0, out: `Registered demo (${demo})` });
@@ -153,7 +153,7 @@ describe("president CLI", () => {
       `a\t${kept}`,
       `b\t${noCards}\t(decisions/ folder missing)`,
       `c\t${gone}\t(folder missing)`,
-      "A project is its folder: if one moved, run president remove <name>, then president add <new path>.",
+      "A project is its folder: if one moved, run preside remove <name>, then preside add <new path>.",
     ]);
     expect(JSON.parse((await cli("list", "--json")).out)).toEqual([
       { name: "a", path: kept },
@@ -182,7 +182,7 @@ describe("president CLI", () => {
     expect((await cli("list")).out.split("\n")).toEqual([`demo\t${copy}`, `demo-2\t${second}`]);
 
     const tracked = await cli("add", DEMO_SOURCE, "--name", "tracked");
-    expect(tracked.err).toMatch(/warning: this is president's own sample folder.*president demo/);
+    expect(tracked.err).toMatch(/warning: this is president's own sample folder.*preside demo/);
   });
 
   it("names demos that start at once each their own way (R4-9)", async () => {
@@ -226,10 +226,10 @@ describe("president CLI", () => {
   it("says decisions is not a folder when it is a file, with or without --create", async () => {
     const dir = await tempDir();
     await writeFile(join(dir, "decisions"), "notes");
-    const refused = `president: "${join(dir, "decisions")}" exists but is not a directory`;
+    const refused = `preside: "${join(dir, "decisions")}" exists but is not a directory`;
     expect(await cli("add", dir)).toEqual({ code: 1, out: "", err: refused });
     expect(await cli("add", dir, "--create")).toEqual({ code: 1, out: "", err: refused });
-    const notFolder = `president: "${join(dir, "decisions")}" is not a folder`;
+    const notFolder = `preside: "${join(dir, "decisions")}" is not a folder`;
     expect(await cli("pending", dir)).toEqual({ code: 1, out: "", err: notFolder });
   });
 
@@ -238,11 +238,11 @@ describe("president CLI", () => {
     const dir = await tempDir();
     const decisions = join(dir, "decisions");
     await symlink(join(dir, "gone"), decisions);
-    const refused = `president: "${decisions}" is a link to ${join(dir, "gone")}, which doesn't exist`;
+    const refused = `preside: "${decisions}" is a link to ${join(dir, "gone")}, which doesn't exist`;
     expect(await cli("add", dir)).toEqual({ code: 1, out: "", err: refused });
     expect(await cli("add", dir, "--create")).toEqual({ code: 1, out: "", err: refused });
     expect(await cli("list", "--json")).toMatchObject({ code: 0, out: "[]" });
-    const notFolder = `president: "${decisions}" is not a folder`;
+    const notFolder = `preside: "${decisions}" is not a folder`;
     expect(await cli("pending", dir)).toEqual({ code: 1, out: "", err: notFolder });
   });
 
@@ -255,9 +255,9 @@ describe("president CLI", () => {
     const loop = join(scratch, "loop");
     await symlink("loop", loop);
     const notFolder = (path: string) =>
-      `president: cannot open ${path}: a part of the path is a file, not a folder`;
+      `preside: cannot open ${path}: a part of the path is a file, not a folder`;
     const looped = (path: string) =>
-      `president: cannot open ${path}: the path goes through a loop of links`;
+      `preside: cannot open ${path}: the path goes through a loop of links`;
     for (const command of ["pending", "add", "validate"]) {
       expect(await cli(command, throughFile)).toEqual({
         code: 1,
@@ -274,7 +274,7 @@ describe("president CLI", () => {
     expect(await cli("add", dir)).toEqual({ code: 1, out: "", err: looped(decisions) });
     expect(await cli("add", dir, "--create")).toEqual({ code: 1, out: "", err: looped(decisions) });
     expect(await cli("list", "--json")).toMatchObject({ code: 0, out: "[]" });
-    const notAFolder = `president: "${decisions}" is not a folder`;
+    const notAFolder = `preside: "${decisions}" is not a folder`;
     expect(await cli("pending", dir)).toEqual({ code: 1, out: "", err: notAFolder });
   });
 
@@ -335,7 +335,7 @@ describe("president CLI", () => {
     const missing = join(demo, "decisions", "0099-missing.md");
     expect(await cli("validate", missing)).toMatchObject({
       code: 1,
-      err: `president: "${missing}" does not exist`,
+      err: `preside: "${missing}" does not exist`,
     });
   });
 
@@ -367,7 +367,7 @@ describe("president CLI", () => {
 
     const listed = (await cli("pending", demo)).out;
     const token = JSON.parse(pending.out).resolved_not_applied[0].token;
-    expect(listed).toContain(`done: president applied ${file} --token ${token}`);
+    expect(listed).toContain(`done: preside applied ${file} --token ${token}`);
     const applied = await runDone(listed, file);
     expect(applied).toMatchObject({ code: 0 });
     const text = await readFile(file, "utf8");
@@ -414,7 +414,7 @@ describe("president CLI", () => {
     const done = await runDone(shown, file);
     expect(done.code).toBe(0);
     expect(done.err).toBe(
-      "president: note: card 0002 is now 0002-error-shape.md (renamed since); using that file",
+      "preside: note: card 0002 is now 0002-error-shape.md (renamed since); using that file",
     );
     expect(done.out).toMatch(/^Marked the human's feedback on 0002-error-shape\.md as read/);
     expect((await cli("pending", demo)).out).toBe("Nothing pending.");
@@ -463,7 +463,7 @@ describe("president CLI", () => {
       const refused = await cli("update", file, mine);
       expect(refused.code).toBe(1);
       expect(refused.err).toMatch(
-        /^president: 0002-api-errors\.md was not changed: what the human owns differs[\s\S]*Read the card again[\s\S]*\n {2}- feedback: the human added 1 entry since you read the card:\n {2}- note \S+: Actually two words is fine too\.$/,
+        /^preside: 0002-api-errors\.md was not changed: what the human owns differs[\s\S]*Read the card again[\s\S]*\n {2}- feedback: the human added 1 entry since you read the card:\n {2}- note \S+: Actually two words is fine too\.$/,
       );
       expect(await readFile(file, "utf8")).toBe(withNote);
       expect(await readFile(mine, "utf8")).toBe(rewrite(read));
@@ -513,7 +513,7 @@ describe("president CLI", () => {
       await writeFile(mine, before.replace("status: open", "status: deferred"));
       expect((await cli("update", file, mine)).err).toBe(
         [
-          "president: 0002-api-errors.md was not changed: what the human owns differs between the card and your version, so the card changed since you read it. Read the card again, make your changes to it as it is now (keep status, resolution, feedback, applied_at, seen_at exactly as they are), and run president update again:",
+          "preside: 0002-api-errors.md was not changed: what the human owns differs between the card and your version, so the card changed since you read it. Read the card again, make your changes to it as it is now (keep status, resolution, feedback, applied_at, seen_at exactly as they are), and run preside update again:",
           '  - status: the card has "open", your version "deferred"',
         ].join("\n"),
       );
@@ -527,7 +527,7 @@ describe("president CLI", () => {
       );
       expect((await cli("update", file, mine)).err).toBe(
         [
-          "president: 0002-api-errors.md was not changed: its decision changed since you read it (the human took back a decision), or your version changes it, so don't rewrite it: run `president pending` and handle the card as it shows it (for a decided card, apply the decision).",
+          "preside: 0002-api-errors.md was not changed: its decision changed since you read it (the human took back a decision), or your version changes it, so don't rewrite it: run `preside pending` and handle the card as it shows it (for a decided card, apply the decision).",
           '  - status: the card has "open", your version "resolved"',
           '  - resolution: the card has none, your version a decision ("result")',
         ].join("\n"),
@@ -542,7 +542,7 @@ describe("president CLI", () => {
       expect(await readFile(file, "utf8")).toBe(before);
       expect((await cli("update", file, file)).err).toMatch(/as a separate file/);
       expect((await cli("update", file)).err).toMatch(
-        /usage: president update <card-file> <new-version-file>/,
+        /usage: preside update <card-file> <new-version-file>/,
       );
     });
 
@@ -557,7 +557,7 @@ describe("president CLI", () => {
       );
       expect(await cli("update", file, mine)).toMatchObject({
         code: 0,
-        err: "president: warning: needs_new_options is still set. Remove it once the options are rewritten, or the card stays out of the human's queue.",
+        err: "preside: warning: needs_new_options is still set. Remove it once the options are rewritten, or the card stays out of the human's queue.",
       });
     });
 
@@ -577,7 +577,7 @@ describe("president CLI", () => {
       const refused = await cli("update", file, mine);
       expect(refused.code).toBe(1);
       expect(refused.err).toMatch(
-        /^president: 0002-api-errors\.md was not changed: what the human owns differs[\s\S]*Read the card again[\s\S]*\n {2}- status: the card has "deferred", your version "open"$/,
+        /^preside: 0002-api-errors\.md was not changed: what the human owns differs[\s\S]*Read the card again[\s\S]*\n {2}- status: the card has "deferred", your version "open"$/,
       );
       expect(await readFile(file, "utf8")).toBe(deferred);
       await writeFile(mine, rewrite(deferred));
@@ -596,7 +596,7 @@ describe("president CLI", () => {
       const decided = await readFile(file, "utf8");
       const mine = join(demo, "decisions", ".0002.new.md");
       const refusal =
-        "president: 0002-api-errors.md was not changed: the human decided it, and the decision is about the card as they saw it, so don't rewrite it: run `president pending` and handle the card as it shows it (for a decided card, apply the decision).";
+        "preside: 0002-api-errors.md was not changed: the human decided it, and the decision is about the card as they saw it, so don't rewrite it: run `preside pending` and handle the card as it shows it (for a decided card, apply the decision).";
       await writeFile(
         mine,
         read.replace("title: Return a result object", "title: Return a REWRITTEN object"),
@@ -690,7 +690,7 @@ describe("president CLI", () => {
       expect(await cli("update", file, mine)).toEqual({
         code: 1,
         out: "",
-        err: "president: 0002-api-errors.md changed while updating it; run president update again",
+        err: "preside: 0002-api-errors.md changed while updating it; run preside update again",
       });
       expect(parsing.during).toBeUndefined();
       expect(await readFile(file, "utf8")).toBe(human);
@@ -703,7 +703,7 @@ describe("president CLI", () => {
       await writeFile(file, (await readFile(file, "utf8")).replace("kind: ab", "kind: maybe"));
       await writeFile(mine, "anything");
       expect((await cli("update", file, mine)).err).toMatch(
-        /^president: 0002-api-errors\.md is broken\. Fix it by editing the file directly \(president doesn't write broken cards, so this is the one case to edit a card yourself\), then run this again\n {2}- kind: Invalid option/,
+        /^preside: 0002-api-errors\.md is broken\. Fix it by editing the file directly \(president doesn't write broken cards, so this is the one case to edit a card yourself\), then run this again\n {2}- kind: Invalid option/,
       );
     });
   });
@@ -876,7 +876,7 @@ describe("president CLI", () => {
     const file = join(demo, "decisions", "0002-api-errors.md");
     await human(demo, "0002", { type: "note", note: "a note" });
     const shown = (await cli("pending", demo)).out;
-    expect(shown).toContain(`done: president seen '${file.replaceAll("'", "'\\''")}' --token `);
+    expect(shown).toContain(`done: preside seen '${file.replaceAll("'", "'\\''")}' --token `);
     expect(await runDone(shown, file)).toMatchObject({ code: 0 });
     expect((await cli("pending", demo)).out).toBe("Nothing pending.");
   });
@@ -894,7 +894,7 @@ describe("president CLI", () => {
       "",
       "      Second:",
       "      - item one",
-      expect.stringMatching(/^ {4}done: president applied /),
+      expect.stringMatching(/^ {4}done: preside applied /),
     ]);
   });
 
@@ -903,7 +903,7 @@ describe("president CLI", () => {
     const file = join(demo, "decisions", "0002-api-errors.md");
     const result = await cli("seen", file);
     expect(result).toMatchObject({ code: 1 });
-    expect(result.err).toMatch(/--token is required: run `president pending`/);
+    expect(result.err).toMatch(/--token is required: run `preside pending`/);
   });
 
   it("never marks a note as read that pending didn't show (R2-1)", async () => {
@@ -916,7 +916,7 @@ describe("president CLI", () => {
     await human(demo, "0002", { type: "note", note: "SECOND note, never shown" });
     const done = await runDone(shown, file);
     expect(done).toMatchObject({ code: 0 });
-    expect(done.out).toMatch(/added 1 more note since you ran `president pending`/);
+    expect(done.out).toMatch(/added 1 more note since you ran `preside pending`/);
     const after = await cli("pending", demo);
     expect(after.out).toContain("SECOND note, never shown");
     expect(after.out).not.toContain("first note");
@@ -934,7 +934,7 @@ describe("president CLI", () => {
     const before = await readFile(file, "utf8");
     const refused = await runDone(shown, file);
     expect(refused.code).toBe(1);
-    expect(refused.err).toMatch(/now resolved as "result".*Run `president pending` again/s);
+    expect(refused.err).toMatch(/now resolved as "result".*Run `preside pending` again/s);
     expect(await readFile(file, "utf8")).toBe(before);
     const again = await cli("pending", demo);
     expect(again.out).toMatch(/-> result/);
@@ -985,7 +985,7 @@ describe("president CLI", () => {
     const added = await cli("add", second);
     expect(added).toMatchObject({ code: 0 });
     expect(added.out).toBe(
-      `Registered app-2 (${second})\nAnother project is already named "app", so this one is "app-2". To choose its name: president remove app-2, then president add <path> --name <name>.`,
+      `Registered app-2 (${second})\nAnother project is already named "app", so this one is "app-2". To choose its name: preside remove app-2, then preside add <path> --name <name>.`,
     );
     const taken = await cli("add", await copyDemoProject("web"), "--name", "app");
     expect(taken).toMatchObject({ code: 1, err: expect.stringMatching(/--name <name>/) });
@@ -1013,12 +1013,12 @@ describe("president CLI", () => {
         expect(await cli(command)).toEqual({
           code: 1,
           out: "",
-          err: `president: ${join(repo, "src")} has no decisions/ folder. Run this in the project's main folder (the one that contains decisions/), not in a git worktree.`,
+          err: `preside: ${join(repo, "src")} has no decisions/ folder. Run this in the project's main folder (the one that contains decisions/), not in a git worktree.`,
         });
       }
       expect(await cli("add", ".")).toMatchObject({
         code: 1,
-        err: `president: ${join(repo, "src")} has no decisions/ folder. Run this in the project's main folder (the one that contains decisions/), not in a git worktree. Or add --create to make one here.`,
+        err: `preside: ${join(repo, "src")} has no decisions/ folder. Run this in the project's main folder (the one that contains decisions/), not in a git worktree. Or add --create to make one here.`,
       });
       // --create makes decisions/ in the folder given, never in a parent.
       expect((await cli("add", ".", "--create")).out).toBe(`Registered src (${join(repo, "src")})`);
@@ -1046,7 +1046,7 @@ describe("president CLI", () => {
       expect(listed).toMatchObject({ code: 0, err: "" });
       expect(listed.out).toMatch(/New notes from the human[\s\S]*Blue, maybe\?/);
       // Its own decisions/ folder is a folder like any other: not a way to name the project.
-      const inner = `president: ${join(root, "decisions")} has no decisions/ folder. Run this in the project's main folder (the one that contains decisions/), not in a git worktree.`;
+      const inner = `preside: ${join(root, "decisions")} has no decisions/ folder. Run this in the project's main folder (the one that contains decisions/), not in a git worktree.`;
       for (const command of ["pending", "validate"]) {
         expect(await cli(command, "decisions")).toEqual({ code: 1, out: "", err: inner });
       }
@@ -1060,7 +1060,7 @@ describe("president CLI", () => {
 
   it("says when the project is not registered", async () => {
     const demo = await copyDemoProject("trips");
-    const note = `president: note: ${demo} is not registered with the hub, so the human doesn't see its cards. Register it: president add ${demo}`;
+    const note = `preside: note: ${demo} is not registered with the hub, so the human doesn't see its cards. Register it: preside add ${demo}`;
     expect(await cli("pending", demo)).toEqual({ code: 0, out: "Nothing pending.", err: note });
     expect((await cli("validate", demo)).err).toBe(note);
     expect((await cli("validate", join(demo, "decisions", "0002-api-errors.md"))).err).toBe(note);
@@ -1077,7 +1077,7 @@ describe("president CLI", () => {
     await writeFile(join(configHome, "president", "projects", "trips.json"), "{");
     const unreadable = await cli("pending", demo);
     expect(unreadable).toMatchObject({ code: 0, out: "Nothing pending." });
-    expect(unreadable.err).toMatch(/^president: note: can't read the registry: /);
+    expect(unreadable.err).toMatch(/^preside: note: can't read the registry: /);
   });
 
   // A linked worktree's decisions/ is its own copy, without the human's answers (#0022).
@@ -1089,7 +1089,7 @@ describe("president CLI", () => {
     await cli("add", main);
 
     expect(await cli("pending", main)).toMatchObject({ code: 0, err: "" });
-    const warning = `president: warning: ${wt} is in a git worktree, which has its own copy of decisions/: the human's answers are not in it, and this command reads or marks only that copy. Give president commands paths in the project's main folder instead (${main}), and don't register a worktree with president add.`;
+    const warning = `preside: warning: ${wt} is in a git worktree, which has its own copy of decisions/: the human's answers are not in it, and this command reads or marks only that copy. Give preside commands paths in the project's main folder instead (${main}), and don't register a worktree with preside add.`;
     const pending = await cli("pending", wt);
     expect(pending).toMatchObject({ code: 0, out: "Nothing pending." });
     // First, before the note that suggests registering the worktree.
@@ -1148,7 +1148,7 @@ describe("president CLI", () => {
     // Not registered, so that only the git answer can keep the warning away.
     const pending = await cli("pending", main);
     expect(pending.code).toBe(0);
-    expect(pending.err).toMatch(/^president: note: .* is not registered with the hub/);
+    expect(pending.err).toMatch(/^preside: note: .* is not registered with the hub/);
     expect(pending.err).not.toMatch(/warning/);
     expect(await linkedWorktree(main)).toBeUndefined();
     expect(await linkedWorktree(wt)).toBeUndefined();
@@ -1166,14 +1166,14 @@ describe("president CLI", () => {
     await git(proj, "worktree", "add", "-q", "-b", "feat", featWt);
     expect(await linkedWorktree(featWt)).toEqual({ bare: true, checkouts: [mainWt] });
 
-    const start = `president: warning: ${featWt} is in a git worktree, which has its own copy of decisions/: the human's answers are not in it, and this command reads or marks only that copy.`;
+    const start = `preside: warning: ${featWt} is in a git worktree, which has its own copy of decisions/: the human's answers are not in it, and this command reads or marks only that copy.`;
     expect((await cli("pending", featWt)).err.split("\n")[0]).toBe(
       `${start} The repository is bare, so every checkout is a worktree, and none is registered with president: ask the human which one is the project's main folder.`,
     );
     await cli("add", mainWt);
     expect(await cli("pending", mainWt)).toMatchObject({ code: 0, err: "" });
     expect((await cli("pending", featWt)).err.split("\n")[0]).toBe(
-      `${start} Give president commands paths in the project's main folder instead (${mainWt}), and don't register a worktree with president add.`,
+      `${start} Give preside commands paths in the project's main folder instead (${mainWt}), and don't register a worktree with preside add.`,
     );
   });
 
@@ -1192,14 +1192,14 @@ describe("president CLI", () => {
   // A path that isn't there is said so, not taken for a folder without decisions/ (R8-6).
   it("says a path is missing before looking for its decisions/ folder", async () => {
     const missing = join(await tempDir(), "nope");
-    const gone = { code: 1, out: "", err: `president: "${missing}" does not exist` };
+    const gone = { code: 1, out: "", err: `preside: "${missing}" does not exist` };
     expect(await cli("add", missing)).toEqual(gone);
     expect(await cli("validate", missing)).toEqual(gone);
     expect(await cli("pending", missing)).toEqual(gone);
     // Something there that isn't a folder is a different thing (R9-2).
     const file = join(await tempDir(), "notes.txt");
     await writeFile(file, "notes");
-    const notFolder = { code: 1, out: "", err: `president: "${file}" is not a folder` };
+    const notFolder = { code: 1, out: "", err: `preside: "${file}" is not a folder` };
     expect(await cli("pending", file)).toEqual(notFolder);
   });
 
@@ -1212,7 +1212,7 @@ describe("president CLI", () => {
     await mkdir(join(web, "decisions"), { recursive: true });
     const card = join(web, "decisions", "0001-web-copy.md");
     await writeFile(card, cardText({ id: '"0001"' }));
-    const unregistered = `president: note: ${web} is not registered with the hub, so the human doesn't see its cards. Register it: president add ${web}`;
+    const unregistered = `preside: note: ${web} is not registered with the hub, so the human doesn't see its cards. Register it: preside add ${web}`;
     const good = await cli("validate", card);
     expect(good).toMatchObject({ code: 0, err: unregistered });
     expect(good.out).toMatch(/^ok {6}0001-web-copy\.md\n/);
@@ -1220,7 +1220,7 @@ describe("president CLI", () => {
     await writeFile(bad, cardText({ id: '"0002"', title: "Copy: what?" }));
     const broken = await cli("validate", bad);
     expect(broken.code).toBe(1);
-    expect(broken.err).toMatch(/^president: note: .*\nbroken {2}0002-broken\.md\n {10}- /);
+    expect(broken.err).toMatch(/^preside: note: .*\nbroken {2}0002-broken\.md\n {10}- /);
     const all = await cli("validate", web);
     expect(all.code).toBe(1);
     expect(all.out).toMatch(
@@ -1265,7 +1265,7 @@ describe("president CLI", () => {
       });
       expect(await cli("remove", "..")).toMatchObject({
         code: 1,
-        err: `president: no project at "${demo}"`,
+        err: `preside: no project at "${demo}"`,
       });
     } finally {
       cwd.mockRestore();
@@ -1277,7 +1277,7 @@ describe("president CLI", () => {
     await writeFile(join(configHome, "president", "projects", "bad name.json"), "{}");
     const result = await cli("list");
     expect(result.code).toBe(1);
-    expect(result.err).toMatch(/^president: .*"bad name" is not a valid project name/);
+    expect(result.err).toMatch(/^preside: .*"bad name" is not a valid project name/);
   });
 
   it.skipIf(process.getuid?.() === 0)("explains a folder it may not create", async () => {
@@ -1287,7 +1287,7 @@ describe("president CLI", () => {
       const result = await cli("add", dir, "--create");
       expect(result.code).toBe(1);
       expect(result.err).toBe(
-        `president: cannot create ${join(dir, "decisions")}: permission denied`,
+        `preside: cannot create ${join(dir, "decisions")}: permission denied`,
       );
     } finally {
       await chmod(dir, 0o700);
@@ -1300,7 +1300,7 @@ describe("president CLI", () => {
     await mkdir(join(dir, "decisions"));
     await chmod(dir, 0o600);
     try {
-      const denied = `president: cannot open ${join(dir, "decisions")}: permission denied`;
+      const denied = `preside: cannot open ${join(dir, "decisions")}: permission denied`;
       for (const command of ["add", "pending", "validate"]) {
         expect(await cli(command, dir), command).toEqual({ code: 1, out: "", err: denied });
       }
@@ -1318,7 +1318,7 @@ describe("president CLI", () => {
     try {
       const result = await cli("serve");
       expect(result.code).toBe(1);
-      expect(result.err).toMatch(/^president: the port is already in use/);
+      expect(result.err).toMatch(/^preside: the port is already in use/);
     } finally {
       blocker.close();
     }
@@ -1326,17 +1326,17 @@ describe("president CLI", () => {
 
   it("explains unknown commands and bad arguments", async () => {
     expect((await cli("frobnicate")).code).toBe(2);
-    expect((await cli("add")).err).toMatch(/usage: president add <path>/);
+    expect((await cli("add")).err).toMatch(/usage: preside add <path>/);
     expect((await cli("list", "--bogus")).code).toBe(1);
-    expect((await cli("help")).out).toMatch(/president add <path>/);
+    expect((await cli("help")).out).toMatch(/preside add <path>/);
   });
 
-  // Agents that start together each run `president add . --create`: every one of them must
+  // Agents that start together each run `preside add . --create`: every one of them must
   // end up registered, under its own name (R3-2, R3-13), with no lock (R5-3): each name is
   // claimed by creating its file exclusively. Separate processes, so these start Node many
   // times (see the timeout note below); not more than 12 at once, so that four suites run
   // side by side don't starve each other's timed tests.
-  const president = (...args: string[]) =>
+  const preside = (...args: string[]) =>
     promisify(execFile)(process.execPath, [BIN, ...args], { timeout: 18_000 });
 
   it("registers every project when many `add`s run at once", { timeout: 20_000 }, async () => {
@@ -1349,10 +1349,10 @@ describe("president CLI", () => {
     );
     const shared = await copyDemoProject("shared");
     const results = await Promise.all([
-      ...folders.map((dir) => president("add", dir, "--create")),
+      ...folders.map((dir) => preside("add", dir, "--create")),
       // Two agents of one project at once register it once.
-      president("add", shared),
-      president("add", shared),
+      preside("add", shared),
+      preside("add", shared),
     ]);
     for (const { stdout } of results.slice(0, 10)) {
       expect(stdout).toMatch(/^Registered app(-\d+)? /);
@@ -1373,7 +1373,7 @@ describe("president CLI", () => {
   it("names every demo when many `demo`s run at once", { timeout: 20_000 }, async () => {
     const scratch = await tempDir();
     const demos = Array.from({ length: 5 }, (_, i) => join(scratch, `d${i}`));
-    const results = await Promise.all(demos.map((dir) => president("demo", dir)));
+    const results = await Promise.all(demos.map((dir) => preside("demo", dir)));
     const listed = JSON.parse((await cli("list", "--json")).out) as Project[];
     expect(listed.map((p) => p.path).sort()).toEqual(demos.sort());
     const names = ["demo", ...Array.from({ length: 4 }, (_, i) => `demo-${i + 2}`)];
@@ -1392,6 +1392,24 @@ describe("president CLI", () => {
       timeout: 9000,
     });
     expect(stdout).toMatch(/Usage:/);
+  });
+
+  // `president` is the old name, kept as an alias until F2 (20261111dmvt): its script, and a
+  // link made by the README's old install line (`ln -s .../bin/president.js .../president`).
+  it("runs through the president alias, also from an old install's link", {
+    timeout: 10_000,
+  }, async () => {
+    const alias = join(dirname(BIN), "president.js");
+    const link = join(await tempDir(), "president");
+    await symlink(alias, link);
+    for (const entry of [alias, link]) {
+      const { stdout } = await promisify(execFile)(process.execPath, [entry, "help"], {
+        timeout: 9000,
+      });
+      expect(stdout).toMatch(/Usage:\n {2}preside add/);
+    }
+    const pkg = JSON.parse(await readFile(join(dirname(BIN), "..", "package.json"), "utf8"));
+    expect(pkg.bin).toEqual({ preside: "bin/preside.js", president: "bin/president.js" });
   });
 
   // Before 24.9 the server's shouldUpgradeCallback is ignored without a word (R6-14), so

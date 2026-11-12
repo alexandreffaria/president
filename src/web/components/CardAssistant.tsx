@@ -13,7 +13,7 @@ export function CardAssistant(_props: { card: CardDetailDto }) {
       <p className="muted">
         Asking questions about this card, "teach me the background" and research requests will live
         here in a later version. For now, add a note (<kbd>m</kbd>): agents see new notes the next
-        time they run <code>president pending</code> in this project, and mark them read.
+        time they run <code>preside pending</code> in this project, and mark them read.
       </p>
     </section>
   );

@@ -401,7 +401,7 @@ export async function actOnCard(
  * Puts a card back exactly as it was before the last action taken through this server
  * (byte for byte: no feedback entry, nothing lost). The one exception is a decision: an
  * agent may already have been shown it and acted on it, so its undo also adds an `undo`
- * feedback entry with the decision in `previous_resolution`, and `president pending` tells
+ * feedback entry with the decision in `previous_resolution`, and `preside pending` tells
  * the agent to revert that work. `revision` is the revision that action
  * returned; if anything wrote the card since (an agent applied it, another tab acted, an
  * agent wrote the same bytes back), the undo is refused with a 409. Writes are told apart
