@@ -1,7 +1,7 @@
 ---
 id: "20261112xp4s"
 title: When Sync brings in a change to the card you have open, what should the notice say?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-12T01:40:34Z
@@ -57,6 +57,10 @@ options:
       - The card changes under you without a word; if you had picked an option, the pick disappears with no explanation
       - Relies on the same guess as by-change about who made a change; a wrong guess here hides the change entirely
       - You lose the pause before acting, so you might add a note to a card without noticing you decided it an hour ago elsewhere
+resolution:
+  choice: from-sync
+  resolved_at: 2026-11-12T02:00:32Z
+applied_at: 2026-11-12T03:11:05Z
 ---
 
 ## Context

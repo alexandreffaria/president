@@ -1,7 +1,7 @@
 ---
 id: "20261111paot"
 title: After Claude Code deletes a conversation you never summarized, can a summary still be written?
-status: open
+status: resolved
 kind: choice
 priority: high
 created: 2026-11-11T18:21:22Z
@@ -44,6 +44,10 @@ options:
     cons:
       - What you discussed never reaches the agent unless you think of adding a note
       - The page shows the conversation but offers nothing to do with it
+resolution:
+  choice: from-copy
+  resolved_at: 2026-11-12T01:56:02Z
+applied_at: 2026-11-12T03:11:03Z
 ---
 
 ## Context

@@ -1,7 +1,7 @@
 ---
 id: "20261111fauj"
 title: What should Teach me give on an open card that has no options to compare?
-status: open
+status: resolved
 kind: choice
 priority: high
 created: 2026-11-11T18:21:26Z
@@ -44,6 +44,10 @@ options:
     cons:
       - The one kind of card that leaves the most to you gets the least help
       - A button that comes and goes depending on the card is confusing
+resolution:
+  choice: scenario
+  resolved_at: 2026-11-12T01:56:43Z
+applied_at: 2026-11-12T03:11:01Z
 ---
 
 ## Context

@@ -1,7 +1,7 @@
 ---
 id: "2026111209dq"
 title: Should Sync work for a project that sits inside a bigger git repository?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-12T01:40:35Z
@@ -47,6 +47,10 @@ options:
       - Every Sync pulls the whole bigger repository, so files far from your project can change on this machine (your shell settings, in a home-folder repository)
       - It pushes straight to the bigger repository's main branch; in a shared monorepo that may be refused, or put "decisions from thinkpad" commits in your team's history
       - Sync says "not now" more often, because unpushed commits or edited files anywhere in the bigger repository (an agent's, a teammate's merged change to a file you edited, your own settings files) block it, and while it pulls it sets aside every uncommitted change in that repository and puts it back
+resolution:
+  choice: top-only
+  resolved_at: 2026-11-12T02:01:00Z
+applied_at: 2026-11-12T03:11:05Z
 ---
 
 ## Context

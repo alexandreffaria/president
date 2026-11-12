@@ -1,7 +1,7 @@
 ---
 id: "20261111sblu"
 title: On A/B cards, where should the conversation panel go?
-status: open
+status: resolved
 kind: choice
 priority: high
 created: 2026-11-11T18:21:20Z
@@ -45,6 +45,10 @@ options:
     cons:
       - You lose the side-by-side comparison exactly while you are discussing it; B is below A, so comparing means scrolling
       - The layout jumps when you open or close the panel
+resolution:
+  choice: three
+  resolved_at: 2026-11-12T01:55:45Z
+applied_at: 2026-11-12T03:11:04Z
 ---
 
 ## Context

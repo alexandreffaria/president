@@ -1,7 +1,7 @@
 ---
 id: "202611116ff6"
 title: Outside the hub's queue, how should a withdrawn card be treated?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-11T18:21:17Z
@@ -48,6 +48,10 @@ options:
     cons:
       - Dependent cards stay at the bottom behind a card that is hidden in a collapsed list, so they can wait a long time for no reason
       - Other agents running president pending or validate can't tell the card was withdrawn
+resolution:
+  choice: labelled
+  resolved_at: 2026-11-12T01:57:37Z
+applied_at: 2026-11-12T03:10:59Z
 ---
 
 ## Context

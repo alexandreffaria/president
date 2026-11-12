@@ -1,7 +1,7 @@
 ---
 id: "202611111ky9"
 title: What should happen when you leave a conversation on a decided card without closing it?
-status: open
+status: resolved
 kind: choice
 priority: high
 created: 2026-11-11T18:21:23Z
@@ -35,6 +35,10 @@ options:
     cons:
       - A conclusion you reached but didn't close the conversation for never reaches the agent
       - Open and decided cards behave differently when you leave, which you have to remember
+resolution:
+  choice: remind
+  resolved_at: 2026-11-12T01:56:09Z
+applied_at: 2026-11-12T03:10:58Z
 ---
 
 ## Context

@@ -1,7 +1,7 @@
 ---
 id: "20261111dmvt"
 title: What should the president command be renamed to?
-status: open
+status: resolved
 kind: choice
 priority: high
 created: 2026-11-11T18:21:27Z
@@ -57,6 +57,10 @@ options:
     cons:
       - Not a word; it can be read as "pre-scards" and has to be spelled from memory
       - '"pres" is a short form you have to know stands for president'
+resolution:
+  choice: preside
+  resolved_at: 2026-11-12T01:57:02Z
+applied_at: 2026-11-12T03:11:00Z
 ---
 
 ## Context

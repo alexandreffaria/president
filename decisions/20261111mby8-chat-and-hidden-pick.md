@@ -1,7 +1,7 @@
 ---
 id: "20261111mby8"
 title: Before you reveal the agent's pick, may the card's chat name it or argue for an option?
-status: open
+status: resolved
 kind: choice
 priority: high
 created: 2026-11-11T18:21:19Z
@@ -50,6 +50,10 @@ options:
       - It still needs neutral's instruction; otherwise the session forms a pick of its own and argues for it, which anchors you the same way
       - The block is best-effort for Grep and Glob (the docs' words), and another project file, such as docs that quote a card, can still show the pick
       - More to build and test (the blocking rule, the reworked card text, reveals mid-conversation)
+resolution:
+  choice: neutral
+  resolved_at: 2026-11-12T01:55:35Z
+applied_at: 2026-11-12T03:11:02Z
 ---
 
 ## Context

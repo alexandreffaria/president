@@ -1,7 +1,7 @@
 ---
 id: "202611111gpm"
 title: Should the run that writes new options after "neither" be part of the card's conversation?
-status: open
+status: resolved
 kind: choice
 priority: high
 created: 2026-11-11T18:21:25Z
@@ -48,6 +48,10 @@ options:
       - The reply still has to be both a readable message and options the hub can check, which makes the run more fragile
       - The run's reasoning reaches the working agent only through the options, unless you go on to discuss them; then only your later messages make the conversation "not summarized"
       - Every "neither" starts or extends a stored conversation on this machine, even on a card you never chatted on
+resolution:
+  choice: shown-no-reminder
+  resolved_at: 2026-11-12T01:56:33Z
+applied_at: 2026-11-12T03:10:57Z
 ---
 
 ## Context

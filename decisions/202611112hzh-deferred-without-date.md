@@ -1,7 +1,7 @@
 ---
 id: "202611112hzh"
 title: When snooze ships, what should happen to a deferred card that has no return date?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-11T18:21:16Z
@@ -49,6 +49,10 @@ options:
       - On another machine the card can come back on a different day, since each hub counts from when it first saw the card
       - One more per-machine record to keep
       - Cards with no record of their deferral still come back together, a week after snooze ships, and a card deferred by hand comes back too
+resolution:
+  choice: back-now
+  resolved_at: 2026-11-12T01:57:17Z
+applied_at: 2026-11-12T03:10:58Z
 ---
 
 ## Context

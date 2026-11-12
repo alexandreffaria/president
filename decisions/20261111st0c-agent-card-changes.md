@@ -1,7 +1,7 @@
 ---
 id: "20261111st0c"
 title: Should agents deliver new cards and card rewrites in a pull request, or write them straight into the main folder?
-status: open
+status: resolved
 kind: choice
 priority: high
 created: 2026-11-11T18:21:15Z
@@ -72,6 +72,10 @@ options:
       - Two rules for agents to remember, depending on whether the card exists yet
       - New cards still wait for a merge and a pull before you see them, and a card written during a feature waits for that feature unless the agent opens a separate pull request for it
       - Rewrites (new options after "neither", withdrawing a card) reach you unreviewed, as in main-folder and reviewed-main
+resolution:
+  choice: reviewed-main
+  resolved_at: 2026-11-12T01:55:25Z
+applied_at: 2026-11-12T03:11:04Z
 ---
 
 ## Context

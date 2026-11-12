@@ -1,7 +1,7 @@
 ---
 id: "202611114wet"
 title: How long should the hub keep its copy of a card's conversations?
-status: open
+status: resolved
 kind: choice
 priority: high
 created: 2026-11-11T18:21:21Z
@@ -47,6 +47,10 @@ options:
     cons:
       - Gives up the reason you chose the hub's copy in 0018; after 30 days without use, only the summaries remain
       - The hub has to check whether Claude Code still has each session, which ties it to Claude Code's storage
+resolution:
+  choice: with-card
+  resolved_at: 2026-11-12T01:55:54Z
+applied_at: 2026-11-12T03:10:59Z
 ---
 
 ## Context

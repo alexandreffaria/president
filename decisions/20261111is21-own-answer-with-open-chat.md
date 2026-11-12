@@ -1,7 +1,7 @@
 ---
 id: "20261111is21"
 title: Should "Decide this as my answer" wait for the conversation's summary, as Decide does?
-status: open
+status: resolved
 kind: choice
 priority: high
 created: 2026-11-11T18:21:24Z
@@ -37,6 +37,10 @@ options:
     cons:
       - Two ways of deciding a card behave differently
       - Reasons from the conversation that aren't in your answer reach the agent only if you later write the summary, and if card 202611111ky9 chooses quiet, nothing reminds you to
+resolution:
+  choice: wait
+  resolved_at: 2026-11-12T01:56:16Z
+applied_at: 2026-11-12T03:11:01Z
 ---
 
 ## Context

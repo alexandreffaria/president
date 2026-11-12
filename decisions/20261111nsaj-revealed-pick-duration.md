@@ -1,7 +1,7 @@
 ---
 id: "20261111nsaj"
 title: Once you reveal the agent's pick on a card, how long should it stay revealed?
-status: open
+status: resolved
 kind: choice
 priority: normal
 created: 2026-11-11T18:21:18Z
@@ -47,6 +47,10 @@ options:
     cons:
       - Pressing r changes the card file, so it shows up in Sync and can conflict with a change on another machine
       - A look at the pick becomes a permanent record you may not want, and one more field in the format
+resolution:
+  choice: visit
+  resolved_at: 2026-11-12T01:57:49Z
+applied_at: 2026-11-12T03:11:02Z
 ---
 
 ## Context
