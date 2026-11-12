@@ -32,7 +32,7 @@ export function FeedbackHistory(props: { feedback: FeedbackEntry[]; seenAt: stri
               {unseen.has(entry) && (
                 <span
                   className="feedback-unseen"
-                  title="Agents see it when they run `president pending`"
+                  title="Agents see it when they run `preside pending`"
                 >
                   not read by an agent yet
                 </span>

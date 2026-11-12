@@ -419,7 +419,7 @@ describe("card actions API", () => {
       ["0004", { type: "defer" }, 409, /cannot defer a card while it is resolved/],
       ["9999", { type: "defer" }, 404, /no card "9999"/],
       ["0002", { type: "seen" }, 400, /invalid request/],
-      ["0004", { type: "applied", token: "0-aaaaaaaaaaa" }, 409, /president pending/],
+      ["0004", { type: "applied", token: "0-aaaaaaaaaaa" }, 409, /preside pending/],
     ];
     for (const [id, body, status, message] of cases) {
       const res = await act(id, body);
@@ -611,7 +611,7 @@ describe("undo", () => {
   it("refuses when an agent wrote the same bytes back after acting on it (R5-10)", async () => {
     const { post, file, revision } = await resolved();
     const decided = await readFile(file, "utf8");
-    // The agent applies it (another process: `president applied`), then `git checkout`s its
+    // The agent applies it (another process: `preside applied`), then `git checkout`s its
     // own applied_at edit: the content is the decision's again, but the card was written since.
     await writeFile(
       file,

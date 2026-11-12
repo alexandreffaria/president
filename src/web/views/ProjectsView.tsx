@@ -143,7 +143,7 @@ export function ProjectsView() {
           </div>
         </form>
         <p className="muted small">
-          Agents can do the same from a terminal: <code>president add /path/to/project</code>.
+          Agents can do the same from a terminal: <code>preside add /path/to/project</code>.
         </p>
       </section>
     </div>

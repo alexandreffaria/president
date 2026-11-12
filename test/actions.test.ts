@@ -206,7 +206,7 @@ describe("applied", () => {
     });
     const result = applyAction(redecided, { type: "applied", token }, later);
     expect(result).toMatchObject({ ok: false, reason: "stale" });
-    expect(!result.ok && result.error).toMatch(/now resolved as "b".*president pending/);
+    expect(!result.ok && result.error).toMatch(/now resolved as "b".*preside pending/);
   });
 
   it("refuses when the human undid the decision and made it again", () => {
@@ -265,7 +265,7 @@ describe("seen", () => {
     expect(applyAction(other, { type: "seen", token }, NOW)).toMatchObject({ reason: "stale" });
     expect(applyAction(noted, { type: "seen", token: "nonsense" }, NOW)).toMatchObject({
       reason: "stale",
-      error: expect.stringMatching(/not a token from `president pending`/),
+      error: expect.stringMatching(/not a token from `preside pending`/),
     });
   });
 });

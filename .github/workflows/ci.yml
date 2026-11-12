@@ -31,7 +31,7 @@ jobs:
       - name: Validate decision cards
         # president's own cards in decisions/ (only that folder: examples/ and test fixtures
         # are not checked here). A broken card fails CI.
-        run: node bin/president.js validate .
+        run: node bin/preside.js validate .
       - name: Test
         run: npm test
         env:

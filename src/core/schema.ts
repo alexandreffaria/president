@@ -102,7 +102,7 @@ export const FrontmatterSchema = z
     needs_new_options: z.boolean().optional(),
     resolution: ResolutionSchema.optional(),
     applied_at: Timestamp.optional(),
-    /** When an agent last read the human's feedback (`president seen`, `president applied`). */
+    /** When an agent last read the human's feedback (`preside seen`, `preside applied`). */
     seen_at: Timestamp.optional(),
     /** Reserved for the chat panel (headless Claude Code session per card). */
     session_id: z.string().optional(),

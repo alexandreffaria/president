@@ -1,5 +1,5 @@
 /**
- * The \`president\` commands (see main.ts for the dispatch and the help text).
+ * The \`preside\` commands (see main.ts for the dispatch and the help text).
  */
 
 import type { Stats } from "node:fs";
@@ -57,13 +57,13 @@ export async function add(args: string[], out: Output): Promise<number> {
   });
   if (await sameFolder(project.path, DEMO_SOURCE)) {
     out.error(
-      "president: warning: this is president's own sample folder, tracked in git; every click in the UI changes its files. To try president, run `president demo` instead: it works on a copy.",
+      "preside: warning: this is president's own sample folder, tracked in git; every click in the UI changes its files. To try president, run `preside demo` instead: it works on a copy.",
     );
   }
   if (alreadyRegistered && values.name !== undefined && values.name !== project.name) {
     // Also on stdout (below): an agent that reads only stdout must not think it is "foo".
     out.error(
-      `president: --name ignored: this folder is already registered as "${project.name}". To rename it, run \`president remove ${shellQuote(project.name)}\` and add it again.`,
+      `preside: --name ignored: this folder is already registered as "${project.name}". To rename it, run \`preside remove ${shellQuote(project.name)}\` and add it again.`,
     );
   }
   const nameIgnored =
@@ -75,20 +75,20 @@ export async function add(args: string[], out: Output): Promise<number> {
   );
   if (renamedFrom !== undefined) {
     out.log(
-      `Another project is already named "${renamedFrom}", so this one is "${project.name}". To choose its name: president remove ${shellQuote(project.name)}, then president add <path> --name <name>.`,
+      `Another project is already named "${renamedFrom}", so this one is "${project.name}". To choose its name: preside remove ${shellQuote(project.name)}, then preside add <path> --name <name>.`,
     );
   }
   return 0;
 }
 
-/** `president demo`: a copy of the sample project, registered, so nothing tracked changes. */
+/** `preside demo`: a copy of the sample project, registered, so nothing tracked changes. */
 export async function demo(args: string[], out: Output): Promise<number> {
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
     options: { name: { type: "string" } },
   });
-  if (positionals.length > 1) throw new UserError("usage: president demo [path] [--name <name>]");
+  if (positionals.length > 1) throw new UserError("usage: preside demo [path] [--name <name>]");
   const tempParent = positionals[0] ? undefined : await mkdtemp(join(tmpdir(), "president-demo-"));
   const target = tempParent ? join(tempParent, "demo") : resolve(positionals[0] ?? ".");
   const info = await stat(target).catch(() => undefined);
@@ -120,7 +120,7 @@ export async function demo(args: string[], out: Output): Promise<number> {
   }
   out.log(`Copied the demo project to ${project.path} and registered it as "${project.name}".`);
   out.log(
-    `Open the hub (\`president serve\`, http://127.0.0.1:${process.env.PRESIDENT_PORT || 4747}) to see its cards. When you are done: president remove ${shellQuote(project.name)}`,
+    `Open the hub (\`preside serve\`, http://127.0.0.1:${process.env.PRESIDENT_PORT || 4747}) to see its cards. When you are done: preside remove ${shellQuote(project.name)}`,
   );
   return 0;
 }
@@ -136,14 +136,14 @@ export async function list(args: string[], out: Output): Promise<number> {
   if (values.json) {
     out.log(JSON.stringify(projects, null, 2));
   } else if (projects.length === 0) {
-    out.log("No projects registered. Add one with: president add <path>");
+    out.log("No projects registered. Add one with: preside add <path>");
   } else {
     for (const p of projects) {
       out.log(`${p.name}\t${p.path}${"missing" in p ? `\t(${p.missing} missing)` : ""}`);
     }
     if (projects.some((p) => "missing" in p && p.missing === "folder")) {
       out.log(
-        "A project is its folder: if one moved, run president remove <name>, then president add <new path>.",
+        "A project is its folder: if one moved, run preside remove <name>, then preside add <new path>.",
       );
     }
   }
@@ -179,7 +179,7 @@ export async function validate(args: string[], out: Output): Promise<number> {
   return broken.length > 0 ? 1 : 0;
 }
 
-/** `president validate decisions/0012-x.md`: one card, checked in its project when it has one. */
+/** `preside validate decisions/0012-x.md`: one card, checked in its project when it has one. */
 async function validateFile(file: string, out: Output): Promise<number> {
   const fileName = basename(file);
   if (isIgnoredFile(fileName)) {
@@ -249,7 +249,7 @@ export async function pending(args: string[], out: Output): Promise<number> {
   );
   /** The command that marks exactly what this output showed about the card. */
   const done = (c: LoadedCard) =>
-    `president ${needsApplying(c.frontmatter) ? "applied" : "seen"} ${shellQuote(c.path)} --token ${shellQuote(agentToken(c))}`;
+    `preside ${needsApplying(c.frontmatter) ? "applied" : "seen"} ${shellQuote(c.path)} --token ${shellQuote(agentToken(c))}`;
 
   if (values.json) {
     const describe = (c: LoadedCard) => ({
@@ -370,7 +370,7 @@ export async function pending(args: string[], out: Output): Promise<number> {
     }
   }
   if (broken.length > 0) {
-    out.log("Broken cards (fix these; run `president validate` for details):");
+    out.log("Broken cards (fix these; run `preside validate` for details):");
     for (const b of broken) out.log(`  ${b.fileName}: ${b.errors[0] ?? ""}`);
   }
   for (const w of warnings) out.log(`(warning) ${w.fileName}: ${w.message}`);
@@ -441,7 +441,7 @@ export async function seen(args: string[], out: Output): Promise<number> {
   const lastNeither = check.shown.findLast((f) => f.type === "neither");
   if (after.frontmatter.needs_new_options && lastNeither) {
     out.error(
-      "president: warning: needs_new_options is still set. Remove it once the options are rewritten, or the card stays out of the human's queue.",
+      "preside: warning: needs_new_options is still set. Remove it once the options are rewritten, or the card stays out of the human's queue.",
     );
   }
   reportUnread(after, out);
@@ -453,10 +453,10 @@ const HUMAN_FIELDS = ["status", "resolution", "feedback", "applied_at", "seen_at
 
 /** Why `update` refuses a decided card, or one whose decision changed. */
 const DONT_REWRITE =
-  "don't rewrite it: run `president pending` and handle the card as it shows it (for a decided card, apply the decision).";
+  "don't rewrite it: run `preside pending` and handle the card as it shows it (for a decided card, apply the decision).";
 
 /**
- * `president update <card-file> <new-version>`: replaces a card with an agent's rewrite of
+ * `preside update <card-file> <new-version>`: replaces a card with an agent's rewrite of
  * it (new options, recommendation, body...), only if what the human owns is the same in the
  * rewrite as in the card now. The rewrite was made from the card as the agent read it, so a
  * note the human added since (or a decision, an undo) shows up as a difference, and the card
@@ -467,7 +467,7 @@ export async function update(args: string[], out: Output): Promise<number> {
   const { positionals } = parseArgs({ args, allowPositionals: true });
   const usage = "update <card-file> <new-version-file>";
   const [cardFile, newFile, ...extra] = positionals.map((p) => resolve(p));
-  if (!cardFile || !newFile || extra.length > 0) throw new UserError(`usage: president ${usage}`);
+  if (!cardFile || !newFile || extra.length > 0) throw new UserError(`usage: preside ${usage}`);
   const { project, card } = await cardAt(cardFile, out);
   if (card.frontmatter.status === "resolved") {
     throw new UserError(
@@ -476,7 +476,7 @@ export async function update(args: string[], out: Output): Promise<number> {
   }
   if (await sameFolder(newFile, card.path)) {
     throw new UserError(
-      `give your new version of the card as a separate file (for example ${join(dirname(card.path), `.${card.fileName}.new`)}); usage: president ${usage}`,
+      `give your new version of the card as a separate file (for example ${join(dirname(card.path), `.${card.fileName}.new`)}); usage: preside ${usage}`,
     );
   }
   let text: string;
@@ -490,7 +490,7 @@ export async function update(args: string[], out: Output): Promise<number> {
     // Line numbers are the new file's, so the problems are labeled with it.
     printProblems([{ fileName: newFile, errors: parsed.problem.errors }], [], out);
     out.error(
-      `president: ${card.fileName} was not changed. Fix ${newFile}, then run president update again.`,
+      `preside: ${card.fileName} was not changed. Fix ${newFile}, then run preside update again.`,
     );
     return 1;
   }
@@ -505,13 +505,13 @@ export async function update(args: string[], out: Output): Promise<number> {
   }
   if (changes.length > 0) {
     throw new UserError(
-      `${card.fileName} was not changed: what the human owns differs between the card and your version, so the card changed since you read it. Read the card again, make your changes to it as it is now (keep ${HUMAN_FIELDS.join(", ")} exactly as they are), and run president update again:`,
+      `${card.fileName} was not changed: what the human owns differs between the card and your version, so the card changed since you read it. Read the card again, make your changes to it as it is now (keep ${HUMAN_FIELDS.join(", ")} exactly as they are), and run preside update again:`,
       { details: changes },
     );
   }
   // The card must still be what was compared (the hub may write it at any moment).
   if (revisionOf(await readFile(card.path, "utf8")) !== card.revision) {
-    throw new UserError(`${card.fileName} changed while updating it; run president update again`);
+    throw new UserError(`${card.fileName} changed while updating it; run preside update again`);
   }
   await writeFileAtomic(card.path, text);
   out.log(`Updated ${card.fileName}. Remove ${newFile} once you no longer need it.`);
@@ -524,7 +524,7 @@ export async function update(args: string[], out: Output): Promise<number> {
   );
   if (mine.needs_new_options) {
     out.error(
-      "president: warning: needs_new_options is still set. Remove it once the options are rewritten, or the card stays out of the human's queue.",
+      "preside: warning: needs_new_options is still set. Remove it once the options are rewritten, or the card stays out of the human's queue.",
     );
   }
   return 0;
@@ -573,7 +573,7 @@ function reportUnread(card: LoadedCard, out: Output): void {
   const unread = unseenFeedback(card.frontmatter).length;
   if (unread === 0) return;
   out.log(
-    `The human added ${unread} more ${unread === 1 ? "note" : "notes"} since you ran \`president pending\`; they are still unread. Run \`president pending\` again.`,
+    `The human added ${unread} more ${unread === 1 ? "note" : "notes"} since you ran \`preside pending\`; they are still unread. Run \`preside pending\` again.`,
   );
 }
 
@@ -601,7 +601,7 @@ async function cardFromFile(
   const token = values.token;
   if (!token) {
     throw new UserError(
-      `--token is required: run \`president pending\` and use the \`done\` command it prints for this card (usage: president ${usage})`,
+      `--token is required: run \`preside pending\` and use the \`done\` command it prints for this card (usage: preside ${usage})`,
     );
   }
   return { ...(await cardAt(file, out)), token };
@@ -639,7 +639,7 @@ async function cardAt(file: string, out: Output): Promise<{ project: Project; ca
       );
     }
     out.error(
-      `president: note: card ${name.id} is now ${found.card.fileName} (renamed since); using that file`,
+      `preside: note: card ${name.id} is now ${found.card.fileName} (renamed since); using that file`,
     );
   }
   return { project, card: found.card };
@@ -706,12 +706,12 @@ async function warnIfWorktree(dir: string, out: Output): Promise<void> {
   }
   const instead =
     main !== undefined
-      ? `Give president commands paths in the project's main folder instead (${main}), and don't register a worktree with president add.`
+      ? `Give preside commands paths in the project's main folder instead (${main}), and don't register a worktree with preside add.`
       : worktree.bare
         ? "The repository is bare, so every checkout is a worktree, and none is registered with president: ask the human which one is the project's main folder."
-        : "Give president commands paths in the project's main folder instead (the folder registered with president), and don't register a worktree with president add.";
+        : "Give preside commands paths in the project's main folder instead (the folder registered with president), and don't register a worktree with preside add.";
   out.error(
-    `president: warning: ${dir} is in a git worktree, which has its own copy of ${DECISIONS_DIR}/: the human's answers are not in it, and this command reads or marks only that copy. ${instead}`,
+    `preside: warning: ${dir} is in a git worktree, which has its own copy of ${DECISIONS_DIR}/: the human's answers are not in it, and this command reads or marks only that copy. ${instead}`,
   );
 }
 
@@ -724,13 +724,13 @@ async function registeredAs(root: string, out: Output): Promise<Project> {
   const registered = await new Registry().list().then(
     (projects) => findByPath(projects, real),
     (error: unknown) => {
-      out.error(`president: note: can't read the registry: ${(error as Error).message}`);
+      out.error(`preside: note: can't read the registry: ${(error as Error).message}`);
       return null;
     },
   );
   if (registered === undefined) {
     out.error(
-      `president: note: ${root} is not registered with the hub, so the human doesn't see its cards. Register it: president add ${shellQuote(root)}`,
+      `preside: note: ${root} is not registered with the hub, so the human doesn't see its cards. Register it: preside add ${shellQuote(root)}`,
     );
   }
   return registered ?? { name: basename(root), path: root };
@@ -755,6 +755,6 @@ async function sameFolder(a: string, b: string): Promise<boolean> {
 
 function single(positionals: string[], usage: string): string {
   const [value, ...extra] = positionals;
-  if (!value || extra.length > 0) throw new UserError(`usage: president ${usage}`);
+  if (!value || extra.length > 0) throw new UserError(`usage: preside ${usage}`);
   return value;
 }

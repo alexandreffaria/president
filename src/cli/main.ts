@@ -1,12 +1,13 @@
 /**
- * The `president` command line. Used by humans to run the hub and by agents to register
- * projects, validate the cards they wrote and find cards that need their attention.
+ * The `preside` command line (`president`, its old name, is an alias until F2). Used by
+ * humans to run the hub and by agents to register projects, validate the cards they wrote and
+ * find cards that need their attention.
  */
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { UserError } from "../server/errors.ts";
 
-/** The sample project that `president demo` copies. */
+/** The sample project that `preside demo` copies. */
 export const DEMO_SOURCE = join(
   dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -24,37 +25,37 @@ export const CARD_FORMAT_DOC = join(
   "card-format.md",
 );
 
-const HELP = `president: decision cards for humans, written by agents
+const HELP = `preside: decision cards for humans, written by agents
 
 Usage:
-  president add <path> [--name <name>] [--create]
+  preside add <path> [--name <name>] [--create]
       Register a project folder with the hub. --create makes <path>/decisions/ if missing.
       The name defaults to the folder's name, with -2, -3... added if it is taken.
-  president list [--json]
+  preside list [--json]
       Show registered projects.
-  president remove <name-or-path>
+  preside remove <name-or-path>
       Unregister a project (its files are not touched).
-  president validate [path]
+  preside validate [path]
       Check every card in <path>/decisions/ (default: current folder), or one card file.
       Exit code 1 if any is broken.
-  president pending [path] [--json]
+  preside pending [path] [--json]
       What an agent should act on: resolved cards not yet applied, cards where the human
       rejected all options, and new notes from the human. Each card ends with the \`done\`
       command to run once you have acted on it.
-  president applied <card-file> --token <token>
+  preside applied <card-file> --token <token>
       Mark a resolved card as applied (sets applied_at) after updating the project's docs.
-  president seen <card-file> --token <token>
+  preside seen <card-file> --token <token>
       Mark the human's feedback on a card as read (sets seen_at), after acting on it.
       Both take the token \`pending\` printed, and refuse if the human changed the card since.
-  president update <card-file> <new-version-file>
+  preside update <card-file> <new-version-file>
       Replace a card with your rewrite of it (new options, recommendation, body), written
       from the card as you read it. Refuses, and changes nothing, if the card is decided or
       if the human added a note or changed the card since: keep status, resolution,
       feedback, seen_at and applied_at as they are. Your file is left for you to remove.
-  president demo [path] [--name <name>]
+  preside demo [path] [--name <name>]
       Copy the sample project into <path> (default: a new temporary folder) and register the
       copy, to try president without touching any of your files.
-  president serve
+  preside serve
       Start the hub web app (needs \`npm run build\` first for the UI).
 
 Environment:
@@ -68,7 +69,7 @@ Card format: ${CARD_FORMAT_DOC}
 export type Output = { log: (line: string) => void; error: (line: string) => void };
 
 /**
- * The commands are loaded only when one runs, so \`president help\` (and a typo) doesn't
+ * The commands are loaded only when one runs, so \`preside help\` (and a typo) doesn't
  * pay for the YAML parser, zod and the server code.
  */
 const commands = () => import("./commands.ts");
@@ -112,7 +113,7 @@ export async function run(argv: string[], out: Output = console): Promise<number
     }
   } catch (error) {
     if (error instanceof UserError || isArgError(error)) {
-      out.error(`president: ${(error as Error).message}`);
+      out.error(`preside: ${(error as Error).message}`);
       for (const line of (error as UserError).details ?? []) out.error(`  - ${line}`);
       return 1;
     }

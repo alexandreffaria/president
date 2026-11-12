@@ -19,7 +19,7 @@ disagree, fix one of them.
   newer card gives it the next free id (its `id` and its file name).
 - `<slug>` is a few lowercase words joined by dashes: `0007-error-handling.md`. It is only for humans
   browsing the folder; the slug can change without breaking anything. A `done:` line that
-  `president pending` printed before a rename still works: it finds the card by its id and says
+  `preside pending` printed before a rename still works: it finds the card by its id and says
   which file it used.
 - Status lives in the frontmatter. Files are never moved between folders.
 - Files whose names start with `.` or `_`, `README.md`, and non-`.md` files are ignored, so you can
@@ -67,12 +67,12 @@ title: How should the API client report errors?
 | `feedback` | no | list of `{at, note, type?}` | Rounds of human feedback, oldest first. president appends to it. |
 | `needs_new_options` | no | boolean | Set by president when the human rejects every option ("neither"). An agent should write new options that answer all feedback newer than `seen_at` (all of it if there is no `seen_at`), then remove the flag. Not allowed on a resolved card. |
 | `resolution` | when resolved | `{choice, note?, resolved_at}` | The human's answer. `choice` is an option id, or `custom` with the answer in `note`. |
-| `applied_at` | no | timestamp | Set by an agent after it has acted on the resolution (updated the docs): `president applied <file> --token <token>`. Only on resolved cards. |
-| `seen_at` | no | timestamp | The `at` of the newest feedback entry an agent has read. `president seen` and `president applied` set it to the newest entry `president pending` showed. Feedback newer than this is listed by `president pending`. |
+| `applied_at` | no | timestamp | Set by an agent after it has acted on the resolution (updated the docs): `preside applied <file> --token <token>`. Only on resolved cards. |
+| `seen_at` | no | timestamp | The `at` of the newest feedback entry an agent has read. `preside seen` and `preside applied` set it to the newest entry `preside pending` showed. Feedback newer than this is listed by `preside pending`. |
 | `session_id` | no | string | Reserved for the per-card chat (a later version): the id of the card's Claude Code session, whose full log stays on the machine that ran it. What travels with the card is a summary in `feedback` (decision #0003, see `docs/roadmap.md`). |
 
 Any other field is allowed and is kept untouched when president updates the card, so agents can
-add their own bookkeeping to an open or deferred card (through `president update`; a decided card
+add their own bookkeeping to an open or deferred card (through `preside update`; a decided card
 can't be changed). Field names must be plain names: a number, `true`/`false`, `null`, a
 list or a mapping as a key (`2026: planning`) makes the card invalid; quote it (`"2026": planning`)
 to use it as a name. When president writes a card it changes only the fields whose values
@@ -175,37 +175,37 @@ open ──resolve──▶ resolved ──(agent applies it)──▶ resolved 
 
 Deferred cards can also be resolved, rejected ("neither") or noted directly.
 
-What agents do (`president pending` lists all of these, each with the unread feedback and a
+What agents do (`preside pending` lists all of these, each with the unread feedback and a
 `done:` line to run once the card is handled):
 
 - **Write** cards with `status: open`.
 - **Resolved, no `applied_at`**: act on the decision (update the project's docs), then run the
-  `done:` line (`president applied <file> --token <token>`), which sets `applied_at`.
+  `done:` line (`preside applied <file> --token <token>`), which sets `applied_at`.
 - **Resolved again after a reopen** (a `reopen` feedback entry with `previous_resolution`): the
   earlier decision may already be in the docs and the code. If `previous_applied_at` is set,
   replace the earlier record instead of adding a second one, and undo work that no longer
   applies. Then run the `done:` line.
 - **`needs_new_options: true`**: read all the unread feedback, replace `options` (and the
   option sections in the body) with new ones, update `recommendation`, then remove
-  `needs_new_options`, all through `president update` (below). Keep `feedback` as it is. Then
+  `needs_new_options`, all through `preside update` (below). Keep `feedback` as it is. Then
   run the `done:` line
-  (`president seen <file> --token <token>`).
+  (`preside seen <file> --token <token>`).
 - **Feedback newer than `seen_at`** (notes, a deferral's reason, a reopen): read it and act on it
   (answer in the card, research, adjust the options), then run the `done:` line.
 
 The token in a `done:` line identifies what `pending` showed: the feedback entries up to then
 and the resolution. `seen` and `applied` mark only that. Feedback the human adds afterwards stays
 unread (and the command says so). If the human changed or undid the decision, or undid a note,
-the command refuses: run `president pending` again.
+the command refuses: run `preside pending` again.
 
-Agents change an existing card only with `president update <card-file> <new-version-file>`: the
+Agents change an existing card only with `preside update <card-file> <new-version-file>`: the
 new version is the card as the agent read it, with its changes, and it replaces the card only if
 `status`, `resolution`, `feedback`, `seen_at` and `applied_at` are still the same in both. A note
 the human added in the meantime is then reported instead of being overwritten. A decided card
 (`status: resolved`) is never replaced, and the new-version file is left for the agent to remove.
 A broken card can't be updated (president never writes one): fix it by editing the file.
 
-Check a card with `president validate <project>` or `president validate <card-file>`; it prints
+Check a card with `preside validate <project>` or `preside validate <card-file>`; it prints
 each problem with the field and the file line.
 
 ## Full example
