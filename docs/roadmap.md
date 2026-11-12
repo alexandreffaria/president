@@ -11,7 +11,7 @@ details no card fixes and that only an implementer would notice (which free key 
 gets, a variable name) are yours; say in the pull request what you picked so the human can
 object.
 
-Status on 2026-11-11: B (Sync) is built; the rest isn't. Cards #0001 to #0024 are all decided.
+Status on 2026-11-11: none of this is built. Cards #0001 to #0024 are all decided.
 
 Update on 2026-11-12, which replaces the status line above: A (PR #10) and B (Sync, PR #12)
 are built; the rest isn't. PR #12 (branch `feat/sync` until it merges) also carries both Sync
@@ -458,17 +458,8 @@ merged code, since PR #12 changed after that):
 - `SyncControl` (`src/web/components/Sync.tsx`) shows one line per project with
   `skippedUnsynced > 0`.
 
-**Merging with PR #12.** PR #12 branched from an older main (`03efd6f`). Checked with
-`git merge-tree` against `origin/feat/sync` at `0b126cc`: the only conflict in this file is the
-build-plan table, because PR #12 carries the table as it was before PRs #11, #13 and #14.
-Resolve it by keeping main's table as it is: its B row already says "Built in PR #12", and
-PR #12's side has no row to add (its A, E and F rows point at questions that have been
-answered since). Section B merges without a conflict, keeping both PR #12's "Built" paragraph
-with its list of settled details and main's "Decided while PR 12 was open" text. The
-2026-11-11 status line also merges silently, to PR #12's "B (Sync) is built"; put back main's
-"none of this is built", since the 2026-11-12 update below it is the one that says B is
-built. Recheck after PR #12's next round, which may change these lines again. PR #12 leaves a
-skipped project's answers out of every count; B2 adds them on a line of their own.
+**Merging with PR #12.** PR #12 leaves a skipped project's answers out of every count; B2
+adds them on a line of their own.
 
 **Projects with submodules.** PR #12's round 4 (`0b126cc`) also skips a project whose
 repository has git submodules (a `.gitmodules` file, or a gitlink in the index), in
