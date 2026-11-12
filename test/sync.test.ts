@@ -1070,6 +1070,10 @@ describe("output cut at the limit (S4-2)", () => {
     expect(cut.stdout).toHaveLength(10);
     const whole = await runGit(s.laptop, ["rev-parse", "HEAD"], s.options);
     expect(whole).toMatchObject({ code: 0, truncated: false });
+    // Output exactly at the limit (40 hex digits and a newline) is whole (S5-4).
+    const exact = await runGit(s.laptop, ["rev-parse", "HEAD"], { ...s.options, maxOutput: 41 });
+    expect(exact).toMatchObject({ code: 0, truncated: false });
+    expect(exact.stdout).toHaveLength(41);
   });
 
   it("treats a cut list of files as a failure, and pushes nothing", async () => {
@@ -1098,6 +1102,136 @@ describe("output cut at the limit (S4-2)", () => {
     expect(s.status(s.laptop)).toEqual(statusBefore);
     expect(s.remoteLog()).toEqual(remoteBefore);
   });
+});
+
+describe("check 3 reads only the files edited here (S5-1)", () => {
+  const vendorFile = (i: number) => `vendor/${"long-name-".repeat(10)}${i}.js`;
+  /** The desktop pushes 50 files with long names: about 5 KB of paths. */
+  async function desktopPushesManyFiles(s: Sandbox, extra: Record<string, string> = {}) {
+    const files: Record<string, string> = { ...extra };
+    for (let i = 0; i < 50; i++) files[vendorFile(i)] = "v\n";
+    await desktopPushes(s, files, "a big vendor folder");
+  }
+  const small = (s: Sandbox) => ({ ...s.options, maxOutput: 1000 });
+
+  it("syncs when the remote changed many files and nothing is edited here", async () => {
+    const s = await gitSandbox();
+    await desktopPushesManyFiles(s);
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+
+    const result = await syncRepo(s.laptop, "shop", small(s));
+
+    expect(result).toMatchObject({ outcome: "synced", sent: ["0001"] });
+    expect(s.remoteLog()[0]).toBe("decisions from laptop: 0001");
+  });
+
+  it("still says not now when an edited file changed on the remote too", async () => {
+    const s = await gitSandbox();
+    await desktopPushesManyFiles(s, { "lib.js": "y = remote\n" });
+    await answerAndAgentWork(s);
+    const before = snapshot(s);
+
+    const result = await syncRepo(s.laptop, "shop", small(s));
+
+    expect(result).toMatchObject({
+      outcome: "not-now",
+      message:
+        "Not now: an agent in shop has uncommitted edits to lib.js, which also changed on the remote",
+    });
+    expect(snapshot(s)).toEqual(before);
+  });
+
+  it("finds a clash past the first group of edited files", async () => {
+    const s = await gitSandbox();
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 150; i++) files[`src/f${String(i).padStart(3, "0")}.js`] = "a\n";
+    await desktopPushes(s, files, "many files");
+    s.git(s.laptop, "pull", "--quiet");
+    await desktopPushes(s, { "src/f149.js": "remote\n" });
+    for (const file of Object.keys(files)) await s.write(s.laptop, file, "mine\n");
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+    const before = snapshot(s);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result).toMatchObject({
+      outcome: "not-now",
+      message:
+        "Not now: an agent in shop has uncommitted edits to src/f149.js, which also changed on the remote",
+    });
+    expect(snapshot(s)).toEqual(before);
+  });
+
+  it("matches edited file names literally", async () => {
+    const s = await gitSandbox();
+    // Read as pathspec magic, ":x.js" would mean x.js.
+    await desktopPushes(s, { ":x.js": "a\n" }, "an odd name");
+    s.git(s.laptop, "pull", "--quiet");
+    await desktopPushes(s, { ":x.js": "remote\n" });
+    await s.write(s.laptop, ":x.js", "mine\n");
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+    const before = snapshot(s);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result.outcome).toBe("not-now");
+    expect(result.message).toMatch(/uncommitted edits to :x\.js/);
+    expect(snapshot(s)).toEqual(before);
+  });
+
+  it("says what to do when the files edited here are too many to read", async () => {
+    const s = await gitSandbox();
+    await desktopPushesManyFiles(s);
+    s.git(s.laptop, "pull", "--quiet");
+    for (let i = 0; i < 50; i++) await s.write(s.laptop, vendorFile(i), "edited\n");
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+    const before = snapshot(s);
+
+    const result = await syncRepo(s.laptop, "shop", small(s));
+
+    expect(result).toMatchObject({
+      outcome: "not-synced",
+      message: "Not synced: git failed in shop",
+      action: `shop has more changed files than Sync can check. Commit or pull by hand (git pull --rebase --autostash in ${s.laptop}), then press Sync again.`,
+    });
+    expect(result.gitError).toMatch(/^git output too large: git diff/);
+    expect(snapshot(s)).toEqual(before);
+  });
+});
+
+describe("the pull's messages are in English (S5-3)", () => {
+  /** Whether git here has a Portuguese catalogue; CI's may not, and then the test is skipped. */
+  function gitSpeaksPortuguese(): boolean {
+    try {
+      // Read-only, outside any repository: fails with "not a git repository", or its translation.
+      execFileSync("git", ["-C", "/", "rev-parse"], {
+        env: { ...process.env, LC_ALL: "pt_BR.UTF-8", LANGUAGE: "" },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      return false;
+    } catch (error) {
+      const stderr = String((error as { stderr?: Buffer }).stderr ?? "");
+      return stderr !== "" && !stderr.includes("not a git repository");
+    }
+  }
+
+  it.runIf(gitSpeaksPortuguese())(
+    "names an untracked file in the way under a localized git",
+    async () => {
+      const s = await gitSandbox();
+      await desktopPushes(s, { "new.js": "remote\n" });
+      await s.write(s.laptop, "new.js", "mine\n");
+      await answerAndAgentWork(s);
+      const env = { ...s.options.env, LC_ALL: "pt_BR.UTF-8", LANGUAGE: "pt_BR" };
+
+      const result = await syncRepo(s.laptop, "shop", { ...s.options, env });
+
+      expect(result.message).toBe(
+        "Not synced: a file here that git doesn't track is where the online copy puts one (git names it below)",
+      );
+      expect(await s.read(s.laptop, "new.js")).toBe("mine\n");
+    },
+  );
 });
 
 describe("what Sync brought in (S2-2)", () => {

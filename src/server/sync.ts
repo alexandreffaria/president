@@ -11,8 +11,8 @@
  *   #     cherry-pick, revert, sequence of those or bisect in progress, and no unmerged file
  *   #  2. git log @{u}..HEAD has no unpushed commit that changes files outside decisions/
  *   #     (or no files at all: an empty commit)
- *   #  3. no file outside decisions/ that the remote changed (git diff HEAD...@{u}) has
- *   #     uncommitted edits here, or is a file git doesn't track (ignored ones too)
+ *   #  3. no file outside decisions/ with uncommitted edits here (git diff HEAD) also
+ *   #     changed on the remote (git diff HEAD...@{u} -- those files)
  *   # the "in progress" part of check 1 once more, right before the first change
  *   git add -- decisions/
  *   git commit --only -m "decisions from laptop: 0003, 0005" -- decisions/   # if anything is staged
@@ -62,6 +62,8 @@ export type RepoSyncResult = Omit<SyncResultDto, "project" | "at">;
 const CARDS = `${DECISIONS_DIR}/`;
 const MAX_GIT_ERROR = 1200;
 const SUBMODULES = "it has git submodules, which Sync doesn't handle";
+/** Paths per `git diff` in check 3, which keeps each command line short. */
+const PATHS_PER_DIFF = 100;
 
 /** A git command that failed where the sequence can't go on. */
 class GitFailed extends Error {
@@ -87,8 +89,11 @@ class Repo {
     this.#options = options;
   }
 
-  run(args: string[]): Promise<GitResult> {
-    return runGit(this.dir, args, this.#options);
+  run(args: string[], env?: Record<string, string>): Promise<GitResult> {
+    const options = env
+      ? { ...this.#options, env: { ...this.#options.env, ...env } }
+      : this.#options;
+    return runGit(this.dir, args, options);
   }
 
   /** Runs git and returns its output; a failure, or output cut at the limit, throws GitFailed. */
@@ -464,9 +469,12 @@ async function guardedSequence(
     return await runSequence(repo, name, options.hostname ?? machineName(), pulled);
   } catch (error) {
     if (error instanceof GitFailed) {
+      const tooLarge = error.result.code === 0 && error.result.truncated;
       return result("not-synced", `Not synced: git failed in ${name}`, {
         gitError: gitErrorText(error.result),
-        action: "Fix what git reports, then press Sync again.",
+        action: tooLarge
+          ? `${name} has more changed files than Sync can check. Commit or pull by hand (git pull --rebase --autostash in ${dir}), then press Sync again.`
+          : "Fix what git reports, then press Sync again.",
       });
     }
     throw error;
@@ -587,21 +595,34 @@ async function runSequence(
   // Check 2 passed, so outside decisions/ HEAD is the last commit in common with the remote.
   // Untracked files in the pull's way are left to git, which refuses to overwrite them (the
   // pull fails and is undone); ignored files git replaces, as a plain git pull does.
-  const remoteChanged = (
-    await repo.paths(["diff", "--name-only", "-z", "--no-renames", `HEAD...${expected}`])
-  ).filter((path) => !isCardPath(path));
-  if (remoteChanged.length > 0) {
-    const edited = new Set(await repo.paths(["diff", "--name-only", "-z", "--no-renames", "HEAD"]));
-    const clash = remoteChanged.filter((path) => edited.has(path));
-    if (clash.length > 0) {
-      return result(
-        "not-now",
-        `Not now: an agent in ${name} has uncommitted edits to ${listText(clash)}, which also changed on the remote`,
-        {
-          action: "Press Sync again once those edits are committed and pushed, or put away.",
-        },
-      );
-    }
+  // Only the files edited here are looked up on the remote, so the size of the remote's
+  // whole change (a committed dependency folder, say) doesn't matter.
+  const edited = (await repo.paths(["diff", "--name-only", "-z", "--no-renames", "HEAD"])).filter(
+    (path) => !isCardPath(path),
+  );
+  const clash: string[] = [];
+  for (let i = 0; i < edited.length; i += PATHS_PER_DIFF) {
+    const chunk = edited.slice(i, i + PATHS_PER_DIFF);
+    const wanted = new Set(chunk);
+    const changed = await repo.paths([
+      "diff",
+      "--name-only",
+      "-z",
+      "--no-renames",
+      `HEAD...${expected}`,
+      "--",
+      ...chunk.map((path) => `:(literal)${path}`),
+    ]);
+    clash.push(...changed.filter((path) => wanted.has(path)));
+  }
+  if (clash.length > 0) {
+    return result(
+      "not-now",
+      `Not now: an agent in ${name} has uncommitted edits to ${listText(clash)}, which also changed on the remote`,
+      {
+        action: "Press Sync again once those edits are committed and pushed, or put away.",
+      },
+    );
   }
 
   // Once more right before the first change: an agent may have started a cherry-pick (or
@@ -651,7 +672,9 @@ async function runSequence(
   const kept = local.length > 0 ? "; your answers are kept in a local commit" : "";
 
   const before = (await repo.out(["rev-parse", "--verify", "HEAD^{commit}"])).trim();
-  const pulled = await repo.run(["pull", "--rebase", "--autostash"]);
+  // English messages, which the untracked-file wording below is matched against. LANGUAGE
+  // goes before LC_ALL and LANG for a localized git (and the C locale is English anyway).
+  const pulled = await repo.run(["pull", "--rebase", "--autostash"], { LANGUAGE: "en" });
   if (pulled.code !== 0) {
     // Name the conflicted cards before the abort puts everything back.
     let conflicted: string[] = [];
