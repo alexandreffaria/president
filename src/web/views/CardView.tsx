@@ -242,7 +242,19 @@ export function CardView({ project, id }: { project: string; id: string }) {
                   `Undone. #${id} is ${action.type === "resolve" ? "undecided again" : "back as it was"}${unsentText({ ...NO_DRAFT, ...wasSent }) ? ", with what you wrote" : ""}.`,
                 );
               })
-              .catch((error: Error) => toast(`Couldn't undo: ${error.message}`, { tone: "error" }));
+              .catch((error: Error) => {
+                if (error instanceof RequestError && error.code === "syncing") {
+                  // Nothing was undone, and Sync is about to push the decision: keep the
+                  // undo within reach, so it can be tried again once Sync ends.
+                  toast(`Not undone yet: ${error.message}`, {
+                    tone: "error",
+                    action: undo,
+                    group: undoGroup,
+                  });
+                  return;
+                }
+                toast(`Couldn't undo: ${error.message}`, { tone: "error" });
+              });
           },
         };
         toast(options.done, { action: undo, group: undoGroup });

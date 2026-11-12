@@ -68,6 +68,8 @@ let host: HTMLElement;
 let demo: string;
 let registryEntry: string;
 let posts: string[];
+/** How many of the next undo requests the hub refuses because a Sync is running. */
+let syncingUndos = 0;
 /** Requests the UI started that haven't finished; awaited before the stubs go away. */
 const inFlight = new Set<Promise<Response>>();
 
@@ -95,8 +97,20 @@ async function setUp() {
   registryEntry = join(registry.dir, "demo.json");
   const app = createApp({ registry, bus: new EventBus(), staticDir: undefined });
   posts = [];
+  syncingUndos = 0;
   vi.stubGlobal("fetch", async (input: string, init: RequestInit = {}) => {
     if (init.method === "POST") posts.push(input);
+    if (init.method === "POST" && input.endsWith("/undo") && syncingUndos > 0) {
+      // What the hub answers while the project's Sync runs (SyncService.writeCard).
+      syncingUndos--;
+      return Response.json(
+        {
+          error: "Sync is running in demo, so nothing was changed; try again when it finishes.",
+          code: "syncing",
+        },
+        { status: 409 },
+      );
+    }
     const request = new Request(`http://127.0.0.1:4747${input}`, init);
     // A browser adds Origin itself (scripts may not set it, so the DOM's Request drops it).
     request.headers.set("origin", "http://127.0.0.1:4747");
@@ -291,6 +305,30 @@ describe("card view keyboard", () => {
     expect(after).toMatch(/type: undo\n\s+note: Took back the decision "dexie"\./);
     await until(() => text().includes("Decision taken back"), "the history entry");
     expect(posts).toEqual(["/api/cards/demo/0001/actions", "/api/cards/demo/0001/undo"]);
+  });
+
+  it("keeps Undo within reach when a Sync is running, so it can be tried again (S-5)", async () => {
+    const file = join(demo, "decisions", "0001-offline-storage.md");
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await press("1", document.body);
+    await press("Enter", document.body);
+    await until(() => text().includes("Decided #0001"), "the decision toast");
+    syncingUndos = 1;
+    await press("u", document.body);
+    await until(() => text().includes("Not undone yet: Sync is running in demo"), "the refusal");
+    // Nothing was undone, and the Undo is offered again, with its key.
+    expect(await io(() => readFile(file, "utf8"))).toMatch(/^status: resolved$/m);
+    expect(
+      [...host.querySelectorAll(".toast button")].some((b) => b.textContent?.includes("Undo")),
+    ).toBe(true);
+    await press("u", document.body);
+    await until(() => text().includes("Undone. #0001 is undecided again"), "the undo toast");
+    expect(await io(() => readFile(file, "utf8"))).toMatch(/^status: open$/m);
+    expect(posts).toEqual([
+      "/api/cards/demo/0001/actions",
+      "/api/cards/demo/0001/undo",
+      "/api/cards/demo/0001/undo",
+    ]);
   });
 
   it("clears a choice when an agent changes the card while it is open", async () => {

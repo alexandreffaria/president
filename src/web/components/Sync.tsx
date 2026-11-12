@@ -139,6 +139,19 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           gitError: project.fetchError,
         });
       }
+      // A Sync that just said "Not now: a rebase is in progress" already says the same.
+      const lastSaysRebase =
+        project.last?.outcome === "not-now" &&
+        project.last.message.startsWith("Not now: a rebase is in progress");
+      if (project.rebase && !lastSaysRebase) {
+        items.push({
+          key: `rebase:${project.project}:${project.rebase.message}:${project.rebase.action}`,
+          project: project.project,
+          tone: "warn",
+          message: project.rebase.message,
+          action: project.rebase.action,
+        });
+      }
       if (project.last && project.last.outcome !== "nothing") items.push(resultItem(project.last));
     }
     return items.filter((item) => !dismissed.has(item.key));

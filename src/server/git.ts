@@ -2,9 +2,13 @@
  * Runs git for Sync (see sync.ts). Every call:
  *
  * - spawns `git` with an argument array, never a shell string;
- * - runs in the given folder, with every inherited GIT_* variable removed (a GIT_DIR or
- *   GIT_WORK_TREE from a git hook that started the hub would point git at another
- *   repository);
+ * - runs in the given folder, without the inherited variables that point git at another
+ *   repository: the ones `git rev-parse --local-env-vars` lists (GIT_DIR, GIT_WORK_TREE,
+ *   GIT_INDEX_FILE, GIT_CONFIG_PARAMETERS, ...; git removes the same ones before it runs a
+ *   hook in another repository), plus GIT_CONFIG_KEY_n/GIT_CONFIG_VALUE_n and GIT_EXEC_PATH.
+ *   A git hook that started the hub exports some of them. The user's own git setup
+ *   (GIT_SSH_COMMAND, GIT_CONFIG_GLOBAL, GIT_SSL_CAINFO, GIT_AUTHOR_NAME, ...) is kept, so
+ *   Sync behaves like git in their terminal;
  * - can't stop to ask for anything: GIT_TERMINAL_PROMPT=0 turns off git's own prompts, an
  *   empty GIT_ASKPASS turns off askpass programs (core.askPass, SSH_ASKPASS), stdin is
  *   closed, and git runs in its own session with no terminal, so ssh can't ask for a
@@ -15,7 +19,7 @@
  * GIT_OPTIONAL_LOCKS=0 keeps read-only commands (`git status`) from taking the index lock,
  * so the hub's status checks never make an agent's own git command fail.
  */
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 
 export interface GitOptions {
   /** Extra variables for git, set after the GIT_* ones are removed (tests use this). */
@@ -43,14 +47,81 @@ const MAX_OUTPUT = 4 * 1024 * 1024;
 
 const NETWORK_COMMANDS = new Set(["fetch", "pull", "push", "ls-remote"]);
 
-/** The environment git runs with: ours without GIT_*, plus the fixed settings above. */
+/**
+ * What `git rev-parse --local-env-vars` prints on git 2.56. The installed git is asked too
+ * (see {@link localEnvVars}), so a variable a newer git adds is removed as well.
+ */
+export const LOCAL_ENV_VARS: readonly string[] = [
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CONFIG",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_CONFIG_COUNT",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_GRAFT_FILE",
+  "GIT_INDEX_FILE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_PREFIX",
+  "GIT_SHALLOW_FILE",
+  "GIT_COMMON_DIR",
+];
+
+let localEnvVarsCache: ReadonlySet<string> | undefined;
+
+/** The variables to remove: {@link LOCAL_ENV_VARS} and what the installed git lists. */
+export function localEnvVars(): ReadonlySet<string> {
+  if (!localEnvVarsCache) {
+    const known = new Set(LOCAL_ENV_VARS);
+    let installed: string[] = [];
+    try {
+      // The list is built into git: this needs no repository and no configuration.
+      const env = Object.fromEntries(
+        Object.entries(process.env).filter(([key]) => !isLocalEnvVar(key, known)),
+      );
+      installed = execFileSync("git", ["rev-parse", "--local-env-vars"], {
+        env,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: DEFAULT_TIMEOUT_MS,
+        windowsHide: true,
+      })
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => /^GIT_[A-Z0-9_]+$/.test(line));
+    } catch {
+      // No git: runGit reports that on its own; the known list still applies.
+    }
+    localEnvVarsCache = new Set([...known, ...installed]);
+  }
+  return localEnvVarsCache;
+}
+
+function isLocalEnvVar(key: string, local: ReadonlySet<string>): boolean {
+  // Upper-cased: on Windows, variable names ignore case.
+  const name = key.toUpperCase();
+  return (
+    local.has(name) ||
+    name === "GIT_EXEC_PATH" ||
+    name.startsWith("GIT_CONFIG_KEY_") ||
+    name.startsWith("GIT_CONFIG_VALUE_")
+  );
+}
+
+/**
+ * The environment git runs with: ours without the variables that point git at another
+ * repository, plus the fixed settings above.
+ */
 export function gitEnv(
   extra: Record<string, string> = {},
   base: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
+  const local = localEnvVars();
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(base)) {
-    if (!key.toUpperCase().startsWith("GIT_")) env[key] = value;
+    if (!isLocalEnvVar(key, local)) env[key] = value;
   }
   return {
     ...env,

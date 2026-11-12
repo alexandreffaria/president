@@ -163,21 +163,27 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
    The top bar then lists what happened in each project. It says "Not now" and changes
    nothing when:
 
-   - the checkout isn't on the remote's main branch (an agent's feature branch, say), a rebase
-     or merge is in progress, or the branch has no upstream;
-   - there are commits that aren't pushed and change files outside `decisions/` (an agent's
-     work: the pull would rebase it and the push would publish it);
-   - a file outside `decisions/` that changed on the remote has uncommitted edits here.
+   - the checkout isn't on the remote's main branch (an agent's feature branch, say), a rebase,
+     merge, cherry-pick, revert or bisect is in progress, a file has unresolved conflicts, or
+     the branch has no upstream;
+   - there are commits that aren't pushed and change files outside `decisions/`, or change
+     nothing at all (an agent's work: the pull would rebase it and the push would publish it);
+   - a file outside `decisions/` that changed on the remote has uncommitted edits here, or the
+     remote adds a file where one git doesn't track (even an ignored one) is in the way.
 
    If the same card changed on both machines, Sync puts everything back as it was, keeps your
    answers in a local commit and says "Not synced: 0001 changed on both machines"; fixing that
    is a manual git step, and pressing Sync again retries. If the pull or the push fails
    (offline, authentication), it shows git's error; your answers stay in the local commit for
    the next Sync. If an agent saves a file during the few seconds the pull takes, Sync stops
-   before pushing and says so: git keeps the older copy in its stash (`git stash list`), and
-   someone has to clear it. Sync is the only time president changes a checkout (otherwise it
+   before pushing and says so: git keeps the older copy in its stash entry named `autostash`,
+   which Sync names exactly (the stash is shared with agents, so a bare `git stash drop` could
+   remove theirs). After the pull Sync checks again, and if an agent committed or switched
+   branches meanwhile, it doesn't push. A rebase left in progress (say the hub stopped during
+   a pull) is shown in the top bar, with the files it set aside and `git rebase --abort` to
+   get them back. Sync is the only time president changes a checkout (otherwise it
    only reads git's state, and fetches at start), and while it runs in a project, card
-   actions there are refused. git never asks
+   actions there are refused (an Undo refused that way stays on offer, to try again). git never asks
    for a password or passphrase (a remote that needs one fails instead, so use a credential
    helper or an ssh agent), and each git command is stopped after a timeout. Sync only works
    on a project whose folder is the top folder of its git repository.
@@ -281,9 +287,13 @@ How it fits together:
 - Sync (`src/server/sync.ts`) runs the steps in [card #0001](decisions/0001-sync-across-machines.md)
   ("How Sync works in git"), one project after another and never two at once in the same
   project. Each step is a spawned `git` with an argument list (no shell), run in the
-  registered project folder with every inherited `GIT_*` variable removed,
-  `GIT_TERMINAL_PROMPT=0`, no askpass program and no terminal, and a timeout (60 s for fetch,
-  pull and push, 30 s for the rest) after which git and whatever it started are stopped.
+  registered project folder without the inherited variables that point git at another
+  repository (the ones `git rev-parse --local-env-vars` lists, such as `GIT_DIR`; your own
+  `GIT_SSH_COMMAND` or `GIT_CONFIG_GLOBAL` are kept), `GIT_TERMINAL_PROMPT=0`, no askpass
+  program and no terminal, and a timeout (60 s for fetch, pull and push, 30 s for the rest)
+  after which git and whatever it started are stopped. It pushes exactly the commit it
+  checked, to the branch `main` tracks (`git push <remote> <commit>:refs/heads/main`), never
+  with a bare `git push`.
   `POST /api/sync` passes the same Host and Origin checks as every write. While a project's
   Sync runs, card actions there are refused (409 `syncing`), and a Sync waits for a card
   write already under way.

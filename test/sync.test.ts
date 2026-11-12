@@ -3,12 +3,13 @@
  * docs/roadmap.md describe. Each test builds its own remote and two clones in a temp folder
  * (see git-sandbox.ts); nothing here runs git anywhere else.
  */
-import { chmod, rename } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { chmod, rename, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { createServer as createTcpServer, type Socket, type Server as TcpServer } from "node:net";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { gitEnv, runGit } from "../src/server/git.ts";
+import { gitEnv, localEnvVars, runGit } from "../src/server/git.ts";
 import { commitMessage, fetchRepo, repoStatus, syncRepo } from "../src/server/sync.ts";
 import { gitSandbox, type Sandbox } from "./git-sandbox.ts";
 
@@ -39,14 +40,39 @@ function snapshot(s: Sandbox) {
 }
 
 describe("the git environment", () => {
-  it("removes inherited GIT_* variables and turns prompts off", () => {
+  it("removes the inherited variables that point git elsewhere and turns prompts off", () => {
     const env = gitEnv(
       { EXTRA: "1" },
-      { PATH: "/bin", GIT_DIR: "/elsewhere/.git", GIT_WORK_TREE: "/elsewhere", git_dir: "x" },
+      {
+        PATH: "/bin",
+        GIT_DIR: "/elsewhere/.git",
+        GIT_WORK_TREE: "/elsewhere",
+        git_dir: "x",
+        GIT_INDEX_FILE: "/elsewhere/.git/index",
+        GIT_CONFIG_PARAMETERS: "'core.hooksPath'='/x'",
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "core.hooksPath",
+        GIT_CONFIG_VALUE_0: "/x",
+        GIT_EXEC_PATH: "/elsewhere/libexec",
+        GIT_OBJECT_DIRECTORY: "/elsewhere/objects",
+        GIT_COMMON_DIR: "/elsewhere/.git",
+      },
     );
-    expect(env.GIT_DIR).toBeUndefined();
-    expect(env.GIT_WORK_TREE).toBeUndefined();
-    expect(env.git_dir).toBeUndefined();
+    for (const name of [
+      "GIT_DIR",
+      "GIT_WORK_TREE",
+      "git_dir",
+      "GIT_INDEX_FILE",
+      "GIT_CONFIG_PARAMETERS",
+      "GIT_CONFIG_COUNT",
+      "GIT_CONFIG_KEY_0",
+      "GIT_CONFIG_VALUE_0",
+      "GIT_EXEC_PATH",
+      "GIT_OBJECT_DIRECTORY",
+      "GIT_COMMON_DIR",
+    ]) {
+      expect(env[name], name).toBeUndefined();
+    }
     expect(env).toMatchObject({
       PATH: "/bin",
       EXTRA: "1",
@@ -54,6 +80,45 @@ describe("the git environment", () => {
       GIT_ASKPASS: "",
       GIT_OPTIONAL_LOCKS: "0",
     });
+  });
+
+  it("keeps the user's own git setup (S-6)", () => {
+    const own = {
+      GIT_SSH_COMMAND: "ssh -i ~/.ssh/work_key",
+      GIT_SSH: "/usr/bin/ssh",
+      GIT_CONFIG_GLOBAL: "/home/me/.gitconfig-work",
+      GIT_SSL_CAINFO: "/etc/corp-ca.pem",
+      GIT_AUTHOR_NAME: "Me",
+      GIT_COMMITTER_EMAIL: "me@example.com",
+    };
+    expect(gitEnv({}, { PATH: "/bin", ...own })).toMatchObject(own);
+  });
+
+  it("removes everything the installed git lists in --local-env-vars", () => {
+    const listed = execFileSync("git", ["rev-parse", "--local-env-vars"], { encoding: "utf8" })
+      .split("\n")
+      .filter(Boolean);
+    expect(listed.length).toBeGreaterThan(5);
+    const env = gitEnv({}, Object.fromEntries(listed.map((name) => [name, "x"])));
+    for (const name of listed) {
+      expect(localEnvVars().has(name), name).toBe(true);
+      expect(env[name], name).toBeUndefined();
+    }
+  });
+
+  it("passes GIT_SSH_COMMAND from the hub's environment on to git", async () => {
+    const s = await gitSandbox();
+    vi.stubEnv("GIT_SSH_COMMAND", "ssh -i /keys/second-account");
+    try {
+      const result = await runGit(
+        s.laptop,
+        ["-c", "alias.ssh-command=!printenv GIT_SSH_COMMAND", "ssh-command"],
+        s.options,
+      );
+      expect(result.stdout.trim()).toBe("ssh -i /keys/second-account");
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("ignores a GIT_DIR inherited from the hub's own environment", async () => {
@@ -369,9 +434,16 @@ describe("Sync: looking before pushing", () => {
 
     expect(result.outcome).toBe("not-pushed");
     expect(result.message).toBe(
-      "Not pushed: a file in shop changed while the pull had it set aside, and git kept the older copy in its stash",
+      "Not pushed: a file in shop changed while the pull had it set aside, and git kept the older copy in its stash entry named autostash",
     );
-    expect(result.action).toMatch(/git stash list .* clear that entry/);
+    // The exact entry is named (the stash is shared with agents), and no bare drop.
+    const [sha, subject] = s.git(s.laptop, "stash", "list", "--format=%H %gs").trim().split(" ");
+    expect(subject).toBe("autostash");
+    expect(result.action).toContain(
+      `stash entry named autostash (stash@{0} when Sync looked, commit ${sha}`,
+    );
+    expect(result.action).toMatch(/drop only that entry/);
+    expect(result.action).not.toMatch(/\(git stash drop\)/);
     expect(s.stashCount(s.laptop)).toBe(1);
     expect(await s.read(s.laptop, "lib.js")).toBe("y = wip2\n");
     expect(s.remoteLog()).toEqual(remoteBefore);
@@ -557,6 +629,374 @@ describe("commit messages", () => {
     expect(commitMessage("laptop", ["decisions/README.md"])).toBe(
       "decisions from laptop: README.md",
     );
+  });
+});
+
+/** Installs a hook for the laptop (in a folder outside the repository). */
+async function hook(s: Sandbox, name: string, script: string) {
+  const hooks = join(s.root, "hooks");
+  await s.write(s.root, `hooks/${name}`, `#!/bin/sh\n${script}\n`);
+  await chmod(join(hooks, name), 0o755);
+  s.git(s.laptop, "config", "core.hooksPath", hooks);
+}
+
+/** Runs git where it is expected to fail (a conflict), and returns nothing. */
+function gitFails(s: Sandbox, cwd: string, ...args: string[]) {
+  expect(() => s.git(cwd, ...args)).toThrow();
+}
+
+describe("Sync pushes exactly what it checked, where main tracks (S-1)", () => {
+  it("never pushes another branch, whatever push.default says", async () => {
+    const s = await gitSandbox();
+    // An agent's branch, pushed once, then a commit it hasn't pushed.
+    s.git(s.laptop, "checkout", "--quiet", "-b", "feat");
+    s.git(s.laptop, "push", "--quiet", "origin", "feat");
+    await s.write(s.laptop, "feat.js", "agent\n");
+    s.git(s.laptop, "add", "feat.js");
+    s.git(s.laptop, "commit", "--quiet", "-m", "agent unpushed feat work");
+    s.git(s.laptop, "checkout", "--quiet", "main");
+    s.git(s.laptop, "config", "push.default", "matching");
+    const remoteFeat = s.git(s.remote, "rev-parse", "feat").trim();
+    await answerAndAgentWork(s);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result).toMatchObject({ outcome: "synced", sent: ["0001"] });
+    expect(s.remoteLog()[0]).toBe("decisions from laptop: 0001");
+    expect(s.git(s.remote, "rev-parse", "feat").trim()).toBe(remoteFeat);
+  });
+
+  it("pushes to the remote main tracks, not remote.pushDefault or branch.main.pushRemote", async () => {
+    const s = await gitSandbox();
+    s.git(s.root, "clone", "--quiet", "--bare", s.remote, "fork.git");
+    s.git(s.laptop, "remote", "add", "fork", "../fork.git");
+    s.git(s.laptop, "config", "remote.pushDefault", "fork");
+    s.git(s.laptop, "config", "branch.main.pushRemote", "fork");
+    const forkBefore = s.git(join(s.root, "fork.git"), "rev-parse", "main").trim();
+    await answerAndAgentWork(s);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result).toMatchObject({ outcome: "synced", sent: ["0001"] });
+    expect(s.remoteLog()[0]).toBe("decisions from laptop: 0001");
+    expect(s.git(join(s.root, "fork.git"), "rev-parse", "main").trim()).toBe(forkBefore);
+    expect(s.git(s.laptop, "rev-parse", "origin/main").trim()).toBe(s.head(s.laptop));
+    expect(await repoStatus(s.laptop, s.options)).toEqual({ unsynced: 0, remoteChanges: 0 });
+  });
+
+  it("pushes no tags, even with push.followTags", async () => {
+    const s = await gitSandbox();
+    s.git(s.laptop, "config", "push.followTags", "true");
+    s.git(s.laptop, "tag", "-a", "-m", "an agent's tag", "agent-tag");
+    await answerAndAgentWork(s);
+
+    expect((await syncRepo(s.laptop, "shop", s.options)).outcome).toBe("synced");
+    expect(s.git(s.remote, "tag", "--list").trim()).toBe("");
+  });
+});
+
+describe("Sync checks again after the pull (S-2)", () => {
+  it("doesn't push an agent's commit made while Sync ran", async () => {
+    const s = await gitSandbox();
+    await desktopPushes(s, { "decisions/0002-size.md": "status: deferred\n" });
+    await answerAndAgentWork(s);
+    // An agent commits code right after Sync's commit (the hook stands in for it).
+    const done = join(s.root, "agent-committed");
+    await hook(
+      s,
+      "post-commit",
+      [
+        `[ -e "${done}" ] && exit 0`,
+        `touch "${done}"`,
+        "unset GIT_INDEX_FILE",
+        'echo "x = agent" > app.js',
+        'git commit --quiet -m "agent code commit" app.js',
+      ].join("\n"),
+    );
+    const remoteBefore = s.remoteLog();
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result.outcome).toBe("not-pushed");
+    expect(result.message).toBe(
+      "Not pushed: an agent in shop committed while Sync ran, and its commits aren't pushed",
+    );
+    expect(result.action).toMatch(/your answers are kept in a local commit/);
+    expect(s.remoteLog()).toEqual(remoteBefore);
+    expect(s.git(s.laptop, "log", "--format=%s", "-2").trim().split("\n")).toEqual([
+      "agent code commit",
+      "decisions from laptop: 0001",
+    ]);
+  });
+
+  it("doesn't push when the checkout moved to another branch during the pull", async () => {
+    const s = await gitSandbox();
+    await desktopPushes(s, { "decisions/0002-size.md": "status: deferred\n" });
+    await answerAndAgentWork(s);
+    // Right after the pull's rebase, an agent switches branches.
+    await hook(s, "post-rewrite", "git checkout --quiet -b elsewhere");
+    const remoteBefore = s.remoteLog();
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result.outcome).toBe("not-pushed");
+    expect(result.message).toBe("Not pushed: the checkout in shop changed during Sync");
+    expect(result.action).toMatch(/It is now on elsewhere/);
+    expect(s.remoteLog()).toEqual(remoteBefore);
+  });
+});
+
+describe("Sync waits for any git operation in progress (S-3)", () => {
+  it("refuses during a cherry-pick and leaves it to be continued", async () => {
+    const s = await gitSandbox();
+    // An agent's cherry-pick that stopped on a conflict, which it has resolved but not
+    // committed yet: nothing is unmerged, only CHERRY_PICK_HEAD says it isn't finished.
+    s.git(s.laptop, "checkout", "--quiet", "-b", "side");
+    await s.write(s.laptop, "lib.js", "y = side\n");
+    s.git(s.laptop, "commit", "--quiet", "-am", "side");
+    s.git(s.laptop, "checkout", "--quiet", "main");
+    await desktopPushes(s, { "lib.js": "y = remote\n" });
+    s.git(s.laptop, "pull", "--quiet");
+    gitFails(s, s.laptop, "cherry-pick", "side");
+    await s.write(s.laptop, "lib.js", "y = resolved\n");
+    s.git(s.laptop, "add", "lib.js");
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+    const before = snapshot(s);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result).toMatchObject({
+      outcome: "not-now",
+      message: "Not now: a cherry-pick is in progress in shop",
+    });
+    expect(snapshot(s)).toEqual(before);
+    expect(s.git(s.laptop, "rev-parse", "--verify", "CHERRY_PICK_HEAD").trim()).toBe(
+      s.git(s.laptop, "rev-parse", "side").trim(),
+    );
+  });
+
+  it("refuses during a revert, a series of picks and a bisect", async () => {
+    const s = await gitSandbox();
+    await desktopPushes(s, { "lib.js": "y = 2\n" }, "two");
+    await desktopPushes(s, { "lib.js": "y = 3\n" }, "three");
+    s.git(s.laptop, "pull", "--quiet");
+    gitFails(s, s.laptop, "revert", "HEAD~1");
+    await s.write(s.laptop, "lib.js", "y = resolved\n");
+    s.git(s.laptop, "add", "lib.js");
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+    let before = snapshot(s);
+    expect((await syncRepo(s.laptop, "shop", s.options)).message).toBe(
+      "Not now: a revert is in progress in shop",
+    );
+    expect(snapshot(s)).toEqual(before);
+    s.git(s.laptop, "revert", "--abort");
+
+    // What a series of picks keeps between its steps (git rev-parse --git-path sequencer).
+    const sequencer = s.git(s.laptop, "rev-parse", "--git-path", "sequencer").trim();
+    await s.write(s.laptop, `${sequencer}/todo`, "pick 0000000 x\n");
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+    before = snapshot(s);
+    expect((await syncRepo(s.laptop, "shop", s.options)).message).toBe(
+      "Not now: a series of cherry-picks or reverts is in progress in shop",
+    );
+    expect(snapshot(s)).toEqual(before);
+    await rm(join(s.laptop, sequencer), { recursive: true });
+
+    s.git(s.laptop, "bisect", "start");
+    before = snapshot(s);
+    expect((await syncRepo(s.laptop, "shop", s.options)).message).toBe(
+      "Not now: a bisect is in progress in shop",
+    );
+    expect(snapshot(s)).toEqual(before);
+  });
+
+  it("refuses while files have unresolved conflicts, and commits nothing", async () => {
+    const s = await gitSandbox();
+    // An agent's stash pop that conflicted: lib.js has unmerged entries.
+    await s.write(s.laptop, "lib.js", "y = wip\n");
+    s.git(s.laptop, "stash", "push", "--quiet", "-m", "agent");
+    await desktopPushes(s, { "lib.js": "y = remote\n" });
+    s.git(s.laptop, "pull", "--quiet");
+    gitFails(s, s.laptop, "stash", "pop");
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+    const before = snapshot(s);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result).toMatchObject({
+      outcome: "not-now",
+      message: "Not now: lib.js in shop has unresolved conflicts",
+    });
+    expect(snapshot(s)).toEqual(before);
+  });
+
+  it("checks again right before committing (an agent may start one during the fetch)", async () => {
+    const s = await gitSandbox();
+    await desktopPushes(s, { "decisions/0002-size.md": "status: deferred\n" });
+    await answerAndAgentWork(s);
+    // When the fetch updates origin/main, an agent's cherry-pick stops on a conflict
+    // (CHERRY_PICK_HEAD written by the hook stands in for it).
+    const done = join(s.root, "picked");
+    await hook(
+      s,
+      "reference-transaction",
+      [
+        '[ "$1" = committed ] || exit 0',
+        `[ -e "${done}" ] && exit 0`,
+        `touch "${done}"`,
+        'git rev-parse HEAD > "$(git rev-parse --git-path CHERRY_PICK_HEAD)"',
+      ].join("\n"),
+    );
+    const head = s.head(s.laptop);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result).toMatchObject({
+      outcome: "not-now",
+      message: "Not now: a cherry-pick is in progress in shop",
+    });
+    expect(s.head(s.laptop)).toBe(head);
+    expect(s.status(s.laptop)).toEqual([" M decisions/0001-colour.md", " M lib.js"]);
+  });
+});
+
+describe("Sync only names git's own stash entry (S-4)", () => {
+  it("stops on an agent's new stash entry without suggesting to drop it", async () => {
+    const s = await gitSandbox();
+    await answerAndAgentWork(s);
+    // An agent stashes its work while Sync runs (here: right after Sync's commit).
+    await hook(
+      s,
+      "post-commit",
+      "unset GIT_INDEX_FILE\ngit stash push --quiet -m 'agent entry' -- lib.js",
+    );
+    const remoteBefore = s.remoteLog();
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result.outcome).toBe("not-pushed");
+    expect(result.message).toBe(
+      "Not pushed: a new entry appeared in git stash list in shop while Sync ran",
+    );
+    expect(result.action).toMatch(/"On main: agent entry".*probably an agent's: leave it alone/);
+    expect(result.action).not.toMatch(/stash drop/);
+    expect(s.git(s.laptop, "stash", "list", "--format=%gs").trim()).toBe("On main: agent entry");
+    expect(s.remoteLog()).toEqual(remoteBefore);
+  });
+});
+
+describe("Sync and ignored files (S-7)", () => {
+  it("refuses when the remote adds a file that exists here, ignored", async () => {
+    const s = await gitSandbox();
+    await s.write(s.laptop, ".git/info/exclude", "secret.env\nbuild\n");
+    await s.write(s.laptop, "secret.env", "LOCAL AGENT DATA\n");
+    await desktopPushes(s, { "secret.env": "REMOTE\n" });
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+    const before = snapshot(s);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result).toMatchObject({
+      outcome: "not-now",
+      message:
+        "Not now: an agent in shop has uncommitted edits to secret.env, which also changed on the remote",
+    });
+    expect(snapshot(s)).toEqual(before);
+    expect(await s.read(s.laptop, "secret.env")).toBe("LOCAL AGENT DATA\n");
+  });
+
+  it("refuses when an ignored file is where the remote adds a folder", async () => {
+    const s = await gitSandbox();
+    await s.write(s.laptop, ".git/info/exclude", "build\n");
+    await s.write(s.laptop, "build", "local build output\n");
+    await desktopPushes(s, { "build/out.js": "remote\n" });
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+    const before = snapshot(s);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result.outcome).toBe("not-now");
+    expect(result.message).toMatch(/uncommitted edits to build,/);
+    expect(snapshot(s)).toEqual(before);
+    expect(await s.read(s.laptop, "build")).toBe("local build output\n");
+  });
+});
+
+describe("a rebase left in progress (S-8)", () => {
+  it("names the files it set aside and git rebase --abort, in Sync and in the status", async () => {
+    const s = await gitSandbox();
+    await desktopPushes(s, { "decisions/0001-colour.md": "status: resolved\nnote: desktop\n" });
+    await answerAndAgentWork(s);
+    // What a Sync cut short during its pull leaves: its commit, and a rebase stopped on a
+    // conflict, holding the agent's lib.js in its autostash.
+    s.git(s.laptop, "commit", "--quiet", "-m", "decisions from laptop: 0001", "--", "decisions/");
+    gitFails(s, s.laptop, "pull", "--quiet", "--rebase", "--autostash");
+    expect(await s.read(s.laptop, "lib.js")).toBe("y = 1\n");
+    const before = snapshot(s);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result).toMatchObject({
+      outcome: "not-now",
+      message: "Not now: a rebase is in progress in shop",
+    });
+    expect(result.action).toMatch(/set aside the uncommitted changes to lib\.js/);
+    expect(result.action).toContain(`git rebase --abort in ${s.laptop} puts everything back`);
+    expect(snapshot(s)).toEqual(before);
+
+    const status = await repoStatus(s.laptop, s.options, "shop");
+    expect(status.rebase?.message).toBe(
+      "A rebase is in progress in shop, and Sync waits until it is finished or aborted",
+    );
+    expect(status.rebase?.action).toMatch(/lib\.js.*git rebase --abort/);
+
+    // The advice works: the abort brings the agent's work back.
+    s.git(s.laptop, "rebase", "--abort");
+    expect(await s.read(s.laptop, "lib.js")).toBe("y = wip\n");
+    expect((await repoStatus(s.laptop, s.options)).rebase).toBeUndefined();
+  });
+});
+
+describe("Sync's last look before pushing (S-9)", () => {
+  it("stops when putting the agent's changes back conflicts", async () => {
+    const s = await gitSandbox();
+    await desktopPushes(s, { "app.js": "x = remote\n" });
+    await answerAndAgentWork(s);
+    // After check 3 has passed, an agent edits the line the remote changed (once: the
+    // rebase runs post-commit too). The autostash takes the edit, and putting it back
+    // conflicts: markers in app.js, unmerged entries, and git still exits 0.
+    const done = join(s.root, "agent-edited");
+    await hook(
+      s,
+      "post-commit",
+      `[ -e "${done}" ] && exit 0\ntouch "${done}"\necho "x = agent" > app.js`,
+    );
+    const remoteBefore = s.remoteLog();
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result.outcome).toBe("not-pushed");
+    expect(result.message).toBe("Not pushed: app.js in shop has conflicts after the pull");
+    expect(result.action).toMatch(/stash entry named autostash/);
+    expect(await s.read(s.laptop, "app.js")).toMatch(/^<<<<<<< /m);
+    expect(s.remoteLog()).toEqual(remoteBefore);
+  });
+});
+
+describe("check 2 and empty commits (S-10)", () => {
+  it("refuses an agent's unpushed empty commit", async () => {
+    const s = await gitSandbox();
+    s.git(s.laptop, "commit", "--quiet", "--allow-empty", "-m", "agent: empty");
+    await answerAndAgentWork(s);
+    const before = snapshot(s);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result).toMatchObject({
+      outcome: "not-now",
+      message: "Not now: an agent in shop has commits it hasn't pushed",
+    });
+    expect(snapshot(s)).toEqual(before);
   });
 });
 

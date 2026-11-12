@@ -225,6 +225,23 @@ describe("the Sync control", () => {
     expect(text()).toContain("Could not resolve host");
   });
 
+  it("shows a rebase left in progress when the hub starts, and how to get the files back (S-8)", async () => {
+    projects = [
+      project({
+        rebase: {
+          message:
+            "A rebase is in progress in shop, and Sync waits until it is finished or aborted",
+          action:
+            "The rebase has set aside the uncommitted changes to lib.js: until it is finished or aborted, that file shows its last committed content. If no agent is running this rebase (a Sync cut short by the hub stopping leaves one behind), git rebase --abort in /work/shop puts everything back as it was.",
+        },
+      }),
+    ];
+    await render();
+    await until(() => text().includes("A rebase is in progress in shop"), "the notice");
+    expect(text()).toContain("set aside the uncommitted changes to lib.js");
+    expect(text()).toContain("git rebase --abort in /work/shop");
+  });
+
   it("is busy while another tab's Sync runs", async () => {
     await render();
     projects = [project({ running: true })];

@@ -247,4 +247,35 @@ describe("the hub at start", () => {
       await hub.close();
     }
   });
+
+  it("shows a rebase a Sync cut short left behind, with the files it set aside (S-8)", async () => {
+    const s = await gitSandbox();
+    await s.write(s.desktop, "decisions/0001-colour.md", "status: resolved\nnote: desktop\n");
+    s.push(s.desktop, "desktop");
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\nnote: laptop\n");
+    await s.write(s.laptop, "lib.js", "y = wip\n");
+    // Sync's commit, then its pull stopped on the card's conflict when the hub went away.
+    s.git(s.laptop, "commit", "--quiet", "-m", "decisions from laptop: 0001", "--", "decisions/");
+    expect(() => s.git(s.laptop, "pull", "--quiet", "--rebase", "--autostash")).toThrow();
+
+    const registry = new Registry(join(await tempDir(), "config"));
+    await registry.add({ path: s.laptop, name: "shop" });
+    const hub = await startHub({
+      port: 0,
+      registry,
+      staticDir: join(await tempDir(), "none"),
+      sync: s.options,
+    });
+    try {
+      const status = (await (await fetch(`${hub.url}/api/sync`)).json()) as SyncStatusResponse;
+      const shop = status.projects.find((p) => p.project === "shop");
+      expect(shop?.rebase?.message).toBe(
+        "A rebase is in progress in shop, and Sync waits until it is finished or aborted",
+      );
+      expect(shop?.rebase?.action).toMatch(/uncommitted changes to lib\.js/);
+      expect(shop?.rebase?.action).toContain(`git rebase --abort in ${s.laptop}`);
+    } finally {
+      await hub.close();
+    }
+  });
 });

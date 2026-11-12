@@ -7,17 +7,25 @@
  *
  *   git fetch
  *   # checks; if one fails, stop, change nothing and say why:
- *   #  1. the remote's default branch is checked out (tracking it), no rebase or merge in progress
+ *   #  1. the remote's default branch is checked out (tracking it); no rebase, merge,
+ *   #     cherry-pick, revert, sequence of those or bisect in progress, and no unmerged file
  *   #  2. git log @{u}..HEAD has no unpushed commit that changes files outside decisions/
+ *   #     (or no files at all: an empty commit)
  *   #  3. no file outside decisions/ that the remote changed (git diff HEAD...@{u}) has
- *   #     uncommitted edits here
+ *   #     uncommitted edits here, or is a file git doesn't track (ignored ones too)
+ *   # the "in progress" part of check 1 once more, right before the first change
  *   git add -- decisions/
  *   git commit --only -m "decisions from laptop: 0003, 0005" -- decisions/   # if anything is staged
  *   git pull --rebase --autostash   # on failure: name the conflicted cards, git rebase --abort, don't push
  *   # stop if any file is conflicted or git stash list has a new entry
- *   git push
+ *   # read HEAD once; check again: same branch and upstream, nothing in progress, check 2
+ *   git push <remote> <that commit>:refs/heads/<main>   # never a bare git push
  *
- * The card says what goes wrong without each step. Sync only runs in a project whose folder
+ * The card says what goes wrong without each step. The rest is from review round 1 of
+ * PR #12: a bare `git push` follows push.default (matching pushes every branch with a
+ * namesake on the remote) and remote.pushDefault; an agent can commit or switch branches
+ * while the commit's hooks and the pull run; the stash is shared with agents, so only the
+ * entry git names "autostash" is called git's. Sync only runs in a project whose folder
  * is the top folder of its git repository (or worktree), so it never commits into a
  * repository that merely contains the project (a home folder kept in git, say).
  *
@@ -25,7 +33,7 @@
  * project while its Sync runs (see {@link SyncService.writeCard}).
  */
 import { existsSync } from "node:fs";
-import { lstat, realpath } from "node:fs/promises";
+import { lstat, readFile, realpath } from "node:fs/promises";
 import { hostname } from "node:os";
 import { basename, join, resolve } from "node:path";
 import type {
@@ -115,28 +123,76 @@ class Repo {
     return undefined;
   }
 
-  /** A rebase or merge that someone started and hasn't finished. */
-  async inProgress(): Promise<"rebase" | "merge" | undefined> {
+  /**
+   * A rebase, merge, cherry-pick, revert, sequence of those, or bisect that someone started
+   * and hasn't finished. For a rebase, also the autostash it holds (the commit with the
+   * uncommitted changes it set aside), if any.
+   */
+  async inProgress(): Promise<InProgress | undefined> {
     const lines = (
-      await this.out([
-        "rev-parse",
-        "--git-path",
-        "rebase-merge",
-        "--git-path",
-        "rebase-apply",
-        "--git-path",
-        "MERGE_HEAD",
-      ])
+      await this.out(["rev-parse", ...IN_PROGRESS.flatMap(({ path }) => ["--git-path", path])])
     )
       .split("\n")
       .filter(Boolean);
-    const exists = (i: number) => {
-      const path = lines[i];
-      return path !== undefined && existsSync(resolve(this.dir, path));
-    };
-    if (exists(0) || exists(1)) return "rebase";
-    if (exists(2)) return "merge";
+    for (const [i, { path, kind }] of IN_PROGRESS.entries()) {
+      const found = lines[i];
+      if (found === undefined) throw new Error(`git rev-parse --git-path ${path} printed nothing`);
+      const full = resolve(this.dir, found);
+      if (!existsSync(full)) continue;
+      if (kind !== "rebase") return { kind };
+      const autostash = await readFile(join(full, "autostash"), "utf8").then(
+        (text) => (/^[0-9a-f]{40,64}$/.test(text.trim()) ? text.trim() : undefined),
+        () => undefined,
+      );
+      return autostash ? { kind, autostash } : { kind };
+    }
     return undefined;
+  }
+
+  /** Files with unmerged entries in the index (a conflict nobody has resolved yet). */
+  async unmerged(): Promise<string[]> {
+    return unique(
+      splitZ(await this.out(["ls-files", "--unmerged", "-z"])).map((entry) =>
+        entry.slice(entry.indexOf("\t") + 1),
+      ),
+    );
+  }
+
+  /** The files whose uncommitted changes the stash commit `sha` holds. */
+  async stashedFiles(sha: string): Promise<string[]> {
+    const result = await this.run(["diff", "--name-only", "-z", "--no-renames", `${sha}^1`, sha]);
+    return result.code === 0 ? unique(splitZ(result.stdout)) : [];
+  }
+
+  /**
+   * Whether the commits in `range` include one that changes something outside decisions/,
+   * or one that changes nothing at all (an empty commit: Sync's own commits always have
+   * cards in them). Check 2.
+   */
+  async hasCodeCommits(range: string): Promise<boolean> {
+    // Each commit is "\x01<sha>", then its paths, all NUL-separated.
+    const output = await this.out([
+      "log",
+      "--format=%x01%H",
+      "--name-only",
+      "-z",
+      "--no-renames",
+      "--diff-merges=first-parent",
+      range,
+    ]);
+    let paths: number | undefined;
+    for (const token of output.split("\0")) {
+      if (token.startsWith("\x01")) {
+        if (paths === 0) return true;
+        paths = 0;
+        continue;
+      }
+      const path = token.replace(/^\n+/, "");
+      if (!path) continue;
+      if (paths === undefined || !isCardPath(path)) return true;
+      paths++;
+    }
+    return paths === 0;
   }
 
   /** The checked-out branch (undefined when HEAD is detached) and what it tracks. */
@@ -192,8 +248,16 @@ class Repo {
     return this.paths(["diff", "--name-only", "-z", "--no-renames", "HEAD...@{u}", "--", CARDS]);
   }
 
-  async stashEntries(): Promise<string[]> {
-    return (await this.out(["stash", "list", "--format=%H"])).split("\n").filter(Boolean);
+  /** `git stash list`: each entry's commit, its name now (stash@{n}) and its subject. */
+  async stashEntries(): Promise<StashEntry[]> {
+    // The stash is shared by every worktree of the repository, and agents use it too.
+    return (await this.out(["stash", "list", "--format=%H%x00%gd%x00%gs"]))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const [sha = "", ref = "", subject = ""] = line.split("\0");
+        return { sha, ref, subject };
+      });
   }
 
   conflicted(): Promise<string[]> {
@@ -201,8 +265,161 @@ class Repo {
   }
 }
 
+type InProgressKind = "rebase" | "merge" | "cherry-pick" | "revert" | "sequence" | "bisect";
+
+interface InProgress {
+  kind: InProgressKind;
+  /** A rebase's autostash: the commit holding the uncommitted changes it set aside. */
+  autostash?: string;
+}
+
+/** What each kind of unfinished git operation leaves in the git folder, checked in order. */
+const IN_PROGRESS: { path: string; kind: InProgressKind }[] = [
+  { path: "rebase-merge", kind: "rebase" },
+  { path: "rebase-apply", kind: "rebase" },
+  { path: "MERGE_HEAD", kind: "merge" },
+  { path: "CHERRY_PICK_HEAD", kind: "cherry-pick" },
+  { path: "REVERT_HEAD", kind: "revert" },
+  { path: "sequencer", kind: "sequence" },
+  { path: "BISECT_LOG", kind: "bisect" },
+];
+
+const IN_PROGRESS_TEXT: Record<InProgressKind, string> = {
+  rebase: "a rebase",
+  merge: "a merge",
+  "cherry-pick": "a cherry-pick",
+  revert: "a revert",
+  sequence: "a series of cherry-picks or reverts",
+  bisect: "a bisect",
+};
+
+interface StashEntry {
+  sha: string;
+  /** Its name when it was listed ("stash@{2}"); it changes as entries come and go. */
+  ref: string;
+  subject: string;
+}
+
+/** The subject git gives the entry it saves when it can't put an autostash back. */
+const AUTOSTASH_SUBJECT = "autostash";
+
 function unique(list: string[]): string[] {
   return [...new Set(list)].sort();
+}
+
+const listText = (paths: string[]) => paths.join(", ");
+const hasHave = (paths: string[]) => (paths.length === 1 ? "has" : "have");
+
+/**
+ * The sentence about stash entries that appeared during Sync. Git's own (subject
+ * "autostash") is named exactly; any other may be an agent's, so it is left alone.
+ */
+function stashText(entries: StashEntry[], dir: string): string {
+  const ours = entries.filter((entry) => entry.subject === AUTOSTASH_SUBJECT);
+  const others = entries.filter((entry) => entry.subject !== AUTOSTASH_SUBJECT);
+  const parts: string[] = [];
+  for (const entry of ours) {
+    parts.push(
+      `Git kept a copy in its stash entry named autostash (${entry.ref} when Sync looked, commit ${entry.sha}; git stash show -p ${entry.sha} in ${dir} shows it). Once the agent's files are right, drop only that entry, by the stash@{n} that git stash list shows next to "autostash" (a bare git stash drop removes the newest entry, which may be an agent's).`,
+    );
+  }
+  if (others.length > 0) {
+    parts.push(
+      `${others.length === 1 ? "A new entry" : `${others.length} new entries`} also appeared in git stash list in ${dir} (${others.map((entry) => `"${entry.subject}"`).join(", ")}); ${others.length === 1 ? "it isn't" : "they aren't"} git's autostash, so ${others.length === 1 ? "it is" : "they are"} probably an agent's: leave ${others.length === 1 ? "it" : "them"} alone.`,
+    );
+  }
+  return parts.join(" ");
+}
+
+/** `git diff --name-status -z` output ("A\0path\0M\0path\0") as a list. */
+function nameStatus(output: string): { status: string; path: string }[] {
+  const tokens = output.split("\0");
+  const entries: { status: string; path: string }[] = [];
+  for (let i = 0; i + 1 < tokens.length; i += 2) {
+    const status = tokens[i]?.trim() ?? "";
+    const path = tokens[i + 1] ?? "";
+    if (status && path) entries.push({ status, path });
+  }
+  return entries;
+}
+
+/**
+ * Paths the remote adds where something git doesn't track is in the way here: a file,
+ * folder or link at that path, or a file or link where the remote needs a folder (and the
+ * remote doesn't remove it). `known` paths are already reported.
+ */
+async function untrackedInTheWay(
+  dir: string,
+  remoteChanged: { status: string; path: string }[],
+  known: ReadonlySet<string>,
+): Promise<string[]> {
+  const changed = new Set(remoteChanged.map(({ path }) => path));
+  const kind = (path: string) =>
+    lstat(join(dir, path)).then(
+      (stats) => (stats.isDirectory() ? "folder" : "other"),
+      () => undefined,
+    );
+  const found: string[] = [];
+  for (const { status, path } of remoteChanged) {
+    if (!status.startsWith("A") || known.has(path)) continue;
+    if (await kind(path)) {
+      found.push(path);
+      continue;
+    }
+    const parts = path.split("/");
+    for (let i = 1; i < parts.length; i++) {
+      const parent = parts.slice(0, i).join("/");
+      const parentKind = await kind(parent);
+      if (parentKind === undefined) break;
+      if (parentKind === "other" && !changed.has(parent)) {
+        found.push(parent);
+        break;
+      }
+    }
+  }
+  return found;
+}
+
+/** Check 1's "nothing in progress" part, and no unresolved conflicts. Changes nothing. */
+async function notInProgress(repo: Repo, name: string): Promise<RepoSyncResult | undefined> {
+  const started = await repo.inProgress();
+  if (started) return inProgressResult(repo, name, started);
+  const unmerged = await repo.unmerged();
+  if (unmerged.length > 0) {
+    return result(
+      "not-now",
+      `Not now: ${listText(unmerged)} in ${name} ${hasHave(unmerged)} unresolved conflicts`,
+      {
+        action: `Press Sync again once they are resolved (git status in ${repo.dir} lists them).`,
+      },
+    );
+  }
+  return undefined;
+}
+
+async function inProgressResult(
+  repo: Repo,
+  name: string,
+  started: InProgress,
+): Promise<RepoSyncResult> {
+  const note = await setAsideNote(repo, started);
+  return result("not-now", `Not now: ${IN_PROGRESS_TEXT[started.kind]} is in progress in ${name}`, {
+    action: `${note ? `${note} ` : ""}Press Sync again once it is finished or aborted (git status in ${repo.dir} shows it).`,
+  });
+}
+
+/**
+ * For a rebase holding an autostash (one a Sync left when the hub stopped mid-pull, say):
+ * which files it set aside, and how to get them back.
+ */
+async function setAsideNote(repo: Repo, started: InProgress): Promise<string | undefined> {
+  if (started.kind !== "rebase" || !started.autostash) return undefined;
+  const files = await repo.stashedFiles(started.autostash);
+  const what =
+    files.length > 0
+      ? `the uncommitted changes to ${listText(files)}: until it is finished or aborted, ${files.length === 1 ? "that file shows its" : "those files show their"} last committed content`
+      : "the checkout's uncommitted changes until it is finished or aborted";
+  return `The rebase has set aside ${what}. If no agent is running this rebase (a Sync cut short by the hub stopping leaves one behind), git rebase --abort in ${repo.dir} puts everything back as it was.`;
 }
 
 const isCardPath = (path: string) => path.startsWith(CARDS);
@@ -268,14 +485,10 @@ async function runSequence(repo: Repo, name: string, machine: string): Promise<R
     return result("unavailable", `Not synced: ${name} is skipped because ${unavailable}`);
   }
 
-  // Check 1, the parts that need no network: a rebase or merge someone started, a detached
-  // HEAD, no upstream.
-  const started = await repo.inProgress();
-  if (started) {
-    return result("not-now", `Not now: a ${started} is in progress in ${name}`, {
-      action: `Press Sync again once it is finished or aborted (git status in ${dir} shows it).`,
-    });
-  }
+  // Check 1, the parts that need no network: a rebase, merge, cherry-pick, ... someone
+  // started, unresolved conflicts, a detached HEAD, no upstream.
+  const busy = await notInProgress(repo, name);
+  if (busy) return busy;
   const { branch, upstream, remote } = await repo.branch();
   if (!branch || !upstream) {
     if ((await repo.localCardChanges(false)).length === 0)
@@ -306,8 +519,13 @@ async function runSequence(repo: Repo, name: string, machine: string): Promise<R
   if (local.length === 0 && remoteCards.length === 0) return result("nothing", "Nothing to sync");
 
   // Check 1: the remote's default branch is checked out and tracks it.
+  // The remote is the one main tracks (branch.main.remote), which is also where Sync pushes;
+  // remote.pushDefault and branch.main.pushRemote are not followed.
   const remoteName = remote ?? "";
-  const main = remoteName && remoteName !== "." ? await repo.remoteDefault(remoteName) : undefined;
+  const main =
+    remoteName && remoteName !== "." && !remoteName.startsWith("-")
+      ? await repo.remoteDefault(remoteName)
+      : undefined;
   if (!main || "error" in main) {
     return result(
       "not-now",
@@ -338,36 +556,31 @@ async function runSequence(repo: Repo, name: string, machine: string): Promise<R
     );
   }
 
-  // Check 2: no unpushed commit that touches anything outside decisions/.
-  const unpushed = await repo.paths([
-    "log",
-    "--format=",
-    "--name-only",
-    "-z",
-    "--no-renames",
-    "--diff-merges=first-parent",
-    "@{u}..HEAD",
-  ]);
-  if (unpushed.some((path) => !isCardPath(path))) {
+  // Check 2: no unpushed commit that touches anything outside decisions/ (or nothing).
+  if (await repo.hasCodeCommits(`${expected}..HEAD`)) {
     return result("not-now", `Not now: an agent in ${name} has commits it hasn't pushed`, {
       action: `Sync changes nothing until they are pushed (git log @{u}..HEAD in ${dir} lists them); then press Sync again.`,
     });
   }
 
   // Check 3: no file outside decisions/ that the remote changed has uncommitted edits here.
-  const remoteFiles = (
-    await repo.paths(["diff", "--name-only", "-z", "--no-renames", "HEAD...@{u}"])
-  ).filter((path) => !isCardPath(path));
-  if (remoteFiles.length > 0) {
+  // Check 2 passed, so outside decisions/ HEAD is the last commit in common with the remote.
+  const remoteChanged = nameStatus(
+    await repo.out(["diff", "--name-status", "-z", "--no-renames", `HEAD...${expected}`]),
+  ).filter(({ path }) => !isCardPath(path));
+  if (remoteChanged.length > 0) {
     const edited = new Set([
       ...(await repo.paths(["diff", "--name-only", "-z", "--no-renames", "HEAD"])),
       ...(await repo.paths(["ls-files", "--others", "--exclude-standard", "-z"])),
     ]);
-    const clash = remoteFiles.filter((path) => edited.has(path));
+    const clash = remoteChanged.map(({ path }) => path).filter((path) => edited.has(path));
+    // What the remote adds can't be in HEAD, so anything at that path here is a file git
+    // doesn't track: an ignored one too, which the pull would overwrite without a word.
+    clash.push(...(await untrackedInTheWay(dir, remoteChanged, edited)));
     if (clash.length > 0) {
       return result(
         "not-now",
-        `Not now: an agent in ${name} has uncommitted edits to ${clash.join(", ")}, which also changed on the remote`,
+        `Not now: an agent in ${name} has uncommitted edits to ${listText(unique(clash))}, which also changed on the remote`,
         {
           action: "Press Sync again once those edits are committed and pushed, or put away.",
         },
@@ -375,7 +588,14 @@ async function runSequence(repo: Repo, name: string, machine: string): Promise<R
     }
   }
 
-  const stashBefore = new Set(await repo.stashEntries());
+  // Once more right before the first change: an agent may have started a cherry-pick (or
+  // hit a conflict) during the fetch, and Sync's commit would then end it.
+  const busyNow = await notInProgress(repo, name);
+  if (busyNow) return busyNow;
+
+  const stashBefore = new Set((await repo.stashEntries()).map((entry) => entry.sha));
+  const newStashEntries = async () =>
+    (await repo.stashEntries()).filter((entry) => !stashBefore.has(entry.sha));
 
   // Commit the card changes in one commit. `git add` first: commit --only alone leaves out
   // cards git doesn't track yet.
@@ -414,25 +634,22 @@ async function runSequence(repo: Repo, name: string, machine: string): Promise<R
   }
   const kept = local.length > 0 ? "; your answers are kept in a local commit" : "";
 
-  const before = (await repo.out(["rev-parse", "HEAD"])).trim();
+  const before = (await repo.out(["rev-parse", "--verify", "HEAD^{commit}"])).trim();
   const pulled = await repo.run(["pull", "--rebase", "--autostash"]);
   if (pulled.code !== 0) {
     // Name the conflicted cards before the abort puts everything back.
     let conflicted: string[] = [];
     let abortError: string | undefined;
-    if ((await repo.inProgress()) === "rebase") {
+    if ((await repo.inProgress())?.kind === "rebase") {
       conflicted = await repo.conflicted();
       const aborted = await repo.run(["rebase", "--abort"]);
       if (aborted.code !== 0) abortError = gitErrorText(aborted);
     }
-    const leftover = (await repo.stashEntries()).some((entry) => !stashBefore.has(entry));
     const extra = [
       abortError
         ? `Undoing the failed pull failed too (${abortError}): run git rebase --abort in ${dir} by hand.`
         : "",
-      leftover
-        ? `Git also left an entry in its stash (git stash list in ${dir}) that needs clearing.`
-        : "",
+      stashText(await newStashEntries(), dir),
     ]
       .filter(Boolean)
       .join(" ");
@@ -455,30 +672,72 @@ async function runSequence(repo: Repo, name: string, machine: string): Promise<R
   // Look before pushing: a file an agent wrote while the pull had it set aside leaves
   // conflict markers or an old copy in the stash, and git still exits 0.
   const conflicted = await repo.conflicted();
-  const newStash = (await repo.stashEntries()).filter((entry) => !stashBefore.has(entry));
+  const newStash = await newStashEntries();
+  const autostash = newStash.some((entry) => entry.subject === AUTOSTASH_SUBJECT);
   if (conflicted.length > 0) {
     return result(
       "not-pushed",
-      `Not pushed: ${conflicted.join(", ")} in ${name} ${conflicted.length === 1 ? "has" : "have"} conflicts after the pull`,
+      `Not pushed: ${listText(conflicted)} in ${name} ${hasHave(conflicted)} conflicts after the pull`,
       {
-        action: `Nothing was pushed. Fix ${conflicted.length === 1 ? "that file" : "those files"} by hand in ${dir}${
-          newStash.length > 0 ? " and clear the entry git left in its stash (git stash list)" : ""
-        }, then press Sync again.`,
+        action:
+          `Nothing was pushed. Fix ${conflicted.length === 1 ? "that file" : "those files"} by hand in ${dir}, then press Sync again. ${stashText(newStash, dir)}`.trim(),
       },
     );
   }
   if (newStash.length > 0) {
     return result(
       "not-pushed",
-      `Not pushed: a file in ${name} changed while the pull had it set aside, and git kept the older copy in its stash`,
+      autostash
+        ? `Not pushed: a file in ${name} changed while the pull had it set aside, and git kept the older copy in its stash entry named autostash`
+        : `Not pushed: a new entry appeared in git stash list in ${name} while Sync ran`,
       {
-        action: `Nothing was pushed. Check git stash list in ${dir} and clear that entry (git stash drop) once the agent's files are right, then press Sync again.`,
+        action: `Nothing was pushed. ${stashText(newStash, dir)} Then press Sync again.`.trim(),
+      },
+    );
+  }
+
+  // Check again what is about to be pushed: the commit and the pull ran hooks and took a
+  // while, and an agent may have committed or switched branches meanwhile. HEAD is read
+  // once, and exactly that commit is what gets pushed, once it passes the checks.
+  const head = (await repo.out(["rev-parse", "--verify", "HEAD^{commit}"])).trim();
+  const now = await repo.branch();
+  if (now.branch !== branch || now.upstream !== expected || now.remote !== remoteName) {
+    return result("not-pushed", `Not pushed: the checkout in ${name} changed during Sync`, {
+      action: `Nothing was pushed${kept}. ${
+        now.branch ? `It is now on ${now.branch}` : "It now has no branch checked out"
+      }; your answers wait until it is back on ${main.name} tracking ${remoteName}/${main.name}, then press Sync again.`,
+    });
+  }
+  const startedNow = await repo.inProgress();
+  if (startedNow) {
+    return result(
+      "not-pushed",
+      `Not pushed: ${IN_PROGRESS_TEXT[startedNow.kind]} started in ${name} during Sync`,
+      {
+        action: `Nothing was pushed${kept}. Press Sync again once it is finished or aborted (git status in ${dir} shows it).`,
+      },
+    );
+  }
+  if (await repo.hasCodeCommits(`${expected}..${head}`)) {
+    return result(
+      "not-pushed",
+      `Not pushed: an agent in ${name} committed while Sync ran, and its commits aren't pushed`,
+      {
+        action: `Nothing was pushed${kept}. Sync pushes once the agent's commits are pushed (git log @{u}..HEAD in ${dir} lists them); then press Sync again.`,
       },
     );
   }
 
   const sent = cardLabels(
-    await repo.paths(["diff", "--name-only", "-z", "--no-renames", "@{u}...HEAD", "--", CARDS]),
+    await repo.paths([
+      "diff",
+      "--name-only",
+      "-z",
+      "--no-renames",
+      `${expected}...${head}`,
+      "--",
+      CARDS,
+    ]),
   );
   const received = cardLabels(
     await repo.paths([
@@ -486,18 +745,43 @@ async function runSequence(repo: Repo, name: string, machine: string): Promise<R
       "--name-only",
       "-z",
       "--no-renames",
-      `${before}...@{u}`,
+      `${before}...${expected}`,
       "--",
       CARDS,
     ]),
   );
-  const pushed = await repo.run(["push"]);
-  if (pushed.code !== 0) {
-    return result("not-pushed", `Not pushed: git push failed in ${name}`, {
-      gitError: gitErrorText(pushed),
-      received,
-      action: `Your answers are kept in a local commit and still count as not synced. Press Sync again to retry.`,
-    });
+  const remoteHead = (await repo.out(["rev-parse", "--verify", `${expected}^{commit}`])).trim();
+  if (head !== remoteHead) {
+    // Exactly the checked commit, to the branch main tracks on the remote main tracks. Not a
+    // bare `git push`, which follows push.default (matching pushes every branch with a
+    // namesake on the remote), remote.pushDefault and branch.main.pushRemote; no tags and no
+    // submodules either.
+    const pushed = await repo.run([
+      "push",
+      "--no-follow-tags",
+      "--recurse-submodules=no",
+      remoteName,
+      `${head}:refs/heads/${main.name}`,
+    ]);
+    if (pushed.code !== 0) {
+      return result("not-pushed", `Not pushed: git push failed in ${name}`, {
+        gitError: gitErrorText(pushed),
+        received,
+        action: `Your answers are kept in a local commit and still count as not synced. Press Sync again to retry.`,
+      });
+    }
+    // git updates the remote-tracking branch after a push; it must now be that commit.
+    const after = await repo.run(["rev-parse", "--verify", `${expected}^{commit}`]);
+    if (after.code !== 0 || after.stdout.trim() !== head) {
+      return result(
+        "not-pushed",
+        `Not sure it synced: git push said it worked in ${name}, but ${remoteName}/${main.name} doesn't show the pushed commit`,
+        {
+          received,
+          action: `Check git status in ${dir}, then press Sync again.`,
+        },
+      );
+    }
   }
   const parts = [
     sent.length > 0 ? `sent ${sent.join(", ")}` : "",
@@ -509,11 +793,21 @@ async function runSequence(repo: Repo, name: string, machine: string): Promise<R
   });
 }
 
-/** The counts the top bar shows for one project. Read-only. */
+/** What the top bar shows for one project. */
+export interface RepoStatus {
+  unavailable?: string;
+  unsynced: number;
+  remoteChanges: number;
+  /** A rebase in progress (one a Sync cut short left, say), shown until it is finished. */
+  rebase?: { message: string; action: string };
+}
+
+/** The counts the top bar shows for one project, and a rebase in progress. Read-only. */
 export async function repoStatus(
   dir: string,
   options: SyncOptions = {},
-): Promise<{ unavailable?: string; unsynced: number; remoteChanges: number }> {
+  name = basename(dir),
+): Promise<RepoStatus> {
   const repo = new Repo(dir, options);
   try {
     const unavailable = await repo.unavailable();
@@ -521,6 +815,18 @@ export async function repoStatus(
     const { upstream } = await repo.branch();
     const unsynced = (await repo.localCardChanges(upstream !== undefined)).length;
     const remoteChanges = upstream ? (await repo.remoteCardChanges()).length : 0;
+    const started = await repo.inProgress();
+    if (started?.kind === "rebase") {
+      const note = await setAsideNote(repo, started);
+      return {
+        unsynced,
+        remoteChanges,
+        rebase: {
+          message: `A rebase is in progress in ${name}, and Sync waits until it is finished or aborted`,
+          action: note ?? `git status in ${dir} shows it.`,
+        },
+      };
+    }
     return { unsynced, remoteChanges };
   } catch (error) {
     if (error instanceof GitFailed) {
@@ -588,7 +894,7 @@ interface ProjectState {
   fetchError?: string;
   last?: SyncResultDto;
   /** The last counts computed, shown while a Sync runs. */
-  counts?: { unavailable?: string; unsynced: number; remoteChanges: number };
+  counts?: RepoStatus;
 }
 
 /** Sync for every registered project: what the API and the hub start call. */
@@ -649,13 +955,16 @@ export class SyncService {
         const running = this.#running.has(project.path);
         // Mid-Sync the checkout is in flux; show the counts from before.
         const counts =
-          running && state.counts ? state.counts : await repoStatus(project.path, this.#options);
+          running && state.counts
+            ? state.counts
+            : await repoStatus(project.path, this.#options, project.name);
         if (!running) state.counts = counts;
         return {
           project: project.name,
           ...(counts.unavailable ? { unavailable: counts.unavailable } : {}),
           unsynced: counts.unsynced,
           remoteChanges: counts.remoteChanges,
+          ...(counts.rebase ? { rebase: counts.rebase } : {}),
           ...(state.fetchError ? { fetchError: state.fetchError } : {}),
           running,
           ...(state.last ? { last: state.last } : {}),

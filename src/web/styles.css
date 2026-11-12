@@ -1340,13 +1340,22 @@ body:has(.action-bar-open) .toasts {
 }
 
 @media (max-width: 40rem) {
+  /* The padding is the margin at the screen's edges: if the bar's contents ever don't fit
+     on one line (large counts, a large font), the end group wraps to its own line rather
+     than spilling into it. */
   .topbar {
-    gap: 0.5rem;
+    flex-wrap: wrap;
+    gap: 0.25rem;
     padding: 0.5rem 0.75rem;
   }
 
+  .nav {
+    gap: 0;
+  }
+
   .nav-link {
-    padding: 0.3rem 0.5rem;
+    gap: 0.3rem;
+    padding: 0.3rem 0.4rem;
   }
 
   .brand {
@@ -1378,7 +1387,7 @@ body:has(.action-bar-open) .toasts {
 
   /* Sync and ? next to the nav: keep them on a 375 px screen. */
   .topbar-end .button {
-    padding: 0.3rem 0.45rem;
+    padding: 0.3rem 0.4rem;
   }
 
   .notice.sync-report {

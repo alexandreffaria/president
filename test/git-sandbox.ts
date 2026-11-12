@@ -2,8 +2,8 @@
  * Scratch git repositories for the Sync tests: a bare repository as the remote and two
  * clones, "laptop" (the machine whose hub runs Sync) and "desktop" (the other machine).
  *
- * Everything lives in a temp folder. git runs with the same environment Sync uses (every
- * inherited GIT_* variable removed, so a GIT_DIR from a hook can't point it elsewhere), plus
+ * Everything lives in a temp folder. git runs with the same environment Sync uses (the
+ * inherited variables that point git elsewhere removed, such as a GIT_DIR from a hook), plus
  * a temp HOME and XDG_CONFIG_HOME, GIT_CONFIG_NOSYSTEM=1 and GIT_CONFIG_GLOBAL pointing at the
  * sandbox's own config, and GIT_CEILING_DIRECTORIES so git never looks above the sandbox.
  *

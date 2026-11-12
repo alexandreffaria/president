@@ -145,6 +145,11 @@ export interface ProjectSyncStatus {
    * decisions/`), for "3 card changes on the remote, press Sync".
    */
   remoteChanges: number;
+  /**
+   * A rebase is in progress in the checkout (one a Sync cut short by the hub stopping left
+   * behind, say): what it set aside and how to get it back. Sync waits until it is done.
+   */
+  rebase?: { message: string; action: string };
   /** Set when the fetch at hub start failed (offline, no remote). Not fatal. */
   fetchError?: string;
   /** A Sync is running in this project right now. */

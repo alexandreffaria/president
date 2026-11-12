@@ -112,6 +112,34 @@ section left open were settled the simplest safe way, and the human can change a
 - The notice an open card shows after a pull brought in a change ("An agent changed this
   card...") is unchanged; the suggestion under "Notes for whoever builds it" is not built.
 
+From review round 1 of the PR (each with a test in `test/sync.test.ts` that fails without it):
+
+- The push is `git push <remote> <commit>:refs/heads/<main>` (no tags, no submodules), with
+  the remote `main` tracks, never a bare `git push`: that follows `push.default` (`matching`
+  pushes every local branch with a namesake on the remote, an agent's included),
+  `remote.pushDefault` and `branch.main.pushRemote`. After the push, `<remote>/<main>` must be
+  that commit.
+- After the pull, Sync reads `HEAD` once and checks again: still `main`, still tracking the
+  same upstream, nothing in progress, and check 2 on `@{u}..<that commit>`. An agent may have
+  committed or switched branches while the commit's hooks and the pull ran; then nothing is
+  pushed and the answers stay in the local commit.
+- "In progress" in check 1 also covers a cherry-pick, a revert, a sequence of those
+  (`sequencer/`), a bisect, and unmerged files (`git ls-files --unmerged`), and it runs again
+  right before `git add`.
+- Check 2 also refuses an unpushed commit that changes no file (an agent's empty commit).
+- Check 3 also refuses when the remote adds a file where something git doesn't track is in
+  the way, ignored files included (the pull overwrites those without a word).
+- The look before pushing calls only a new stash entry with the subject `autostash` git's,
+  names it (its `stash@{n}` and commit), and never suggests a bare `git stash drop`: the
+  stash is shared with agents. Any other new entry also stops the push, with no drop advice.
+- A rebase in progress (one a Sync cut short by the hub stopping leaves behind) is shown in
+  the top bar's report, and Sync's "Not now", with the files its autostash set aside and
+  `git rebase --abort` to get them back.
+- An Undo refused because a Sync is running stays on offer in its toast, to try again.
+- git runs without the variables `git rev-parse --local-env-vars` lists (plus
+  `GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` and `GIT_EXEC_PATH`), not without every `GIT_*`
+  one: the user's `GIT_SSH_COMMAND`, `GIT_CONFIG_GLOBAL` and the like are kept.
+
 ### What the human sees
 
 - **A Sync button in the top bar**, with a single-key shortcut (the card suggests `S`; it must
