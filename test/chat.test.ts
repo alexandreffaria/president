@@ -243,6 +243,42 @@ describe("a conversation", () => {
     expect((await t.conversation()).messages).toHaveLength(4);
   });
 
+  it("ends the stream's handler when the page goes away, and the run goes on", async () => {
+    const t = await setup();
+    await t.script([{ delayMs: 400 }]);
+    let unsubscribed = 0;
+    const send = t.chat.send.bind(t.chat);
+    vi.spyOn(t.chat, "send").mockImplementation(async (...args) => {
+      const run = await send(...args);
+      const subscribe = run.subscribe.bind(run);
+      run.subscribe = (listener) => {
+        const unsubscribe = subscribe(listener);
+        return () => {
+          unsubscribed++;
+          return unsubscribe();
+        };
+      };
+      return run;
+    });
+    try {
+      const response = await t.post("/api/chats/demo/0002/messages", { text: "slow" });
+      const reader = (response.body as ReadableStream<Uint8Array>).getReader();
+      expect(new TextDecoder().decode((await reader.read()).value)).toMatch(/"type":"message"/);
+      // A pending read lets that write finish, so the handler waits for the next event.
+      const next = reader.read();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await reader.cancel();
+      await next;
+      // Once from onAbort, once from the handler's finally: the loop woke up and ended.
+      await vi.waitFor(() => expect(unsubscribed).toBe(2), { timeout: 300 });
+      expect((await t.conversation()).running).toBe(true);
+      await vi.waitFor(async () => expect((await t.conversation()).running).toBe(false));
+      expect((await t.conversation()).messages.at(-1)?.text).toBe("Echo: slow");
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it("refuses a second message while the agent is answering", async () => {
     const t = await setup();
     await t.script([{ delayMs: 400 }]);

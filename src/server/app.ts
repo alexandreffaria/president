@@ -259,7 +259,11 @@ export function createApp(options: AppOptions): Hono {
         lines.push(event);
         wake();
       });
-      out.onAbort(unsubscribe);
+      // Wake the loop too, so it sees the page went away and the handler ends.
+      out.onAbort(() => {
+        unsubscribe();
+        wake();
+      });
       try {
         while (!out.aborted) {
           const event = lines.shift();
