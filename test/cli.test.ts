@@ -1555,24 +1555,19 @@ describe("preside CLI", () => {
       timeout: 9000,
     });
     expect(stdout).toMatch(/Usage:/);
+    // The README installs it as a symlink named preside; run it that way too.
+    const link = join(await tempDir(), "preside");
+    await symlink(BIN, link);
+    const viaLink = await promisify(execFile)(process.execPath, [link, "help"], {
+      timeout: 9000,
+    });
+    expect(viaLink.stdout).toMatch(/Usage:/);
   });
 
-  // `president` is the old name, kept as an alias until F2 (20261111dmvt): its script, and a
-  // link made by the README's old install line (`ln -s .../bin/president.js .../president`).
-  it("runs through the president alias, also from an old install's link", {
-    timeout: 10_000,
-  }, async () => {
-    const alias = join(dirname(BIN), "president.js");
-    const link = join(await tempDir(), "president");
-    await symlink(alias, link);
-    for (const entry of [alias, link]) {
-      const { stdout } = await promisify(execFile)(process.execPath, [entry, "help"], {
-        timeout: 9000,
-      });
-      expect(stdout).toMatch(/Usage:\n {2}preside add/);
-    }
+  // The `president` alias was removed in F2 (20261111dmvt): `preside` is the only command.
+  it("installs only the preside command", async () => {
     const pkg = JSON.parse(await readFile(join(dirname(BIN), "..", "package.json"), "utf8"));
-    expect(pkg.bin).toEqual({ preside: "bin/preside.js", president: "bin/president.js" });
+    expect(pkg.bin).toEqual({ preside: "bin/preside.js" });
   });
 
   // Before 24.9 the server's shouldUpgradeCallback is ignored without a word (R6-14), so
