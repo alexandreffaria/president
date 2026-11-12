@@ -115,8 +115,21 @@ export function claudeArgs(
   ];
 }
 
+const SHUTTING_DOWN = "The run was stopped because president is shutting down.";
+
 /** Runs the session once. Never throws; a failure is in the result. */
 export function runClaude(request: RunRequest, handlers: RunHandlers = {}): Promise<RunResult> {
+  // An abort listener added to a signal that already fired never runs: such a run would
+  // never be stopped and, detached, would outlive the hub. Don't start it.
+  if (request.signal?.aborted) {
+    return Promise.resolve({
+      ok: false,
+      text: "",
+      started: false,
+      sessionNotFound: false,
+      error: SHUTTING_DOWN,
+    });
+  }
   return new Promise((resolve) => {
     const texts: string[] = [];
     let started = false;
@@ -158,7 +171,7 @@ export function runClaude(request: RunRequest, handlers: RunHandlers = {}): Prom
         stop(`The run took longer than ${Math.round(timeoutMs / 60000)} minutes and was stopped.`),
       timeoutMs,
     );
-    const onAbort = () => stop("The run was stopped because president is shutting down.");
+    const onAbort = () => stop(SHUTTING_DOWN);
     request.signal?.addEventListener("abort", onAbort);
 
     const finish = (result: RunResult) => {

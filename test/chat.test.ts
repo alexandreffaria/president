@@ -164,6 +164,32 @@ describe("the session's command line (#0004)", () => {
     );
   });
 
+  it("doesn't start a run once president is shutting down", async () => {
+    const t = await setup();
+    const controller = new AbortController();
+    controller.abort();
+    const result = await runClaude({
+      bin: FAKE,
+      cwd: t.demo,
+      session: { oneOff: true },
+      message: "hi",
+      env: { ...process.env, FAKE_CLAUDE_DIR: join(t.root, "fake") },
+      signal: controller.signal,
+    });
+    expect(result).toMatchObject({ ok: false, started: false });
+    expect(result.error).toMatch(/shutting down/);
+    expect(await t.calls()).toEqual([]);
+
+    // Through the service: a message sent after close() starts nothing.
+    await t.chat.close();
+    const events = await t.send("Too late");
+    expect(events.at(-1)).toMatchObject({
+      type: "error",
+      error: expect.stringMatching(/shutting down/),
+    });
+    expect(await t.calls()).toEqual([]);
+  });
+
   it("says when Claude Code isn't installed", async () => {
     const result = await runClaude({
       bin: join(await tempDir(), "no-such-claude"),
