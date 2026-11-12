@@ -129,8 +129,6 @@ const SHUTTING_DOWN = "The run was stopped because president is shutting down.";
 
 /** Runs the session once. Never throws; a failure is in the result. */
 export function runClaude(request: RunRequest, handlers: RunHandlers = {}): Promise<RunResult> {
-  // An abort listener added to a signal that already fired never runs: such a run would
-  // never be stopped and, detached, would outlive the hub. Don't start it.
   let args: string[];
   try {
     args = claudeArgs(request);
@@ -143,6 +141,8 @@ export function runClaude(request: RunRequest, handlers: RunHandlers = {}): Prom
       error: `Couldn't start Claude Code: ${(error as Error).message}`,
     });
   }
+  // An abort listener added to a signal that already fired never runs: such a run would
+  // never be stopped and, detached, would outlive the hub. Don't start it.
   if (request.signal?.aborted) {
     return Promise.resolve({
       ok: false,
