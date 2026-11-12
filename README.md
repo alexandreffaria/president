@@ -151,6 +151,58 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
 
 4. **Decisions** lists everything you decided, newest first, and whether an agent has applied it.
 
+5. **Sync** (the button in the top bar, or `s`) sends your answers to your other machines and
+   brings theirs here. president writes card files but never commits them on its own; the top
+   bar shows "3 answers not synced" while a project has card changes that aren't pushed, so
+   press Sync before you leave a machine. When the hub starts it only runs `git fetch`, which
+   changes no file and no branch, and shows "2 card changes on the remote, press Sync".
+
+   For each project with card changes, here or on the remote, Sync runs `git fetch`, checks
+   that it is safe to touch the checkout, commits everything in `decisions/` in one commit
+   ("decisions from laptop: 0003, 0005"), then `git pull --rebase --autostash` and `git push`.
+   The top bar then lists what happened in each project. It says "Not now" and changes
+   nothing when:
+
+   - the checkout isn't on the remote's main branch (an agent's feature branch, say), a rebase,
+     merge, cherry-pick, revert or bisect is in progress, a file has unresolved conflicts, or
+     the branch has no upstream;
+   - there are commits that aren't pushed and change files outside `decisions/`, or change
+     nothing at all (an agent's work: the pull would rebase it and the push would publish it);
+   - a file outside `decisions/` that changed on the remote has uncommitted edits here.
+
+   An untracked file where the pull would write is left to git, which refuses to overwrite
+   it: Sync then says a file git doesn't track is in the way, with git's error naming it,
+   nothing is lost, and your answers stay in a local commit; move or commit that file, then
+   press Sync again. Ignored files are expendable, as in any `git pull`:
+   if the online copy adds a tracked file at the exact path of a file you ignore here, git
+   replaces your file (and it removes ignored files in a folder the online copy turns into
+   a file).
+
+   If the same card changed on both machines, Sync puts everything back as it was, keeps your
+   answers in a local commit and says "Not synced: 0001 changed on both machines"; fixing that
+   is a manual git step, and pressing Sync again retries. If the pull or the push fails
+   (offline, authentication), it shows git's error; your answers stay in the local commit for
+   the next Sync. If an agent saves a file during the few seconds the pull takes, Sync stops
+   before pushing and says so: git keeps the older copy in its stash entry named `autostash`,
+   which Sync names exactly (the stash is shared with agents, so a bare `git stash drop` could
+   remove theirs). After the pull Sync checks again, and if an agent committed or switched
+   branches meanwhile, it doesn't push. A rebase left in progress (say the hub stopped during
+   a pull) is shown in the top bar, with the files it set aside and `git rebase --abort` to
+   get them back. Sync is the only time president changes a checkout (otherwise it
+   only reads git's state, and fetches at start), and while it runs in a project, card
+   actions there are refused (an Undo refused that way stays on offer, to try again). git never asks
+   for a password or passphrase (a remote that needs one fails instead, so use a credential
+   helper or an ssh agent), and each git command is stopped after a timeout. Sync only works
+   on a project whose folder is the top folder of its git repository, and it skips a project
+   with git submodules (a `.gitmodules` file or a submodule in the index), or whose file
+   list is too long to check for them: commit and push `decisions/` there by hand. If git
+   prints more than Sync reads (4 MiB) anywhere else, Sync stops with "git output too large".
+   For every list it reads before committing, that means it changed nothing; the lists it
+   reads later are bounded by earlier ones, so they can't realistically be cut. A very large
+   change on the online copy matters only when an agent has uncommitted edits here: then Sync
+   can't compare the two, and you press Sync again once those edits are committed and pushed,
+   or put away.
+
 To try it with sample cards:
 
 ```sh
@@ -209,7 +261,7 @@ Layout:
 
 ```
 src/core/     card format: zod schemas, parser/writer, state transitions, queue ordering (shared)
-src/server/   Hono API, registry, file access, watcher + live events (WebSocket)
+src/server/   Hono API, registry, file access, watcher + live events (WebSocket), Sync
 src/cli/      the president command
 src/web/      React UI
 skills/       the Claude Code skill for agents
@@ -247,6 +299,19 @@ How it fits together:
   stuck on a slow disk) closes the socket and shows Offline too. The page reconnects with
   backoff (0.5 s doubling to 3 s) and refetches everything when it is back. The handshake passes the same Host and
   Origin checks as writes, so another site can't open one.
+- Sync (`src/server/sync.ts`) runs the steps in [card #0001](decisions/0001-sync-across-machines.md)
+  ("How Sync works in git"), one project after another and never two at once in the same
+  project. Each step is a spawned `git` with an argument list (no shell), run in the
+  registered project folder without the inherited variables that point git at another
+  repository (the ones `git rev-parse --local-env-vars` lists, such as `GIT_DIR`; your own
+  `GIT_SSH_COMMAND` or `GIT_CONFIG_GLOBAL` are kept), `GIT_TERMINAL_PROMPT=0`, no askpass
+  program and no terminal, and a timeout (60 s for fetch, pull and push, 30 s for the rest)
+  after which git and whatever it started are stopped. It pushes exactly the commit it
+  checked, to the branch `main` tracks (`git push <remote> <commit>:refs/heads/main`), never
+  with a bare `git push`.
+  `POST /api/sync` passes the same Host and Origin checks as every write. While a project's
+  Sync runs, card actions there are refused (409 `syncing`), and a Sync waits for a card
+  write already under way.
 - State transitions live in `src/core/actions.ts`, shared by the API and the CLI. The coming
   per-card chat ("ask", "teach me", "research") plugs in there and in
   `src/web/components/CardAssistant.tsx`.

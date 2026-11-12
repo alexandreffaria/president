@@ -26,6 +26,7 @@ function card(text: string): CardDetailDto {
     sections: parsed.card.sections,
     path: FILE,
     writtenByPresident: false,
+    changedBySync: false,
   };
 }
 

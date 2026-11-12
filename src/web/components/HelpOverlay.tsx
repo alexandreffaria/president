@@ -12,6 +12,7 @@ export const SHORTCUTS: [string, string][] = [
     "u",
     "Undo the last action on the card: a decision, deferral, Neither, note or reopen (while its notice is shown)",
   ],
+  ["s", "Sync: commit your answers in every project, pull, and push"],
   ["Esc", "Close a panel (what you typed is kept), or go back to the queue"],
   ["?", "Show or hide this help"],
 ];

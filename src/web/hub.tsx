@@ -33,6 +33,8 @@ interface HubState {
    * the hub restarted): changes may have been missed, so card views refetch too.
    */
   reconnects: number;
+  /** Bumped when a Sync starts or finishes (in any tab); the Sync control refetches. */
+  syncEvents: number;
   projectFilter: string | undefined;
   setProjectFilter: (project: string | undefined) => void;
   refresh: () => Promise<void>;
@@ -62,6 +64,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const [connection, setConnection] = useState<Connection>("connecting");
   const [versions, setVersions] = useState<Record<string, number>>({});
   const [reconnects, setReconnects] = useState(0);
+  const [syncEvents, setSyncEvents] = useState(0);
   const [projectFilter, setFilterState] = useState<string | undefined>(readStoredFilter);
   const inFlight = useRef<Promise<void> | null>(null);
   const again = useRef(false);
@@ -106,6 +109,11 @@ export function HubProvider({ children }: { children: ReactNode }) {
     return connectLive({
       onState: setConnection,
       onEvent: (event) => {
+        if (event.type === "sync") {
+          // Card files a pull changed arrive as "cards" events of their own.
+          setSyncEvents((n) => n + 1);
+          return;
+        }
         if (event.type === "cards") cardsChanged(event.project);
         if (event.type === "ready") {
           if (connected) setReconnects((n) => n + 1);
@@ -144,6 +152,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
       connection,
       versions,
       reconnects,
+      syncEvents,
       projectFilter,
       setProjectFilter,
       refresh,
@@ -159,6 +168,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
       connection,
       versions,
       reconnects,
+      syncEvents,
       projectFilter,
       setProjectFilter,
       refresh,

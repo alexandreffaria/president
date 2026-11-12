@@ -86,6 +86,7 @@ pull request is dropped, nothing on the card says so.
 
 ### Until the Sync button exists
 
+(Sync, B, is now built: press Sync in the hub. What follows is for a checkout without it.)
 Your answers reach main only when someone commits `decisions/` on main by hand in the main
 folder (the step Sync will automate); an agent can do it when you ask. Agents must not do it
 inside their pull requests. Because those pull requests never touch `decisions/`, a plain
@@ -154,9 +155,99 @@ authoritative for ids and dependencies.
 ## B. Sync (#0001)
 
 Card: [0001-sync-across-machines.md](../decisions/0001-sync-across-machines.md), option
-`sync`. Today president has no git code at all; card changes sit as uncommitted edits in each
-project's working tree. Under #0022 this is the only way your answers reach git, apart from a
-hand commit.
+`sync`. Under #0022 this is the only way your answers reach git, apart from a hand commit.
+
+**Built** as written below: the git sequence and its checks in `src/server/sync.ts` (git is
+run by `src/server/git.ts`), `GET` and `POST /api/sync` in `src/server/app.ts`, the fetch at
+hub start in `src/server/server.ts`, the top bar's Sync button, `s` key, counts and report in
+`src/web/components/Sync.tsx`. Tests against scratch repositories: `test/sync.test.ts`,
+`test/sync-api.test.ts`, `test/web/sync.test.tsx`. Usage is in the README. Details this
+section left open were settled the simplest safe way, and the human can change any of them:
+
+- Card actions in a project are **refused** (409, "Sync is running in shop, so nothing was
+  changed; try again when it finishes"), not held, while its Sync runs; what the human typed
+  stays as a draft. A Sync waits for a card write already under way.
+- Sync only works on a project whose folder is the **top folder of its git repository** (or
+  worktree). A project inside a bigger repository (a home folder kept in git, a monorepo
+  subfolder) is reported as skipped rather than committed into that repository.
+- Check 1 also requires the checked-out branch to have the **same name** as the remote's
+  default branch, not only to track it: `git checkout -b feat origin/main` tracks
+  `origin/main` too. The remote's default comes from `refs/remotes/<remote>/HEAD` (git 2.48+
+  records it on fetch), else from `git ls-remote --symref`.
+- Check 3 is exactly the card's: tracked files with uncommitted edits. Sync makes no guess of
+  its own about **untracked or ignored files** in the pull's way (three review rounds of
+  such guesses each regressed; the human cut it back in round 4). git refuses to overwrite
+  an untracked file, so the pull fails, is undone, and Sync says a file git doesn't track
+  is in the way (git's error names it) and to move or commit it; nothing is lost and the
+  answers stay in a local commit.
+  **Ignored files are expendable**, git's own rule: if the online copy adds a tracked file
+  at the exact path of a file ignored here, git replaces it (and it removes ignored files in
+  a folder the online copy turns into a file).
+- A project with **git submodules** (a `.gitmodules` file, or a gitlink in the index) is
+  skipped like one that isn't a repository's top folder, and its answers aren't counted: a
+  pull can delete an agent's untracked files inside a submodule without a word. The check
+  reads `git ls-files --format=%(objectmode)` (`--stage` on a git older than 2.38), and a
+  list cut at Sync's output limit skips the project too, so a gitlink is never missed.
+  Anywhere else, output cut at that limit stops Sync ("git output too large"). For every list
+  Sync reads before committing, it refuses before changing anything; the lists it reads after
+  that are bounded by lists already read whole, so they can't realistically be cut. Check 3
+  reads `git diff --name-only HEAD` first and, only when that lists files outside
+  `decisions/`, the whole `git diff --name-only HEAD...@{u}`. So a very large change list on
+  the remote matters only when an agent has uncommitted edits here. If the remote's list is
+  cut, the action says to press Sync again once those edits are committed and pushed, or put
+  away; if check 2's log or the list of files edited here is cut, it says to commit and push
+  that work by hand, or put it away. The pull runs with `LANGUAGE=en`, so git's untracked-file
+  wording is matched in English under a localized git too.
+- The rebase, merge, detached-HEAD and no-upstream parts of check 1 run **before** the fetch
+  (they need no network); the rest after it, as in the card.
+- Sync skips a project with no card changes here or on the remote (after its fetch) without
+  saying anything; if every project had none, the page says "Nothing to sync".
+- Commits run the project's own git hooks (no `--no-verify`) and sign as the user's git
+  config says. The machine's name in the commit message is the short hostname.
+- Timeouts: 60 s for `fetch`, `pull`, `push` and `ls-remote`, 30 s for local commands; git
+  gets SIGTERM, then SIGKILL 2 s later, with everything it started. git never prompts:
+  `GIT_TERMINAL_PROMPT=0`, an empty `GIT_ASKPASS` (which also turns off `core.askPass` and
+  `SSH_ASKPASS`), `SSH_ASKPASS_REQUIRE=never`, no stdin and no terminal.
+- The last result per project is kept in the running hub (every tab shows it until
+  dismissed in that tab); a restart forgets it.
+- The notice an open card shows after this hub's Sync brought in a change reads "Sync just
+  brought in a newer version of this card from the online copy." (decided in card
+  `20261112xp4s`, option from-sync). Sync reads the revisions of the cards each pull changed
+  right after the pull (an agent's later edit is the agent's), and `SyncService` records
+  them before it sends its `cards` event; the card endpoint reports
+  `changedBySync`, and a view that reloaded mid-pull (and took the change for an agent's)
+  picks the sentence again on that event. Other changes keep their notices.
+- Only a project at the top folder of its repository gets Sync (card `2026111209dq`, decided
+  top-only).
+
+From review round 1 of the PR (each with a test in `test/sync.test.ts` that fails without it):
+
+- The push is `git push <remote> <commit>:refs/heads/<main>` (no tags, no submodules), with
+  the remote `main` tracks, never a bare `git push`: that follows `push.default` (`matching`
+  pushes every local branch with a namesake on the remote, an agent's included),
+  `remote.pushDefault` and `branch.main.pushRemote`. After the push, `<remote>/<main>` must be
+  that commit.
+- After the pull, Sync reads `HEAD` once and checks again: still `main`, still tracking the
+  same upstream, nothing in progress, and check 2 on `@{u}..<that commit>`. An agent may have
+  committed or switched branches while the commit's hooks and the pull ran; then nothing is
+  pushed and the answers stay in the local commit.
+- "In progress" in check 1 also covers a cherry-pick, a revert, a sequence of those
+  (`sequencer/`), a bisect, and unmerged files (`git ls-files --unmerged`), and it runs again
+  right before `git add`.
+- Check 2 also refuses an unpushed commit that changes no file (an agent's empty commit).
+- Sync pushes nothing when the remote already has `HEAD` (`merge-base --is-ancestor`), as
+  when a fetch moved `<remote>/<main>` past it after the pull (round 2).
+- The look before pushing calls only a new stash entry with the subject `autostash` git's,
+  names it (its `stash@{n}` and commit), and never suggests a bare `git stash drop`: the
+  stash is shared with agents. Any other new entry also stops the push, with no drop advice.
+- A rebase in progress (one a Sync cut short by the hub stopping leaves behind) is shown in
+  the top bar's report, and Sync's "Not now", with the files its autostash set aside and
+  `git rebase --abort` to get them back.
+- An Undo refused because a Sync is running stays on offer in its toast, to try again.
+- git runs without the variables `git rev-parse --local-env-vars` lists (plus
+  `GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n`, `GIT_EXEC_PATH` and, from round 4, the four
+  `GIT_*_PATHSPECS`, which change what `-- decisions/` matches), not without every `GIT_*`
+  one: the user's `GIT_SSH_COMMAND`, `GIT_CONFIG_GLOBAL` and the like are kept.
 
 ### What the human sees
 
@@ -367,17 +458,8 @@ merged code, since PR #12 changed after that):
 - `SyncControl` (`src/web/components/Sync.tsx`) shows one line per project with
   `skippedUnsynced > 0`.
 
-**Merging with PR #12.** PR #12 branched from an older main (`03efd6f`). Checked with
-`git merge-tree` against `origin/feat/sync` at `0b126cc`: the only conflict in this file is the
-build-plan table, because PR #12 carries the table as it was before PRs #11, #13 and #14.
-Resolve it by keeping main's table as it is: its B row already says "Built in PR #12", and
-PR #12's side has no row to add (its A, E and F rows point at questions that have been
-answered since). Section B merges without a conflict, keeping both PR #12's "Built" paragraph
-with its list of settled details and main's "Decided while PR 12 was open" text. The
-2026-11-11 status line also merges silently, to PR #12's "B (Sync) is built"; put back main's
-"none of this is built", since the 2026-11-12 update below it is the one that says B is
-built. Recheck after PR #12's next round, which may change these lines again. PR #12 leaves a
-skipped project's answers out of every count; B2 adds them on a line of their own.
+**Merging with PR #12.** PR #12 leaves a skipped project's answers out of every count; B2
+adds them on a line of their own.
 
 **Projects with submodules.** PR #12's round 4 (`0b126cc`) also skips a project whose
 repository has git submodules (a `.gitmodules` file, or a gitlink in the index), in

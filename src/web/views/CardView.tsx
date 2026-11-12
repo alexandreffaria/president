@@ -36,7 +36,15 @@ type Panel = DraftPanel | null;
  * Who changed the card since the human last read it: an agent (or someone editing the file),
  * or the human themselves in another president tab.
  */
-type ChangedBy = "agent" | "other-tab";
+const CHANGED_BY_TEXT: Record<ChangedBy, string> = {
+  agent: "An agent changed this card while you had it open.",
+  "other-tab": "You changed this card in another president tab.",
+  // Card 20261112xp4s (from-sync): how the change arrived, not who made it.
+  sync: "Sync just brought in a newer version of this card from the online copy.",
+};
+
+/** Who or what changed the open card: another president tab, this hub's Sync, or an agent. */
+type ChangedBy = "agent" | "other-tab" | "sync";
 
 const NO_DRAFT: Draft = {
   seen: undefined,
@@ -62,6 +70,8 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const [changedBy, setChangedBy] = useState<ChangedBy | null>(null);
   /** Set when a change on disk cleared the option the human had picked. */
   const [choiceCleared, setChoiceCleared] = useState(false);
+  /** That option, put back if the card returns to the version it was picked on. */
+  const clearedPick = useRef<string | undefined>(undefined);
   const heading = useRef<HTMLHeadingElement>(null);
   const noticeButton = useRef<HTMLButtonElement>(null);
   /** Where focus was when a send was refused, to go back to once the change is read. */
@@ -79,6 +89,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
       updateDraft({ seen: card });
       setChangedBy(null);
       setChoiceCleared(false);
+      clearedPick.current = undefined;
     },
     [updateDraft],
   );
@@ -114,7 +125,18 @@ export function CardView({ project, id }: { project: string; id: string }) {
       }
       const card = res.card;
       setLoaded({ state: "ok", card });
-      if (seen?.revision === card.revision) return false;
+      if (seen?.revision === card.revision) {
+        // Back at the version the human read (a reload mid-pull caught the card in between,
+        // say): nothing is unread, so no notice either, and a pick the in-between version
+        // cleared comes back.
+        if (clearedPick.current && !latest.current.selected) {
+          updateDraft({ selected: clearedPick.current });
+        }
+        clearedPick.current = undefined;
+        setChangedBy(null);
+        setChoiceCleared(false);
+        return false;
+      }
       // First load, our own action (here, or undone from a toast), or nothing the human has
       // to look at again (an agent marking notes read): nothing to point out.
       if (
@@ -128,9 +150,12 @@ export function CardView({ project, id }: { project: string; id: string }) {
       // The human hasn't read this version: actions keep carrying the revision they read,
       // so the server refuses them until they acknowledge the change. The server knows
       // whether only president (the human, in another tab) changed it since.
-      setChangedBy(card.writtenByPresident ? "other-tab" : "agent");
+      // A reload while a Sync pulls (the watcher) can come before the Sync knows what it
+      // brought in; the reload on the Sync's own `cards` event picks the sentence again.
+      setChangedBy(card.writtenByPresident ? "other-tab" : card.changedBySync ? "sync" : "agent");
       if (latest.current.selected) {
         // The options may now mean something else: never keep a choice made on the old text.
+        clearedPick.current = latest.current.selected;
         updateDraft({ selected: undefined });
         setChoiceCleared(true);
       }
@@ -242,7 +267,19 @@ export function CardView({ project, id }: { project: string; id: string }) {
                   `Undone. #${id} is ${action.type === "resolve" ? "undecided again" : "back as it was"}${unsentText({ ...NO_DRAFT, ...wasSent }) ? ", with what you wrote" : ""}.`,
                 );
               })
-              .catch((error: Error) => toast(`Couldn't undo: ${error.message}`, { tone: "error" }));
+              .catch((error: Error) => {
+                if (error instanceof RequestError && error.code === "syncing") {
+                  // Nothing was undone, and Sync is about to push the decision: keep the
+                  // undo within reach, so it can be tried again once Sync ends.
+                  toast(`Not undone yet: ${error.message}`, {
+                    tone: "error",
+                    action: undo,
+                    group: undoGroup,
+                  });
+                  return;
+                }
+                toast(`Couldn't undo: ${error.message}`, { tone: "error" });
+              });
           },
         };
         toast(options.done, { action: undo, group: undoGroup });
@@ -445,12 +482,12 @@ export function CardView({ project, id }: { project: string; id: string }) {
         >
           <div className="notice-body">
             <p>
-              {changedBy === "agent"
-                ? "An agent changed this card while you had it open."
-                : "You changed this card in another president tab."}{" "}
+              {CHANGED_BY_TEXT[changedBy]}{" "}
               {choiceCleared
                 ? "Your choice was cleared. Read it again before deciding."
-                : "What you see now is the new version. Read what changed before you act on it."}
+                : changedBy === "sync"
+                  ? "Read what changed before you act on it."
+                  : "What you see now is the new version. Read what changed before you act on it."}
             </p>
             {changes.length > 0 && (
               <ul className="changes">

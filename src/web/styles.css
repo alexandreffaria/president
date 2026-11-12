@@ -164,8 +164,11 @@ kbd {
   top: 0;
   z-index: 10;
   display: flex;
+  /* Only if something still doesn't fit (a large font): a second line, never a sideways
+     scroll. */
+  flex-wrap: wrap;
   align-items: center;
-  gap: 1.5rem;
+  gap: 0.25rem 1.5rem;
   padding: 0.6rem 1.25rem;
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(8px);
@@ -233,6 +236,67 @@ kbd {
 
 .connection-offline .connection-dot {
   background: var(--bad);
+}
+
+/* Sync (#0001) */
+
+.sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* One line: the bar never grows tall around a squeezed column of words. */
+.sync-summary {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.sync-button {
+  gap: 0.35rem;
+}
+
+/* The count on the button only shows where the summary next to it is hidden. */
+.sync-button .sync-count {
+  display: none;
+}
+
+.notice.sync-report {
+  max-width: 50rem;
+  margin: 1rem auto 0;
+}
+
+.sync-results {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sync-result + .sync-result {
+  margin-top: 0.5rem;
+}
+
+.sync-result-muted {
+  color: var(--text-muted);
+}
+
+.sync-git-error {
+  margin: 0.35rem 0 0;
+  padding: 0.4rem 0.6rem;
+  border-radius: 4px;
+  background: var(--code-bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 52rem) {
+  .notice.sync-report {
+    margin: 1rem 1.25rem 0;
+  }
 }
 
 .main {
@@ -1280,14 +1344,45 @@ body:has(.action-bar-open) .toasts {
   }
 }
 
-@media (max-width: 40rem) {
+/* Below this a usual Sync summary ("16 answers not synced · 3 card changes on the remote,
+   press Sync") doesn't fit next to the nav on one line: the count moves onto the Sync button
+   instead (S2-3, S3-7, measured in Chrome). Above it, longer counts wrap the end group onto
+   a second line. */
+@media (max-width: 66rem) {
+  /* Hidden from sight only: screen readers still read (and announce) it. */
+  .sync-summary {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .sync-button .sync-count {
+    display: inline-block;
+  }
+}
+
+/* The top bar's own narrow layout starts wider than the rest: up to 48rem the nav, the Sync
+   button with its count and key, the connection label ("Connecting") and ? don't fit on
+   one line at full size (S2-3). */
+@media (max-width: 48rem) {
+  /* The padding is the margin at the screen's edges: if the bar's contents ever don't fit
+     on one line (large counts, a large font), the end group wraps to its own line rather
+     than spilling into it. */
   .topbar {
-    gap: 0.5rem;
+    flex-wrap: wrap;
+    gap: 0.25rem;
     padding: 0.5rem 0.75rem;
   }
 
+  .nav {
+    gap: 0;
+  }
+
   .nav-link {
-    padding: 0.3rem 0.5rem;
+    gap: 0.3rem;
+    padding: 0.3rem 0.4rem;
   }
 
   .brand {
@@ -1306,6 +1401,21 @@ body:has(.action-bar-open) .toasts {
     overflow: hidden;
     clip: rect(0 0 0 0);
     white-space: nowrap;
+  }
+
+  .sync-button kbd {
+    display: none;
+  }
+
+  /* Sync and ? next to the nav: keep them on a 375 px screen. */
+  .topbar-end .button {
+    padding: 0.3rem 0.4rem;
+  }
+}
+
+@media (max-width: 40rem) {
+  .notice.sync-report {
+    margin: 1rem 0.9rem 0;
   }
 
   .main {

@@ -10,11 +10,15 @@
  *                                            CardDetailDto.writtenByPresident)
  *   POST   /api/cards/:project/:id/actions   { type, ..., revision }  (see core/actions.ts)
  *   POST   /api/cards/:project/:id/undo      { revision }  revision = what the action returned
+ *   GET    /api/sync                         per project: answers not synced, card changes on
+ *                                            the remote, the last Sync's result (sync.ts)
+ *   POST   /api/sync                         {}  runs Sync in every project; answers when done
  *   GET    /api/events                       a WebSocket of live events (the route below;
  *                                            server.ts serves it, web/live.ts connects)
  *
  * Every card write carries the revision the client saw, so nobody decides on text they
- * didn't see: if the file changed since, the write is refused with 409 "conflict".
+ * didn't see: if the file changed since, the write is refused with 409 "conflict". While a
+ * project's Sync runs, card writes there are refused with 409 "syncing".
  */
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -47,6 +51,7 @@ import {
 import { UserError } from "./errors.ts";
 import type { Registry } from "./registry.ts";
 import { localOnly } from "./security.ts";
+import { SyncService } from "./sync.ts";
 import type { EventBus } from "./watcher.ts";
 
 export interface AppOptions {
@@ -54,6 +59,8 @@ export interface AppOptions {
   bus: EventBus;
   /** Folder with the built UI (dist/web). When missing, only the API is served. */
   staticDir?: string | undefined;
+  /** Runs Sync; one is made for the registry when not given. */
+  sync?: SyncService | undefined;
 }
 
 const AddProjectSchema = z.object({
@@ -81,6 +88,7 @@ const ListQuerySchema = z.object({
 
 export function createApp(options: AppOptions): Hono {
   const { registry, bus } = options;
+  const sync = options.sync ?? new SyncService(registry, bus);
   const writes = new PresidentWrites();
   const app = new Hono();
 
@@ -168,6 +176,7 @@ export function createApp(options: AppOptions): Hono {
           card: toCardDetailDto(
             found.card,
             writes.explain(found.card.path, found.card.revision, since),
+            sync.broughtIn(project, found.card.path, found.card.revision),
           ),
         }
       : { ok: false, broken: found.broken };
@@ -179,7 +188,9 @@ export function createApp(options: AppOptions): Hono {
     const body = await readJson(c.req.raw);
     const action = parseBody(CardActionSchema, body);
     const { revision } = parseBody(RevisionSchema, body);
-    const card = await actOnCard(project, c.req.param("id"), action, { revision });
+    const card = await sync.writeCard(project, () =>
+      actOnCard(project, c.req.param("id"), action, { revision }),
+    );
     writes.record(card.path, revision, card.revision);
     // The watcher will notice too; emitting now makes other tabs update immediately.
     bus.emit({ type: "cards", project: project.name });
@@ -189,10 +200,20 @@ export function createApp(options: AppOptions): Hono {
   api.post("/cards/:project/:id/undo", async (c) => {
     const project = await requireProject(registry, c.req.param("project"));
     const { revision } = parseBody(RevisionSchema, await readJson(c.req.raw));
-    const card = await undoLastAction(project, c.req.param("id"), revision);
+    const card = await sync.writeCard(project, () =>
+      undoLastAction(project, c.req.param("id"), revision),
+    );
     writes.record(card.path, revision, card.revision);
     bus.emit({ type: "cards", project: project.name });
     return c.json({ ok: true, card: toCardDetailDto(card, true) } satisfies CardResponse);
+  });
+
+  api.get("/sync", async (c) => c.json(await sync.status()));
+
+  api.post("/sync", async (c) => {
+    // A JSON body, like every write (security.ts); nothing in it is used.
+    await readJson(c.req.raw);
+    return c.json(await sync.sync());
   });
 
   // Live events. Each socket gets "ready" once it is subscribed, then every hub event.

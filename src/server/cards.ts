@@ -491,13 +491,18 @@ export function toCardDto(card: LoadedCard): CardDto {
   };
 }
 
-export function toCardDetailDto(card: LoadedCard, writtenByPresident = false): CardDetailDto {
+export function toCardDetailDto(
+  card: LoadedCard,
+  writtenByPresident = false,
+  changedBySync = false,
+): CardDetailDto {
   return {
     ...toCardDto(card),
     body: card.body,
     sections: card.sections,
     path: card.path,
     writtenByPresident,
+    changedBySync,
   };
 }
 
