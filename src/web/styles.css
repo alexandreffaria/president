@@ -1472,4 +1472,9 @@ body:has(.action-bar-open) .toasts {
   .toasts {
     bottom: 14rem;
   }
+
+  /* Above the open Neither/Note panel, whose tallest form is 297 px at 320 px (R2-1). */
+  body:has(.action-bar-open) .toasts {
+    bottom: 19.5rem;
+  }
 }

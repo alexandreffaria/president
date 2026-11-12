@@ -94,4 +94,12 @@ describe("the action bar below 40rem (R1-3)", () => {
   it("keeps toasts above it", () => {
     expect(px(rule(".toasts", "40rem").bottom)).toBeGreaterThanOrEqual(215);
   });
+
+  // R2-1: the open Neither panel (label, textarea, Discard, Close, Ask for new options and
+  // Decide this as my answer) is 297 px at 320 px, so toasts rise further while it's open.
+  it("keeps toasts above the open Neither/Note panel", () => {
+    expect(px(rule("body:has(.action-bar-open) .toasts", "40rem").bottom)).toBeGreaterThanOrEqual(
+      298,
+    );
+  });
 });
