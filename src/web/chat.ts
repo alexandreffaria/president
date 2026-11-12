@@ -3,7 +3,7 @@
  * #0018), and while this tab sends a message, the reply as it streams in.
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { ChatDto, ChatMessageDto, ChatSummaryResponse } from "../core/api.ts";
+import type { ChatAsk, ChatDto, ChatMessageDto, ChatSummaryResponse } from "../core/api.ts";
 import { api, type ChatContext } from "./api.ts";
 import { useHub } from "./hub.tsx";
 
@@ -22,9 +22,14 @@ export interface CardChat {
   chat: ChatDto | undefined;
   /** Set while this tab's message is being answered. */
   live: LiveReply | undefined;
-  /** Sends a message; resolves with an error message when it couldn't be sent or failed. */
-  send: (text: string, context: ChatContext) => Promise<string | undefined>;
+  /**
+   * Sends a message, or a panel button's request (Teach me, More info); resolves with an
+   * error message when it couldn't be sent or failed.
+   */
+  send: (message: string | { ask: ChatAsk }, context: ChatContext) => Promise<string | undefined>;
   summarize: (context: ChatContext) => Promise<ChatSummaryResponse>;
+  /** Ends the conversation without a summary (202611111ky9); throws when refused. */
+  close: () => Promise<void>;
 }
 
 export function useCardChat(project: string, id: string): CardChat {
@@ -53,7 +58,10 @@ export function useCardChat(project: string, id: string): CardChat {
   useEffect(() => () => abort.current?.abort(), []);
 
   const send = useCallback(
-    async (text: string, context: ChatContext): Promise<string | undefined> => {
+    async (
+      message: string | { ask: ChatAsk },
+      context: ChatContext,
+    ): Promise<string | undefined> => {
       if (sending.current) return "The agent is still answering.";
       sending.current = true;
       const controller = new AbortController();
@@ -65,7 +73,7 @@ export function useCardChat(project: string, id: string): CardChat {
         for await (const event of api.sendChat(
           project,
           id,
-          { text, ...context },
+          { ...(typeof message === "string" ? { text: message } : message), ...context },
           controller.signal,
         )) {
           if (event.type === "message")
@@ -95,7 +103,11 @@ export function useCardChat(project: string, id: string): CardChat {
     [project, id],
   );
 
-  return { chat, live, send, summarize };
+  const close = useCallback(async () => {
+    setChat(await api.closeChat(project, id));
+  }, [project, id]);
+
+  return { chat, live, send, summarize, close };
 }
 
 /** Whether the window is at least `px` wide, following resizes. */

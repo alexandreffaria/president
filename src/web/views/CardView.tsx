@@ -13,6 +13,7 @@ import { api, RequestError } from "../api.ts";
 import { decidedRecently, recordDecision, wroteHere } from "../app-writes.ts";
 import { describeChanges } from "../card-changes.ts";
 import { useCardChat, useMinWidth } from "../chat.ts";
+import { BeforeDeciding } from "../components/BeforeDeciding.tsx";
 import { CardChat } from "../components/CardChat.tsx";
 import { CardId } from "../components/CardId.tsx";
 import { FeedbackHistory } from "../components/FeedbackHistory.tsx";
@@ -77,6 +78,21 @@ const NO_DRAFT: Draft = {
   summary: "",
 };
 
+/**
+ * A decision waiting for the conversation's summary (#0019, 20261111is21): what Decide (or
+ * "Decide this as my answer") was about to send, while the "Before deciding" box is open.
+ */
+interface PendingDecision {
+  choice: string;
+  note: string;
+  sent: Partial<Draft>;
+  panel: DraftPanel | undefined;
+  /** The summary is being written. */
+  writing: boolean;
+  /** Why it couldn't be written. */
+  error?: string;
+}
+
 /** Below this window width the conversation sits in the page's flow, not beside it (#0002). */
 const SIDE_PANEL_MIN_PX = 1100;
 
@@ -140,6 +156,12 @@ export function CardView({ project, id }: { project: string; id: string }) {
   /** For the notice on leaving (#0024): read when the view goes away. */
   const unsummarized = useRef(false);
   unsummarized.current = cardChat.chat?.unsummarized === true;
+  /** Set as Save and decide leaves the card: its summary is saved, so no reminder. */
+  const leavingSummarized = useRef(false);
+  /** The "Before deciding" box (#0019), open while a decision waits for the summary. */
+  const [beforeDeciding, setBeforeDeciding] = useState<PendingDecision | null>(null);
+  /** Counts summary requests, so one answered after Esc is ignored. */
+  const summaryRequest = useRef(0);
 
   const queue = buildQueue(hub.cards, hub.projectFilter);
   const position = queue.findIndex((c) => c.project === project && c.id === id);
@@ -276,7 +298,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
           toast(`What you typed on #${id} is kept; it's there when you come back.`);
         }
         // #0024 (and 202611111ky9 on decided cards): leaving saves nothing and runs nothing.
-        if (unsummarized.current) {
+        if (unsummarized.current && !leavingSummarized.current) {
           toast(`Your conversation on #${id} isn't summarized; it's there when you come back.`);
         }
       }, 0);
@@ -390,21 +412,95 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const options = fm?.options ?? [];
   const selected = draft.selected;
 
+  /** Records the decision, with the conversation's summary in the same write when given. */
+  const resolve = async (
+    choice: string,
+    note: string,
+    sent: Partial<Draft>,
+    panel: DraftPanel | undefined,
+    summary?: string,
+  ) => {
+    if (!card || !fm) return false;
+    const option = fm.options.find((o) => o.id === choice);
+    const label = option ? option.title : "your own answer";
+    leavingSummarized.current = summary !== undefined;
+    const ok = await act(
+      { type: "resolve", choice, note: note.trim() || undefined, summary },
+      {
+        leave: true,
+        done: `Decided #${id}: ${label}${summary !== undefined ? ", with the conversation's summary" : ""}.`,
+        sent,
+        ...(panel ? { panel } : {}),
+      },
+    );
+    if (ok) recordDecision(project, id);
+    else leavingSummarized.current = false;
+    return ok;
+  };
+
+  /**
+   * Decide, and "Decide this as my answer" from the Neither panel. When the card has a
+   * conversation no saved summary covers on this machine (or one still answering), the
+   * decision waits: "Writing a summary…", then the "Before deciding" box (#0019 `wait`,
+   * 20261111is21 `wait`). False when nothing was decided (yet).
+   */
   const decide = async (
     choice: string | undefined,
     note: string,
     sent: Partial<Draft>,
     panel?: DraftPanel,
   ) => {
-    if (!card || !fm || !choice) return false;
-    const option = fm.options.find((o) => o.id === choice);
-    const label = option ? option.title : "your own answer";
-    const ok = await act(
-      { type: "resolve", choice, note: note.trim() || undefined },
-      { leave: true, done: `Decided #${id}: ${label}.`, sent, ...(panel ? { panel } : {}) },
+    if (!card || !fm || !choice || busy || beforeDeciding) return false;
+    const conversation = cardChat.chat;
+    const waits =
+      conversation?.unsummarized === true ||
+      conversation?.running === true ||
+      cardChat.live !== undefined;
+    if (!waits) return resolve(choice, note, sent, panel);
+    const pending = { choice, note, sent, panel };
+    // A summary already in the box (one written earlier, or put back by Undo) is used as is.
+    if (latest.current.summary.trim()) {
+      setBeforeDeciding({ ...pending, writing: false });
+      return false;
+    }
+    const request = ++summaryRequest.current;
+    setBeforeDeciding({ ...pending, writing: true });
+    try {
+      const { summary } = await cardChat.summarize({ revealed, revision: card.revision });
+      if (request !== summaryRequest.current) return false;
+      updateDraft({ summary });
+      setBeforeDeciding({ ...pending, writing: false });
+    } catch (error) {
+      if (request !== summaryRequest.current) return false;
+      setBeforeDeciding({ ...pending, writing: false, error: (error as Error).message });
+    }
+    return false;
+  };
+
+  /** The "Before deciding" box's buttons. The summary goes back in the box on Undo. */
+  const finishDeciding = async (withSummary: boolean) => {
+    const pending = beforeDeciding;
+    if (!pending || pending.writing) return;
+    const summary = latest.current.summary.trim();
+    if (withSummary && !summary) return;
+    const ok = await resolve(
+      pending.choice,
+      pending.note,
+      { ...pending.sent, summary: "" },
+      pending.panel,
+      withSummary ? summary : undefined,
     );
-    if (ok) recordDecision(project, id);
-    return ok;
+    // Refused (the card changed, the hub is unreachable): back to the card, where the notice
+    // says why; the summary stays in the box for the next Decide.
+    setBeforeDeciding(null);
+    // "Decide this as my answer": its Neither panel is done with.
+    if (ok && pending.panel) setPanel(null);
+  };
+
+  /** Esc: back to the card without deciding; a summary written so far stays in the box. */
+  const cancelDeciding = () => {
+    summaryRequest.current++;
+    setBeforeDeciding(null);
   };
 
   /**
@@ -508,9 +604,13 @@ export function CardView({ project, id }: { project: string; id: string }) {
   }
   useKeyboard(keys, loaded.state !== "loading");
   // While the Neither/Note panel is open, nothing else on the page reacts to keys.
-  useKeyLayer({ escape: closePanel }, shownPanel !== null);
+  // The "Before deciding" box (#0019) replaces them while it is open, with its own layer.
+  useKeyLayer({ escape: closePanel }, shownPanel !== null && !beforeDeciding);
   // The same for the Defer menu (it holds no text, so Esc just closes it).
-  useKeyLayer({ escape: () => setDeferMenu(false) }, deferMenu && canDefer && shownPanel === null);
+  useKeyLayer(
+    { escape: () => setDeferMenu(false) },
+    deferMenu && canDefer && shownPanel === null && !beforeDeciding,
+  );
 
   if (loaded.state === "loading") return <p className="muted">Loading…</p>;
   if (loaded.state === "error") {
@@ -720,6 +820,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
           onDraft={updateDraft}
           onClose={() => setChatOpen(false)}
           onSaveSummary={saveSummary}
+          deciding={beforeDeciding !== null}
         />
       ) : (
         chatLoaded && (
@@ -738,24 +839,37 @@ export function CardView({ project, id }: { project: string; id: string }) {
         File: <code>{card.path}</code>
       </p>
 
-      <ActionBar
-        card={card}
-        busy={busy}
-        draft={draft}
-        onDraft={updateDraft}
-        panel={shownPanel}
-        onPanel={(next) => (next ? openPanel(next) : closePanel())}
-        onDiscard={() => {
-          if (panel) updateDraft({ [panel]: "" });
-          setPanel(null);
-        }}
-        onDecide={decide}
-        onAct={act}
-        canDefer={canDefer}
-        onDefer={defer}
-        deferMenu={deferMenu}
-        onDeferMenu={setDeferMenu}
-      />
+      {beforeDeciding ? (
+        <BeforeDeciding
+          writing={beforeDeciding.writing}
+          error={beforeDeciding.error}
+          summary={draft.summary}
+          onSummary={(summary) => updateDraft({ summary })}
+          busy={busy}
+          onSaveAndDecide={() => void finishDeciding(true)}
+          onDecideWithout={() => void finishDeciding(false)}
+          onCancel={cancelDeciding}
+        />
+      ) : (
+        <ActionBar
+          card={card}
+          busy={busy}
+          draft={draft}
+          onDraft={updateDraft}
+          panel={shownPanel}
+          onPanel={(next) => (next ? openPanel(next) : closePanel())}
+          onDiscard={() => {
+            if (panel) updateDraft({ [panel]: "" });
+            setPanel(null);
+          }}
+          onDecide={decide}
+          onAct={act}
+          canDefer={canDefer}
+          onDefer={defer}
+          deferMenu={deferMenu}
+          onDeferMenu={setDeferMenu}
+        />
+      )}
     </div>
   );
 }

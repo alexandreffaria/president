@@ -11,12 +11,17 @@
  *   POST   /api/cards/:project/:id/actions   { type, ..., revision }  (see core/actions.ts)
  *   POST   /api/cards/:project/:id/undo      { revision }  revision = what the action returned
  *   GET    /api/chats/:project/:id           the card's conversation on this machine (ChatDto)
- *   POST   /api/chats/:project/:id/messages  { text, revealed?, revision? }  sends a message to
- *                                            the card's session; the answer streams back as
- *                                            newline-delimited ChatStreamEvents (chat/)
+ *   POST   /api/chats/:project/:id/messages  { text | ask, revealed?, revision? }  sends a
+ *                                            message (or a panel button's request, ask =
+ *                                            "teach" | "research") to the card's session;
+ *                                            the answer streams back as newline-delimited
+ *                                            ChatStreamEvents (chat/)
  *   POST   /api/chats/:project/:id/summary   { revealed?, revision? }  the session's summary,
  *                                            for the human to edit; saving it is the "chat"
  *                                            card action (or "resolve" with `summary`)
+ *   POST   /api/chats/:project/:id/close     {}  ends the conversation without a summary: the
+ *                                            "not summarized" reminder goes; the card isn't
+ *                                            written (202611111ky9)
  *   GET    /api/sync                         per project: answers not synced, card changes on
  *                                            the remote, the last Sync's result (sync.ts)
  *   POST   /api/sync                         {}  runs Sync in every project; answers when done
@@ -37,13 +42,14 @@ import { bodyLimit } from "hono/body-limit";
 import { stream } from "hono/streaming";
 import { z } from "zod";
 import { CardActionSchema } from "../core/actions.ts";
-import type {
-  AddProjectResponse,
-  ApiError,
-  CardListResponse,
-  CardResponse,
-  ChatStreamEvent,
-  LiveMessage,
+import {
+  type AddProjectResponse,
+  type ApiError,
+  type CardListResponse,
+  type CardResponse,
+  CHAT_ASKS,
+  type ChatStreamEvent,
+  type LiveMessage,
 } from "../core/api.ts";
 import { CARD_ID_PATTERN, CARD_STATUSES, formatIssues } from "../core/schema.ts";
 import {
@@ -92,13 +98,21 @@ const RevisionSchema = z.object({
 /** Notes are at most 20 000 characters; anything much bigger is not a card action. */
 const MAX_BODY_BYTES = 128 * 1024;
 
-const ChatMessageSchema = z.object({
-  text: z.string().trim().min(1, { error: "a message is required" }).max(20_000),
+const ChatContextSchema = z.object({
   revealed: z.boolean().optional(),
   revision: z.string().optional(),
 });
 
-const ChatSummarySchema = ChatMessageSchema.omit({ text: true });
+const ChatMessageSchema = ChatContextSchema.extend({
+  text: z.string().trim().max(20_000).optional(),
+  // A panel button (Teach me, More info) instead of text: the hub writes the request.
+  ask: z.enum(CHAT_ASKS).optional(),
+}).refine((body) => body.ask !== undefined || (body.text ?? "") !== "", {
+  error: "a message is required",
+  path: ["text"],
+});
+
+const ChatSummarySchema = ChatContextSchema;
 
 const ListQuerySchema = z.object({
   project: z.string().optional(),
@@ -276,6 +290,13 @@ export function createApp(options: AppOptions): Hono {
     const project = await requireProject(registry, c.req.param("project"));
     const input = parseBody(ChatSummarySchema, await readJson(c.req.raw));
     return c.json(await chat.summarize(project, cardId(c.req.param("id")), input));
+  });
+
+  api.post("/chats/:project/:id/close", async (c) => {
+    const project = await requireProject(registry, c.req.param("project"));
+    // A JSON body, like every write (security.ts); nothing in it is used.
+    await readJson(c.req.raw);
+    return c.json(await chat.closeWithoutSummary(project, cardId(c.req.param("id"))));
   });
 
   api.get("/sync", async (c) => c.json(await sync.status()));

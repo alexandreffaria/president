@@ -21,6 +21,7 @@ import { randomUUID } from "node:crypto";
 import { readdir } from "node:fs/promises";
 import { timestamp } from "../../core/actions.ts";
 import type {
+  ChatAsk,
   ChatDto,
   ChatMessageDto,
   ChatStreamEvent,
@@ -33,6 +34,8 @@ import { isNotFound } from "../fs-utils.ts";
 import { decisionsDirOf, type Project, type Registry } from "../registry.ts";
 import type { EventBus } from "../watcher.ts";
 import {
+  ASK_LABEL,
+  askRequest,
   pickHash,
   pickLine,
   sessionInstructions,
@@ -68,7 +71,10 @@ export interface ChatOptions {
 }
 
 export interface SendInput {
-  text: string;
+  /** What the human typed (ignored when `ask` is given). */
+  text?: string | undefined;
+  /** A panel button's request (Teach me, More info) instead of typed text. */
+  ask?: ChatAsk | undefined;
   /**
    * The page has revealed the card's pick (#0008's `r`) on the revision it sends; the
    * conversation is then free about that pick (20261111mby8).
@@ -220,7 +226,10 @@ export class ChatService {
       Boolean(entry?.session) || card.frontmatter.feedback.some((f) => f.type === "chat");
     let startOver = !resume && startsOver();
     if (startOver) await save(this.#startOverNotice());
-    await save(this.#message("you", input.text));
+    // A button shows as its name in the conversation; the session gets its request.
+    const shown = input.ask ? ASK_LABEL[input.ask] : (input.text ?? "");
+    const request = input.ask ? askRequest(input.ask, card) : shown;
+    await save(this.#message("you", shown));
 
     let revealed = resume ? (revealedNow ?? entry?.revealed) : revealedNow;
     const texts: string[] = [];
@@ -229,7 +238,7 @@ export class ChatService {
       const session = resume && entry?.session ? entry.session : randomUUID();
       const message = withPickLine(
         pickLine(card, revealed),
-        startOver ? `${startOverNote(card)}\n\n${input.text}` : input.text,
+        startOver ? `${startOverNote(card)}\n\n${request}` : request,
       );
       if (resume) {
         await this.store.updateEntry(key, (e) => ({
@@ -362,6 +371,33 @@ export class ChatService {
       this.#running.delete(keyName(key));
       this.#changed(key);
     }
+  }
+
+  /**
+   * Ends the conversation without a summary ("Close without summary" in the summary box;
+   * 202611111ky9 `remind`: the reminder lasts "until you close the conversation, saving its
+   * summary or not"). Nothing is written to the card. The messages so far stay in the hub's
+   * copy, and the next summary covers only what comes after them.
+   */
+  async closeWithoutSummary(project: Project, id: string): Promise<ChatDto> {
+    const card = await this.#card(project, id);
+    const key = { project: project.name, id: card.id };
+    if (this.#running.has(keyName(key))) {
+      throw new UserError("the agent is still answering on this card; wait for it to finish", {
+        status: 409,
+        code: "chat_busy",
+      });
+    }
+    const messages = await this.store.messages(key);
+    await this.store.updateEntry(key, (entry) => {
+      if (!entry) return entry;
+      const next: SessionEntry = { ...entry, summarized: messages.length };
+      delete next.unsummarized;
+      return next;
+    });
+    this.#offered.delete(keyName(key));
+    this.#changed(key);
+    return this.conversation(project, card.id);
   }
 
   /**

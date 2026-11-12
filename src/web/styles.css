@@ -1142,6 +1142,13 @@ ul.broken {
   margin: 0;
 }
 
+.chat-asks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0;
+}
+
 .chat-compose {
   display: flex;
   align-items: flex-end;

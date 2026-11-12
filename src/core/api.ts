@@ -129,6 +129,13 @@ export interface ChatDto {
 }
 
 /**
+ * A request from one of the panel's buttons instead of typed text: "teach" is Teach me (#0005,
+ * 20261111fauj), "research" is More info.
+ */
+export const CHAT_ASKS = ["teach", "research"] as const;
+export type ChatAsk = (typeof CHAT_ASKS)[number];
+
+/**
  * The lines of `POST /api/chats/:project/:id/messages` (newline-delimited JSON), in order:
  * the messages saved before the run ("you", and "hub" notices), then what the session does
  * as it does it, then exactly one "done" or "error". The run goes on if the page goes away;

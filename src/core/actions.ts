@@ -17,8 +17,9 @@
  * human's feedback) works in any state; `applied` implies it. Both take the token that
  * `preside pending` printed, and mark only what the agent was shown (see agentToken).
  *
- * New actions (for example the chat panel's "teach me" or "research") belong here too,
- * so the API, the CLI and future agent runners share one set of rules.
+ * New card writes belong here too, so the API, the CLI and future agent runners share one
+ * set of rules. (The chat panel's Teach me and More info write nothing to the card: they are
+ * messages to the card's session, src/server/chat/.)
  */
 import { z } from "zod";
 import type { ParsedCard } from "./card-file.ts";

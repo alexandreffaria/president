@@ -344,4 +344,175 @@ describe("summaries", () => {
     expect(decidedRecently("demo", "0002", 1000 + UNDO_WINDOW_MS)).toBe(false);
     expect(decidedRecently("demo", "0001", 1000)).toBe(false);
   });
+
+  it("can be closed without a summary: the reminder goes, the card stays as it was (202611111ky9)", async () => {
+    const path = join(demo, "decisions", "0002-api-errors.md");
+    const before = await io(() => readFile(path, "utf8"));
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("Does it throw?");
+    await click("Write summary");
+    await until(() => !!host.querySelector(".chat-summary textarea"), "the summary");
+    // Enabled once the page has heard that the summary run ended.
+    await until(() => button("Close without summary")?.disabled === false, "the button");
+    await click("Close without summary");
+    await until(() => host.querySelector(".chat-summary") === null, "the box to close");
+    await until(() => text().includes("Conversation closed without a summary."), "the notice");
+    expect(text()).not.toContain("Conversation not summarized yet.");
+    expect(await io(() => readFile(path, "utf8"))).toBe(before);
+    // Leaving now says nothing about the conversation.
+    await press("Escape");
+    await until(() => window.location.pathname === "/", "the queue");
+    await pause();
+    expect(text()).not.toContain("isn't summarized");
+  });
+});
+
+describe("Teach me and More info (#0005, 20261111fauj)", () => {
+  it("are buttons in the panel; the button's name shows as your message", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await click("Teach me");
+    await until(() => text().includes("Echo: Keep to this one scenario"), "the lesson");
+    await until(() => !text().includes("The agent is answering"), "the run to end");
+    expect(host.querySelector(".chat-you .chat-text")?.textContent).toBe("Teach me");
+    await click("More info");
+    await until(() => text().includes("Echo: More info: research"), "the research");
+    const asked = [...host.querySelectorAll(".chat-you .chat-text")].map((p) => p.textContent);
+    expect(asked).toEqual(["Teach me", "More info"]);
+  });
+
+  it("Teach me on a card with no options asks what you'd want, not which option (20261111fauj)", async () => {
+    await open("/card/demo/0003");
+    await press("c");
+    await click("Teach me");
+    await until(() => text().includes("Echo: Keep to this one scenario"), "the lesson");
+    const [call] = await calls();
+    expect(call?.stdin).toMatch(/what I would want to happen in it/);
+  });
+});
+
+describe("deciding while a conversation is open (#0019, 20261111is21)", () => {
+  const file = () => io(() => readFile(join(demo, "decisions", "0002-api-errors.md"), "utf8"));
+  const deciding = () =>
+    host.querySelector("#before-deciding-summary") as HTMLTextAreaElement | null;
+
+  /** A conversation on #0002, then the next run (the summary) answers `summary`. */
+  async function talkThenScript(summary: string) {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("Does it throw?");
+    await io(() => writeFile(join(fakeDir, "script.json"), JSON.stringify([{ text: summary }])));
+  }
+
+  it("writes a summary first; Save and decide saves both in one write, and Undo takes both back", async () => {
+    await talkThenScript("Discussed with the card's agent. It throws.");
+    await press("2");
+    await press("Enter");
+    await until(() => text().includes("Before deciding: summary of your conversation"), "the box");
+    await until(() => deciding()?.value === "Discussed with the card's agent. It throws.", "it");
+    expect((await file()).includes("status: open")).toBe(true);
+    await typeInto(deciding(), "Discussed with the card's agent. It throws on 404.");
+    await click("Save and decide");
+    await until(() => text().includes("with the conversation's summary"), "the decision");
+    const decided = await file();
+    expect(decided).toMatch(/status: resolved/);
+    expect(decided).toMatch(/choice: result/);
+    expect(decided).toMatch(
+      /type: chat\n\s+note: Discussed with the card's agent\. It throws on 404\./,
+    );
+    await pause();
+    expect(text()).not.toContain("isn't summarized");
+
+    await press("u");
+    await until(() => text().includes("Undone."), "the undo");
+    const undone = await file();
+    expect(undone).toMatch(/status: open/);
+    expect(undone).not.toMatch(/type: chat/);
+    // The summary is back in the box, and the conversation is unsummarized again.
+    const box = () => host.querySelector(".chat-summary textarea") as HTMLTextAreaElement | null;
+    await until(
+      () => box()?.value === "Discussed with the card's agent. It throws on 404.",
+      "the summary back",
+    );
+
+    // Deciding again (the pick is back too) uses that summary as it is: no second run. The
+    // panel's summary box holds the page's keys, so this is the Decide button.
+    const runs = (await calls()).length;
+    await click("Decide");
+    await until(
+      () => deciding()?.value === "Discussed with the card's agent. It throws on 404.",
+      "the box with the kept summary",
+    );
+    expect((await calls()).length).toBe(runs);
+  });
+
+  it("Decide without summary is today's Decide, and the reminder stays", async () => {
+    await talkThenScript("A summary.");
+    await press("2");
+    await press("Enter");
+    await until(() => deciding()?.value === "A summary.", "the box");
+    await click("Decide without summary");
+    await until(() => text().includes("Decided #0002"), "the decision");
+    const decided = await file();
+    expect(decided).toMatch(/status: resolved/);
+    expect(decided).not.toMatch(/type: chat/);
+    await until(
+      () => text().includes("Your conversation on #0002 isn't summarized"),
+      "the leave reminder",
+    );
+  });
+
+  it("Esc goes back to the card without deciding", async () => {
+    await talkThenScript("A summary.");
+    await press("2");
+    await press("Enter");
+    await until(() => deciding()?.value === "A summary.", "the box");
+    await press("Escape");
+    await until(() => deciding() === null, "the box to close");
+    expect(window.location.pathname).toBe("/card/demo/0002");
+    expect(await file()).toMatch(/status: open/);
+  });
+
+  it("Decide this as my answer waits for the summary too (20261111is21)", async () => {
+    await talkThenScript("Asked about 404s.");
+    await press("n");
+    const panelText = host.querySelector("#panel-text");
+    await typeInto(panelText, "Throw for bugs, results for network failures.");
+    await click("Decide this as my answer");
+    await until(() => deciding()?.value === "Asked about 404s.", "the box");
+    await press("Enter");
+    await until(() => text().includes("Decided #0002"), "the decision");
+    const decided = await file();
+    expect(decided).toMatch(/choice: custom/);
+    expect(decided).toMatch(/Throw for bugs, results for network failures\./);
+    expect(decided).toMatch(/type: chat\n\s+note: Asked about 404s\./);
+  });
+
+  it("decides at once when the conversation is summarized or there is none", async () => {
+    await open("/card/demo/0002");
+    await press("2");
+    await press("Enter");
+    await until(() => text().includes("Decided #0002"), "the decision");
+    expect(await calls()).toEqual([]);
+  });
+
+  it("offers to write one yourself when the summary can't be written", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("Does it throw?");
+    await io(() =>
+      writeFile(
+        join(fakeDir, "script.json"),
+        JSON.stringify([{ text: "", exit: 1, stderr: "boom" }]),
+      ),
+    );
+    await press("2");
+    await press("Enter");
+    await until(() => text().includes("Couldn't write the summary"), "the error");
+    await typeInto(deciding(), "My own summary.");
+    await click("Save and decide");
+    await until(() => text().includes("Decided #0002"), "the decision");
+    expect(await file()).toMatch(/type: chat\n\s+note: My own summary\./);
+  });
 });

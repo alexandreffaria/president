@@ -9,6 +9,7 @@ import type {
   CardDetailDto,
   CardListResponse,
   CardResponse,
+  ChatAsk,
   ChatDto,
   ChatStreamEvent,
   ChatSummaryResponse,
@@ -62,7 +63,7 @@ export interface ChatContext {
 async function* sendChat(
   project: string,
   id: string,
-  body: ChatContext & { text: string },
+  body: ChatContext & ({ text: string } | { ask: ChatAsk }),
   signal?: AbortSignal,
 ): AsyncGenerator<ChatStreamEvent> {
   let response: Response;
@@ -146,6 +147,12 @@ export const api = {
     call<ChatSummaryResponse>(`/api/chats/${segment(project)}/${segment(id)}/summary`, {
       method: "POST",
       body: JSON.stringify(context),
+    }),
+  /** Ends the conversation without a summary; the card isn't written (202611111ky9). */
+  closeChat: (project: string, id: string) =>
+    call<ChatDto>(`/api/chats/${segment(project)}/${segment(id)}/close`, {
+      method: "POST",
+      body: "{}",
     }),
   addProject: (input: AddProjectRequest) =>
     call<AddProjectResponse>("/api/projects", { method: "POST", body: JSON.stringify(input) }),

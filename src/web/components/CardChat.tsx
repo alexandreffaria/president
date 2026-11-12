@@ -10,9 +10,15 @@
  * - Summaries: "Conversation not summarized yet. [Write summary]" while messages aren't
  *   covered by a saved summary (#0024, 202611111ky9); the agent writes one, the human edits
  *   it, and only what they save is added to the card as a `chat` entry (#0003, #0023).
+ *   "Close without summary" ends the reminder without writing the card (202611111ky9: it
+ *   lasts "until you close the conversation, saving its summary or not").
+ * - Teach me (#0005, 20261111fauj) and More info: buttons next to the message box (#0002's
+ *   sketch); the hub writes their requests.
+ * - While the "Before deciding" box is open (#0019, BeforeDeciding.tsx), the summary is edited
+ *   there, so this panel's summary box stays out of the way.
  */
 import { useEffect, useRef, useState } from "react";
-import type { CardDetailDto, ChatMessageDto } from "../../core/api.ts";
+import type { CardDetailDto, ChatAsk, ChatMessageDto } from "../../core/api.ts";
 import type { ChatContext } from "../api.ts";
 import type { CardChat as ChatState } from "../chat.ts";
 import type { Draft } from "../drafts.ts";
@@ -32,6 +38,8 @@ export function CardChat(props: {
   onClose: () => void;
   /** Saves the edited summary on the card; true when it was saved. */
   onSaveSummary: (summary: string) => Promise<boolean>;
+  /** The "Before deciding" box is open and holds the summary (#0019). */
+  deciding?: boolean;
 }) {
   const { card, chat, context, draft } = props;
   const toast = useToast();
@@ -45,7 +53,8 @@ export function CardChat(props: {
   const running = live !== undefined || chat.chat?.running === true;
   const remembers = chat.chat?.remembers ?? true;
   const unsummarized = chat.chat?.unsummarized === true;
-  const summaryShown = boxOpen || draft.summary.trim() !== "";
+  const summaryShown = !props.deciding && (boxOpen || draft.summary.trim() !== "");
+  const [closing, setClosing] = useState(false);
 
   // Keep the newest message in view as the conversation grows (the panel scrolls itself).
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when anything is added
@@ -66,6 +75,13 @@ export function CardChat(props: {
     }
   };
 
+  /** Teach me or More info: the button's name shows as your message. */
+  const ask = async (what: ChatAsk) => {
+    if (running) return;
+    const failure = await chat.send({ ask: what }, context);
+    if (failure) toast(failure, { tone: "error" });
+  };
+
   const writeSummary = async () => {
     setWriting(true);
     try {
@@ -82,6 +98,21 @@ export function CardChat(props: {
   const closeBox = () => {
     props.onDraft({ summary: "" });
     setBoxOpen(false);
+  };
+
+  /** Ends the conversation without saving a summary: the reminder goes, the card stays. */
+  const closeWithoutSummary = async () => {
+    if (closing) return;
+    setClosing(true);
+    try {
+      await chat.close();
+      closeBox();
+      toast("Conversation closed without a summary. Nothing was added to the card.");
+    } catch (error) {
+      toast((error as Error).message, { tone: "error" });
+    } finally {
+      setClosing(false);
+    }
   };
 
   const save = async () => {
@@ -171,6 +202,14 @@ export function CardChat(props: {
               Cancel <kbd>Esc</kbd>
             </button>
             <button
+              type="button"
+              className="button"
+              disabled={closing || saving || running}
+              onClick={() => void closeWithoutSummary()}
+            >
+              Close without summary
+            </button>
+            <button
               type="submit"
               className="button button-primary"
               disabled={saving || !draft.summary.trim()}
@@ -196,6 +235,25 @@ export function CardChat(props: {
           </p>
         )
       )}
+
+      <p className="chat-asks">
+        <button
+          type="button"
+          className="button"
+          disabled={running}
+          onClick={() => void ask("teach")}
+        >
+          Teach me
+        </button>
+        <button
+          type="button"
+          className="button"
+          disabled={running}
+          onClick={() => void ask("research")}
+        >
+          More info
+        </button>
+      </p>
 
       <form
         className="chat-compose"

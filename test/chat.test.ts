@@ -488,6 +488,98 @@ describe("summaries (#0003, #0019, #0020, #0024, 20261111paot)", () => {
     expect(card.frontmatter.status).toBe("resolved");
     expect(card.frontmatter.resolution?.choice).toBe("protomaps");
   });
+
+  it("closes a conversation without a summary: the reminder goes, the card isn't written (202611111ky9)", async () => {
+    const t = await setup();
+    await t.send("Does our client throw?");
+    const path = join(t.demo, "decisions", "0002-api-errors.md");
+    const before = await readFile(path, "utf8");
+    const closed = await t.post("/api/chats/demo/0002/close", {});
+    expect(closed.status).toBe(200);
+    expect(((await closed.json()) as ChatDto).unsummarized).toBe(false);
+    expect(await readFile(path, "utf8")).toBe(before);
+    expect((await t.sessions())["demo/0002"]?.unsummarized).toBeUndefined();
+    expect((await t.conversation()).messages).toHaveLength(2);
+    expect(t.events).toContainEqual({ type: "chat", project: "demo", id: "0002" });
+    const nothing = await t.post("/api/chats/demo/0002/summary", {});
+    expect(await nothing.json()).toMatchObject({ code: "nothing_to_summarize" });
+
+    // A later message is a new reminder, and its summary covers only what came after.
+    await t.send("And on 500?");
+    expect((await t.conversation()).unsummarized).toBe(true);
+    await t.post("/api/chats/demo/0002/summary", {});
+    expect((await t.calls()).at(-1)?.stdin).toMatch(/cover only what came after it/);
+  });
+
+  it("closing without a summary needs a JSON body and a card that exists", async () => {
+    const t = await setup();
+    expect((await t.post("/api/chats/demo/0099/close", {})).status).toBe(404);
+    const noBody = await t.request("/api/chats/demo/0002/close", {
+      method: "POST",
+      headers: { origin: ORIGIN },
+    });
+    expect(noBody.status).toBeGreaterThanOrEqual(400);
+  });
+});
+
+describe("Teach me and More info (#0005, 20261111fauj)", () => {
+  /** Presses a panel button and reads the whole stream. */
+  const ask = async (t: Awaited<ReturnType<typeof setup>>, what: string, id = "0002") => {
+    const response = await t.post(`/api/chats/demo/${id}/messages`, { ask: what });
+    expect(response.status).toBe(200);
+    return (await response.text())
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as ChatStreamEvent);
+  };
+
+  it("Teach me asks for a worked example comparing the options (#0005 worked)", async () => {
+    const t = await setup();
+    const events = await ask(t, "teach");
+    expect(events.at(-1)?.type).toBe("done");
+    const [call] = await t.calls();
+    expect(call?.stdin).toMatch(/^\(president: The human has not revealed the card's pick\./);
+    expect(call?.stdin).toMatch(/one realistic scenario from this project/);
+    expect(call?.stdin).toMatch(/predict which of the options handles it better/);
+    expect(call?.stdin).toMatch(/one column per option/);
+    expect(call?.stdin).toMatch(/What this leaves out/);
+    // The button's name is the human's message in the conversation, and it stays out of argv.
+    const chat = await t.conversation();
+    expect(chat.messages[0]).toMatchObject({ from: "you", text: "Teach me" });
+    expect(call?.args.join(" ")).not.toMatch(/Teach me/);
+    expect(chat.unsummarized).toBe(true);
+  });
+
+  it("Teach me on a card with no options drops the comparison and drafts no answers (20261111fauj scenario)", async () => {
+    const t = await setup();
+    await ask(t, "teach", "0003");
+    const [call] = await t.calls();
+    expect(call?.stdin).toMatch(/what I would want to happen in it/);
+    expect(call?.stdin).toMatch(/what any answer has to cope with/);
+    expect(call?.stdin).toMatch(/Don't draft candidate answers of your own/);
+    expect(call?.stdin).not.toMatch(/one column per option/);
+  });
+
+  it("More info asks for research from primary sources, with quotes", async () => {
+    const t = await setup();
+    await ask(t, "research");
+    const [call] = await t.calls();
+    expect(call?.stdin).toMatch(/from primary sources/);
+    expect(call?.stdin).toMatch(/quote the passage that matters/);
+    expect((await t.conversation()).messages[0]).toMatchObject({
+      from: "you",
+      text: "More info",
+    });
+  });
+
+  it("refuses an unknown button and an empty message", async () => {
+    const t = await setup();
+    expect((await t.post("/api/chats/demo/0002/messages", { ask: "explain" })).status).toBe(400);
+    const empty = await t.post("/api/chats/demo/0002/messages", { text: "  " });
+    expect(empty.status).toBe(400);
+    expect(JSON.stringify(await empty.json())).toMatch(/a message is required/);
+    expect(await t.calls()).toEqual([]);
+  });
 });
 
 describe("keeping the hub's copy (202611114wet)", () => {

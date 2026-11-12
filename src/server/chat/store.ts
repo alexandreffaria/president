@@ -36,8 +36,8 @@ export interface SessionEntry {
   /** Messages were exchanged since the last saved summary (#0024's reminder). */
   unsummarized?: boolean;
   /**
-   * How many of the hub copy's messages the last saved summary covers: the next summary is
-   * about the ones after them.
+   * How many of the hub copy's messages the last saved summary covers (or the last "Close
+   * without summary" left out): the next summary is about the ones after them.
    */
   summarized?: number;
   /**
