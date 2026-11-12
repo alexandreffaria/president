@@ -12,9 +12,9 @@
  * A test that expects such output says so with `expectConsole`, and then only matching
  * messages are allowed, and at least one must come.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { format } from "node:util";
 import { afterAll, afterEach, expect } from "vitest";
 
@@ -24,6 +24,13 @@ import { afterAll, afterEach, expect } from "vitest";
 const stateHome = mkdtempSync(join(tmpdir(), "president-state-"));
 process.env.XDG_STATE_HOME = stateHome;
 process.env.CLAUDE_CONFIG_DIR = join(stateHome, "claude");
+// And `claude` on PATH is the stand-in (test/fake-claude.mjs), so even a hub a test starts
+// without one can never run the real Claude Code.
+mkdirSync(join(stateHome, "bin"));
+mkdirSync(join(stateHome, "fake"));
+symlinkSync(join(import.meta.dirname, "fake-claude.mjs"), join(stateHome, "bin", "claude"));
+process.env.PATH = `${join(stateHome, "bin")}${delimiter}${process.env.PATH ?? ""}`;
+process.env.FAKE_CLAUDE_DIR = join(stateHome, "fake");
 afterAll(() => rmSync(stateHome, { recursive: true, force: true }));
 
 /** How long after a file's last test late output is still caught. */

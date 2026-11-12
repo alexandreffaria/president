@@ -36,7 +36,7 @@ export interface LiveOptions {
 /** Two and a half of the server's heartbeats. */
 export const SILENCE_MS = HEARTBEAT_MS * 2.5;
 
-const EVENT_TYPES = new Set<string>(["ready", "cards", "projects", "sync"]);
+const EVENT_TYPES = new Set<string>(["ready", "cards", "projects", "sync", "chat"]);
 
 /** Waits before the next reconnect: 0.5 s doubling to 3 s, with jitter. */
 export function retryDelay(failures: number): number {

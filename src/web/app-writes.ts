@@ -24,4 +24,21 @@ export function wroteHere(project: string, id: string, revision: string): boolea
 /** For tests: forget every recorded write. */
 export function clearWrites(): void {
   writes.clear();
+  decisions.clear();
+}
+
+/** When this tab last decided each card (ms), for the Undo window (#0006, #0020). */
+const decisions = new Map<string, number>();
+
+/** How long after a decision nothing else may write the card from this page (#0020). */
+export const UNDO_WINDOW_MS = 10_000;
+
+export function recordDecision(project: string, id: string, at = Date.now()): void {
+  decisions.set(key(project, id), at);
+}
+
+/** Whether this tab decided the card less than UNDO_WINDOW_MS ago. */
+export function decidedRecently(project: string, id: string, now = Date.now()): boolean {
+  const at = decisions.get(key(project, id));
+  return at !== undefined && now - at < UNDO_WINDOW_MS;
 }

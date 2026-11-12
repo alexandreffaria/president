@@ -133,6 +133,7 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
    | `r` | show the agent's pick (hidden until you ask, and again each time you come back to the card) |
    | `n` | neither: reject all options with a note; an agent writes new ones. The same panel can also decide the card with what you typed as your own answer |
    | `m` | add a note without deciding; also works on a decided card (the decision stays) |
+   | `c` | show or hide the conversation with the card's agent |
    | `d` | defer for a week: the card leaves the queue and comes back, marked "back from deferral", when the week is over |
    | `D` | defer until another date: tomorrow, next month or a day you pick (also the **Defer until…** button) |
    | `j` / `k` | next / previous card |
@@ -158,6 +159,15 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
    reopen it instead. What you wrote with it (your "why", your answer, the Neither text) comes
    back as a draft, so you can fix it and send it again. An undone decision also leaves an
    `undo` entry in the card's history, so an agent that already saw it knows to revert its work.
+
+   You can talk about a card with its own agent (`c`): a Claude Code session, run on this
+   machine in the card's project, that reads the project and searches the web but can't change
+   anything (it uses your Claude Code login). From about 1100 px wide the conversation sits
+   beside the card; narrower, under it. The conversation stays on this machine, in
+   `$XDG_STATE_HOME/president/` (by default `~/.local/state/president/`), never in the
+   project. When you're done, **Write summary**: the agent drafts a summary, you edit it, and
+   what you save is added to the card's history as a conversation summary, which the project's
+   working agent reads like a note. Until then the card reminds you it isn't summarized.
 
    Notes (`m`) reach agents through `preside pending`, which lists notes they haven't read yet.
    An agent marks a card handled with a token from `pending` that records what it was shown, so

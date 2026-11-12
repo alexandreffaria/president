@@ -10,9 +10,10 @@ import {
   unknownDependencies,
 } from "../../core/queue.ts";
 import { api, RequestError } from "../api.ts";
-import { wroteHere } from "../app-writes.ts";
+import { decidedRecently, recordDecision, wroteHere } from "../app-writes.ts";
 import { describeChanges } from "../card-changes.ts";
-import { CardAssistant } from "../components/CardAssistant.tsx";
+import { useCardChat, useMinWidth } from "../chat.ts";
+import { CardChat } from "../components/CardChat.tsx";
 import { CardId } from "../components/CardId.tsx";
 import { FeedbackHistory } from "../components/FeedbackHistory.tsx";
 import { Markdown } from "../components/Markdown.tsx";
@@ -72,7 +73,12 @@ const NO_DRAFT: Draft = {
   answer: "",
   neither: "",
   note: "",
+  chat: "",
+  summary: "",
 };
+
+/** Below this window width the conversation sits in the page's flow, not beside it (#0002). */
+const SIDE_PANEL_MIN_PX = 1100;
 
 /** How many views of each card are mounted ("project/id"). */
 const openViews = new Map<string, number>();
@@ -118,6 +124,22 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const [focusNotice, setFocusNotice] = useState(false);
   const version = (hub.versions[project] ?? 0) + hub.reconnects;
   const undoGroup = `undo:${project}/${id}`;
+  /** The card's conversation on this machine (E). */
+  const cardChat = useCardChat(project, id);
+  const wide = useMinWidth(SIDE_PANEL_MIN_PX);
+  /**
+   * The conversation panel is shown: open by default once the card has a conversation
+   * (#0002), then as the human toggles it (`c`) during this visit.
+   */
+  const [chatOpen, setChatOpen] = useState<boolean>();
+  const chatLoaded = cardChat.chat !== undefined;
+  const hasConversation = (cardChat.chat?.messages.length ?? 0) > 0;
+  useEffect(() => {
+    if (chatLoaded) setChatOpen((open) => open ?? hasConversation);
+  }, [chatLoaded, hasConversation]);
+  /** For the notice on leaving (#0024): read when the view goes away. */
+  const unsummarized = useRef(false);
+  unsummarized.current = cardChat.chat?.unsummarized === true;
 
   const queue = buildQueue(hub.cards, hub.projectFilter);
   const position = queue.findIndex((c) => c.project === project && c.id === id);
@@ -249,8 +271,13 @@ export function CardView({ project, id }: { project: string; id: string }) {
       openViews.set(key, (openViews.get(key) ?? 1) - 1);
       // Checked a moment later: React's StrictMode unmounts and mounts again at once.
       setTimeout(() => {
-        if (!openViews.get(key) && unsentText(latest.current)) {
+        if (openViews.get(key)) return;
+        if (unsentText(latest.current)) {
           toast(`What you typed on #${id} is kept; it's there when you come back.`);
+        }
+        // #0024 (and 202611111ky9 on decided cards): leaving saves nothing and runs nothing.
+        if (unsummarized.current) {
+          toast(`Your conversation on #${id} isn't summarized; it's there when you come back.`);
         }
       }, 0);
     };
@@ -372,10 +399,27 @@ export function CardView({ project, id }: { project: string; id: string }) {
     if (!card || !fm || !choice) return false;
     const option = fm.options.find((o) => o.id === choice);
     const label = option ? option.title : "your own answer";
-    return act(
+    const ok = await act(
       { type: "resolve", choice, note: note.trim() || undefined },
       { leave: true, done: `Decided #${id}: ${label}.`, sent, ...(panel ? { panel } : {}) },
     );
+    if (ok) recordDecision(project, id);
+    return ok;
+  };
+
+  /**
+   * Saves an edited conversation summary as a `chat` entry (#0003, #0023), on decided cards
+   * too (#0020), but never inside the Undo window of a decision made here (#0006).
+   */
+  const saveSummary = (summary: string) => {
+    if (decidedRecently(project, id)) {
+      toast(
+        `#${id} was decided a moment ago and can still be undone; save the summary once its Undo notice has closed.`,
+        { tone: "error" },
+      );
+      return Promise.resolve(false);
+    }
+    return act({ type: "chat", note: summary }, { done: "Summary saved.", sent: { summary: "" } });
   };
 
   /** `d` and the Defer menu work on open cards and on cards back from deferral (#0017). */
@@ -446,6 +490,11 @@ export function CardView({ project, id }: { project: string; id: string }) {
       reveal(false);
     },
     escape: () => navigate("/"),
+    // Shows or hides the conversation (#0002).
+    c: () => {
+      if (!chatLoaded) return false;
+      setChatOpen((open) => !open);
+    },
   };
   // Shift+d opens the Defer menu (#0017); `d` itself never waits for a second key.
   keys.D = () => {
@@ -484,7 +533,9 @@ export function CardView({ project, id }: { project: string; id: string }) {
     : -1;
 
   return (
-    <div className={`page card-page${fm.kind === "ab" ? " card-page-wide" : ""}`}>
+    <div
+      className={`page card-page${fm.kind === "ab" ? " card-page-wide" : ""}${chatOpen && wide ? " card-page-chat" : ""}`}
+    >
       <nav className="card-nav" aria-label="Queue navigation">
         <Link to="/" className="button button-quiet">
           ← Queue
@@ -659,7 +710,29 @@ export function CardView({ project, id }: { project: string; id: string }) {
       <Markdown className="card-appendix">{card.sections.appendix}</Markdown>
 
       <FeedbackHistory feedback={fm.feedback} seenAt={fm.seen_at} />
-      <CardAssistant card={card} />
+      {chatOpen ? (
+        <CardChat
+          card={card}
+          chat={cardChat}
+          context={{ revealed, revision: card.revision }}
+          layout={wide ? "side" : "inline"}
+          draft={draft}
+          onDraft={updateDraft}
+          onClose={() => setChatOpen(false)}
+          onSaveSummary={saveSummary}
+        />
+      ) : (
+        chatLoaded && (
+          <p className="chat-closed">
+            <button type="button" className="button" onClick={() => setChatOpen(true)}>
+              {hasConversation ? "Show the conversation" : "Ask about this card"} <kbd>c</kbd>
+            </button>
+            {cardChat.chat?.unsummarized && (
+              <span className="muted small"> Conversation not summarized yet.</span>
+            )}
+          </p>
+        )
+      )}
 
       <p className="muted small file-path">
         File: <code>{card.path}</code>

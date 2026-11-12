@@ -8,6 +8,7 @@ export const SHORTCUTS: [string, string][] = [
   ["r", "Show the agent's pick"],
   ["n", "Neither: reject all options and say why, or decide with your own answer"],
   ["m", "Add a note (also on a decided card)"],
+  ["c", "Show or hide the conversation with the card's agent"],
   ["d", "Defer the card for a week"],
   ["D", "Defer the card until another date"],
   [

@@ -48,8 +48,12 @@ field (merged in PR #20) and follows in a small pull request. E isn't built.
 Then (2026-11-12): E is being built in a stack of pull requests. Its first, "Card chat (E1a):
 session, per-machine stores and API" (branch `feat/card-chat`), runs the card's session with
 #0004's flags and adds the four per-machine stores, the conversation API, summaries (written
-by the session or from the hub's copy) and the `chat` card action; the page doesn't use them
-yet. The side panel and the rest follow in the next pull requests of the stack.
+by the session or from the hub's copy) and the `chat` card action. The second, "Card chat
+(E1b): the conversation panel" (branch `feat/card-chat-panel`, stacked on the first), adds the
+panel on the card page (#0002, 20261111sblu), the conversation shown again from the hub's copy
+(#0018), the reminder on leaving and Write summary (#0024, 202611111ky9, 20261111paot) and
+saving a summary outside a decision's Undo window (#0020). Teach me, More info, deciding while a
+conversation is open (#0019) and Neither's run (#0007) follow in the next pull requests.
 
 ## Build plan
 
@@ -64,7 +68,7 @@ Each row is one pull request (PR 2 may be split, see its section). The order is 
 | B2 | [Sync: count a skipped project's answers apart](#b2-sync-count-a-skipped-projects-answers-apart-20261112l9vh) | 20261112l9vh | B (PR #12) merged | **Built** in the follow-up pull request (PR #18, branch `feat/sync-followups`) |
 | C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | **Built** in the pull request "Queue and card UX (C)" (PR #21, branch `feat/queue-card-ux-c`), except the [Withdrawn section](#withdrawn-cards-in-the-hub-0014) (#0014's and 202611116ff6's hub part), a follow-up now that D is merged (PR #20) |
 | D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part), 202611116ff6 (`pending` and `validate`) | PR #7 (it edits `card-format.md` and `SKILL.md`) | **Built** in the pull request "Card format and CLI (D)" (PR #20, branch `feat/card-format-d`) |
-| E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s, 20261112dfik | C (#0010's panel, #0011's notes on decided cards), D (`chat` type) | **In progress**, as a stack of pull requests: E1a (the session, the per-machine stores, the API and summaries on the server) in "Card chat (E1a)" (branch `feat/card-chat`); the page, Teach me, deciding while open and Neither's run follow |
+| E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s, 20261112dfik | C (#0010's panel, #0011's notes on decided cards), D (`chat` type) | **In progress**, as a stack of pull requests: E1a (the session, the per-machine stores, the API and summaries on the server) in "Card chat (E1a)" (branch `feat/card-chat`); E1b (the panel, Write summary, the reminder) in "Card chat (E1b)" (branch `feat/card-chat-panel`); Teach me, deciding while open and Neither's run follow |
 | F | [Rename the command to `preside`](#f-rename-the-command-to-preside-0016-20261111dmvt) (agent-facing: the CLI, the skill and every printed command) | #0016, 20261111dmvt | A2 (both edit `SKILL.md`). The npm placeholder is published by the human (an agent prepares it). No card orders it against F; suggested: publish it before F merges (after repeating the name check), so the name F writes everywhere can't be taken meanwhile | **Built** in the pull request "Rename the command to preside (F)" (PR #19, branch `feat/rename-preside`) |
 | F2 | [Remove the `president` alias](#the-president-alias-and-when-it-ends) | 20261111dmvt | F | One month after F ships, or once every registered project's own docs and agent instructions use `preside`, whichever is later |
 

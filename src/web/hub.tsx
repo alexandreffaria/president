@@ -29,6 +29,8 @@ interface HubState {
   connection: Connection;
   /** Bumped whenever a project's cards change on disk; card views refetch on change. */
   versions: Record<string, number>;
+  /** Bumped when a card's conversation changes ("project/id"); its panel refetches. */
+  chatVersions: Record<string, number>;
   /**
    * Bumped when the live socket reconnects after the first time (the connection dropped, or
    * the hub restarted): changes may have been missed, so card views refetch too.
@@ -69,6 +71,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState<ProjectDto[]>([]);
   const [connection, setConnection] = useState<Connection>("connecting");
   const [versions, setVersions] = useState<Record<string, number>>({});
+  const [chatVersions, setChatVersions] = useState<Record<string, number>>({});
   const [reconnects, setReconnects] = useState(0);
   const [syncEvents, setSyncEvents] = useState(0);
   const [clock, setClock] = useState(0);
@@ -116,6 +119,12 @@ export function HubProvider({ children }: { children: ReactNode }) {
     return connectLive({
       onState: setConnection,
       onEvent: (event) => {
+        if (event.type === "chat") {
+          // Conversations live outside the cards: the card list doesn't change.
+          const key = `${event.project}/${event.id}`;
+          setChatVersions((v) => ({ ...v, [key]: (v[key] ?? 0) + 1 }));
+          return;
+        }
         if (event.type === "sync") {
           // Card files a pull changed arrive as "cards" events of their own.
           setSyncEvents((n) => n + 1);
@@ -179,6 +188,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
       projects,
       connection,
       versions,
+      chatVersions,
       reconnects,
       syncEvents,
       clock,
@@ -196,6 +206,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
       projects,
       connection,
       versions,
+      chatVersions,
       reconnects,
       syncEvents,
       clock,
