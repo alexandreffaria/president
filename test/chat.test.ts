@@ -6,7 +6,7 @@
  */
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type {
   CardResponse,
   ChatDto,
@@ -472,6 +472,34 @@ describe("summaries (#0003, #0019, #0020, #0024, 20261111paot)", () => {
     expect(undone.card.frontmatter.status).toBe("open");
     expect(undone.card.frontmatter.feedback.map((f) => f.type)).toEqual(["undo"]);
     expect((await t.conversation()).unsummarized).toBe(true);
+  });
+
+  it("returns the written card even when the conversation's bookkeeping fails", async () => {
+    const t = await setup();
+    await t.send("Does our client throw?");
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(t.chat, "summarySaved").mockRejectedValue(new Error("EACCES: sessions.json"));
+    vi.spyOn(t.chat, "undone").mockRejectedValue(new Error("ENOSPC: sessions.json"));
+    try {
+      const { revision } = await t.card();
+      const saved = await t.post("/api/cards/demo/0002/actions", {
+        type: "chat",
+        note: "Summary.",
+        revision,
+      });
+      expect(saved.status).toBe(200);
+      const body = (await saved.json()) as CardResponse & { ok: true };
+      expect(body.card.frontmatter.feedback.at(-1)).toMatchObject({ type: "chat" });
+
+      const undone = await t.post("/api/cards/demo/0002/undo", { revision: body.card.revision });
+      expect(undone.status).toBe(200);
+      const after = ((await undone.json()) as CardResponse & { ok: true }).card;
+      // The undo took the summary back.
+      expect(after.frontmatter.feedback).toEqual([]);
+      expect(logged).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it("saves a summary on a decided card (#0020)", async () => {
