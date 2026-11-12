@@ -9,8 +9,15 @@ import { createServer, type Server } from "node:http";
 import { createServer as createTcpServer, type Socket, type Server as TcpServer } from "node:net";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { revisionOf } from "../src/server/cards.ts";
 import { gitEnv, localEnvVars, runGit } from "../src/server/git.ts";
-import { commitMessage, fetchRepo, repoStatus, syncRepo } from "../src/server/sync.ts";
+import {
+  commitMessage,
+  fetchRepo,
+  repoStatus,
+  syncRepo,
+  syncRepoDetailed,
+} from "../src/server/sync.ts";
 import { gitSandbox, type Sandbox } from "./git-sandbox.ts";
 
 // Each test runs a few dozen git commands; with several suites at once on a busy machine that
@@ -919,6 +926,222 @@ describe("Sync and ignored files (S-7)", () => {
     expect(result.message).toMatch(/uncommitted edits to build,/);
     expect(snapshot(s)).toEqual(before);
     expect(await s.read(s.laptop, "build")).toBe("local build output\n");
+  });
+
+  it("lets the remote replace a tracked folder with a file (S2-1)", async () => {
+    const s = await gitSandbox();
+    await desktopPushes(s, { "foo/a.js": "a\n" }, "a folder");
+    s.git(s.laptop, "pull", "--quiet");
+    s.git(s.desktop, "rm", "--quiet", "-r", "foo");
+    await desktopPushes(s, { foo: "now a file\n" }, "the folder becomes a file");
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result).toMatchObject({ outcome: "synced", sent: ["0001"] });
+    expect(await s.read(s.laptop, "foo")).toBe("now a file\n");
+  });
+
+  it("refuses when that folder holds an ignored file the pull would delete (S2-1)", async () => {
+    const s = await gitSandbox();
+    await desktopPushes(s, { "foo/a.js": "a\n" }, "a folder");
+    s.git(s.laptop, "pull", "--quiet");
+    await s.write(s.laptop, ".git/info/exclude", "*.log\n");
+    await s.write(s.laptop, "foo/agent.log", "LOCAL AGENT DATA\n");
+    s.git(s.desktop, "rm", "--quiet", "-r", "foo");
+    await desktopPushes(s, { foo: "now a file\n" }, "the folder becomes a file");
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+    const before = snapshot(s);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result).toMatchObject({
+      outcome: "not-now",
+      message:
+        "Not now: an agent in shop has uncommitted edits to foo, which also changed on the remote",
+    });
+    expect(snapshot(s)).toEqual(before);
+    expect(await s.read(s.laptop, "foo/agent.log")).toBe("LOCAL AGENT DATA\n");
+  });
+
+  it("lets the remote replace a tracked file with a folder (S2-1)", async () => {
+    const s = await gitSandbox();
+    s.git(s.desktop, "rm", "--quiet", "app.js");
+    await desktopPushes(s, { "app.js/index.js": "x = 2\n" }, "the file becomes a folder");
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result).toMatchObject({ outcome: "synced", sent: ["0001"] });
+    expect(await s.read(s.laptop, "app.js/index.js")).toBe("x = 2\n");
+  });
+});
+
+describe("what Sync brought in (S2-2)", () => {
+  it("is read right after the pull, not after an agent rewrote the card during the push", async () => {
+    const s = await gitSandbox();
+    const desktopText = "status: deferred\nnote: desktop\n";
+    const agentText = "status: open\nnote: an agent rewrote it\n";
+    await desktopPushes(s, { "decisions/0002-size.md": desktopText });
+    await answerAndAgentWork(s);
+    // An agent rewrites the card the pull brought in while the push runs.
+    await hook(
+      s,
+      "pre-push",
+      `printf '${agentText.replace(/\n/g, "\\n")}' > decisions/0002-size.md`,
+    );
+
+    const run = await syncRepoDetailed(s.laptop, "shop", s.options);
+
+    expect(run.result.outcome).toBe("synced");
+    expect(await s.read(s.laptop, "decisions/0002-size.md")).toBe(agentText);
+    expect(run.broughtIn).toEqual([
+      { path: "decisions/0002-size.md", revision: revisionOf(desktopText) },
+    ]);
+  });
+});
+
+describe("the checks round 2 of review found untested (S2-4)", () => {
+  it("refuses a remote named like an option, and changes nothing (M1)", async () => {
+    const s = await gitSandbox();
+    s.git(s.laptop, "config", "remote.-x.url", "../remote.git");
+    s.git(s.laptop, "config", "remote.-x.fetch", "+refs/heads/*:refs/remotes/-x/*");
+    s.git(s.laptop, "fetch", "--quiet", "../remote.git", "+refs/heads/*:refs/remotes/-x/*");
+    s.git(s.laptop, "symbolic-ref", "refs/remotes/-x/HEAD", "refs/remotes/-x/main");
+    s.git(s.laptop, "config", "branch.main.remote", "-x");
+    await answerAndAgentWork(s);
+    const before = snapshot(s);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result).toMatchObject({
+      outcome: "not-now",
+      message: "Not now: couldn't tell which branch is the main branch of the remote of shop",
+    });
+    expect(result.gitError).toBeUndefined();
+    expect(snapshot(s)).toEqual(before);
+  });
+
+  it("doesn't push when main's remote changed during the pull, the upstream's name aside (M6)", async () => {
+    const s = await gitSandbox();
+    await desktopPushes(s, { "decisions/0002-size.md": "status: deferred\n" });
+    await answerAndAgentWork(s);
+    // Another remote whose branches land in refs/remotes/origin/: @{u} reads the same.
+    s.git(s.laptop, "config", "remote.other.url", "../remote.git");
+    s.git(s.laptop, "config", "remote.other.fetch", "+refs/heads/*:refs/remotes/origin/*");
+    await hook(s, "post-rewrite", "git config branch.main.remote other");
+    const remoteBefore = s.remoteLog();
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(s.git(s.laptop, "rev-parse", "--symbolic-full-name", "@{u}").trim()).toBe(
+      "refs/remotes/origin/main",
+    );
+    expect(result).toMatchObject({
+      outcome: "not-pushed",
+      message: "Not pushed: the checkout in shop changed during Sync",
+    });
+    expect(s.remoteLog()).toEqual(remoteBefore);
+  });
+
+  it("doesn't push when a git operation started during the pull (M7)", async () => {
+    const s = await gitSandbox();
+    await desktopPushes(s, { "decisions/0002-size.md": "status: deferred\n" });
+    await answerAndAgentWork(s);
+    // Right after the pull's rebase, an agent starts a bisect.
+    await hook(s, "post-rewrite", 'touch "$(git rev-parse --git-path BISECT_LOG)"');
+    const remoteBefore = s.remoteLog();
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result).toMatchObject({
+      outcome: "not-pushed",
+      message: "Not pushed: a bisect started in shop during Sync",
+    });
+    expect(result.action).toMatch(/your answers are kept in a local commit/);
+    expect(s.remoteLog()).toEqual(remoteBefore);
+  });
+
+  it("says so when the remote-tracking branch doesn't show the pushed commit (M3)", async () => {
+    const s = await gitSandbox();
+    await answerAndAgentWork(s);
+    // Once the push has started, put origin/main back as soon as git moves it.
+    const pushing = join(s.root, "pushing");
+    const done = join(s.root, "moved-back");
+    await hook(s, "pre-push", `touch "${pushing}"`);
+    await hook(
+      s,
+      "reference-transaction",
+      [
+        '[ "$1" = committed ] || exit 0',
+        `[ -e "${pushing}" ] || exit 0`,
+        `[ -e "${done}" ] && exit 0`,
+        "while read -r old new ref; do",
+        '  if [ "$ref" = refs/remotes/origin/main ]; then',
+        `    touch "${done}"`,
+        '    git update-ref refs/remotes/origin/main "$old"',
+        "  fi",
+        "done",
+      ].join("\n"),
+    );
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result).toMatchObject({
+      outcome: "not-pushed",
+      message:
+        "Not sure it synced: git push said it worked in shop, but origin/main doesn't show the pushed commit",
+    });
+  });
+
+  it("refuses an empty commit on top of an unpushed answers commit (M5)", async () => {
+    const s = await gitSandbox();
+    await s.write(s.laptop, "decisions/0002-size.md", "status: deferred\n");
+    s.git(s.laptop, "commit", "--quiet", "-am", "decisions from laptop: 0002");
+    s.git(s.laptop, "commit", "--quiet", "--allow-empty", "-m", "agent: empty");
+    await answerAndAgentWork(s);
+    const before = snapshot(s);
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result).toMatchObject({
+      outcome: "not-now",
+      message: "Not now: an agent in shop has commits it hasn't pushed",
+    });
+    expect(snapshot(s)).toEqual(before);
+  });
+});
+
+describe("nothing to push (S2-5)", () => {
+  it("doesn't push when the remote moved past HEAD since the pull", async () => {
+    const s = await gitSandbox();
+    await desktopPushes(s, { "decisions/0002-size.md": "status: deferred\n" });
+    // Once the pull has moved main, the desktop pushes again and something here fetches.
+    const done = join(s.root, "fetched");
+    await hook(
+      s,
+      "reference-transaction",
+      [
+        '[ "$1" = committed ] || exit 0',
+        `[ -e "${done}" ] && exit 0`,
+        "grep -q ' refs/heads/main$' || exit 0",
+        `touch "${done}"`,
+        "(",
+        "  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE",
+        `  cd "${s.desktop}"`,
+        '  echo "x = desktop again" > app.js',
+        '  git commit --quiet -am "desktop again"',
+        "  git push --quiet",
+        ")",
+        "git fetch --quiet",
+      ].join("\n"),
+    );
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result).toMatchObject({ outcome: "synced", sent: [], received: ["0002"] });
+    expect(s.remoteLog()[0]).toBe("desktop again");
+    expect(s.git(s.laptop, "merge-base", "--is-ancestor", "HEAD", "origin/main")).toBe("");
   });
 });
 

@@ -389,6 +389,22 @@ describe("card view keyboard", () => {
     expect(text()).toContain('Option 1 ("Something else entirely") changed: title.');
   });
 
+  it("drops the notice when the card goes back to the version the human read (S2-6)", async () => {
+    const file = join(demo, "decisions", "0001-offline-storage.md");
+    await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
+    await press("1", document.body);
+    // A reload mid-pull catches the card in between (the remote's version, before this
+    // machine's commit is replayed), then the file is back to what the human read.
+    await editFile(file, "title: IndexedDB through Dexie", "title: Something else entirely");
+    socket()?.emit({ type: "cards", project: "demo" } satisfies HubEvent);
+    await until(() => text().includes("An agent changed this card"), "the notice");
+    await editFile(file, "title: Something else entirely", "title: IndexedDB through Dexie");
+    socket()?.emit({ type: "cards", project: "demo" } satisfies HubEvent);
+    await until(() => !text().includes("An agent changed this card"), "the notice to go");
+    expect(text()).not.toContain("Your choice was cleared");
+    expect(button("I've read it")).toBeUndefined();
+  });
+
   it("puts focus back on the Note button when the note panel closes", async () => {
     await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
     await press("m", document.body);

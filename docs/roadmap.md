@@ -111,8 +111,9 @@ section left open were settled the simplest safe way, and the human can change a
   dismissed in that tab); a restart forgets it.
 - The notice an open card shows after this hub's Sync brought in a change reads "Sync just
   brought in a newer version of this card from the online copy." (decided in card
-  `20261112xp4s`, option from-sync). `SyncService` records the revisions of the cards each
-  pull changed, before it sends its `cards` event; the card endpoint reports
+  `20261112xp4s`, option from-sync). Sync reads the revisions of the cards each pull changed
+  right after the pull (an agent's later edit is the agent's), and `SyncService` records
+  them before it sends its `cards` event; the card endpoint reports
   `changedBySync`, and a view that reloaded mid-pull (and took the change for an agent's)
   picks the sentence again on that event. Other changes keep their notices.
 - Only a project at the top folder of its repository gets Sync (card `2026111209dq`, decided
@@ -134,7 +135,11 @@ From review round 1 of the PR (each with a test in `test/sync.test.ts` that fail
   right before `git add`.
 - Check 2 also refuses an unpushed commit that changes no file (an agent's empty commit).
 - Check 3 also refuses when the remote adds a file where something git doesn't track is in
-  the way, ignored files included (the pull overwrites those without a word).
+  the way, ignored files included (the pull overwrites those without a word). Only what
+  `git ls-files --others` lists counts: a tracked folder the remote replaces with a file, or
+  the reverse, syncs (round 2).
+- Sync pushes nothing when the remote already has `HEAD` (`merge-base --is-ancestor`), as
+  when a fetch moved `<remote>/<main>` past it after the pull (round 2).
 - The look before pushing calls only a new stash entry with the subject `autostash` git's,
   names it (its `stash@{n}` and commit), and never suggests a bare `git stash drop`: the
   stash is shared with agents. Any other new entry also stops the push, with no drop advice.

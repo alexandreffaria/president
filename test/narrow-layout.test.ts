@@ -1,9 +1,14 @@
 /**
- * The top bar on a narrow screen (375 px): its padding is the margin at the screen's
- * edges, so when its contents don't fit on one line (large counts, a larger font) the end
- * group (Sync, the connection dot, ?) wraps to its own line instead of running into that
- * margin. Measured in Chrome at 375 px with two-digit counts: the ? button ends 12 px from
- * the edge, and with small counts the bar stays on one line.
+ * The top bar at every width (S-11, S2-3). Its padding is the margin at the screen's edges,
+ * so when its contents don't fit on one line the end group (Sync, the connection dot, ?)
+ * wraps to its own line instead of running into that margin or scrolling the page sideways.
+ * The Sync summary stays on one line, and below 72rem it is hidden (the count moves onto
+ * the Sync button); below 48rem the bar takes its compact layout.
+ *
+ * Measured in headless Chrome over CDP with a real hub (16 answers not synced and 3 card
+ * changes on the remote, then again with "Connecting" and three-digit counts) at widths
+ * from 320 to 1280 px: no sideways scroll at any of them, and the bar is one line (50-56 px)
+ * except at 414 px and below, where it wraps onto two (85 px) and ? ends 12 px from the edge.
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -11,13 +16,17 @@ import { describe, expect, it } from "vitest";
 
 const css = await readFile(join(import.meta.dirname, "..", "src", "web", "styles.css"), "utf8");
 
-/** The declarations of `selector` inside the `@media (max-width: 40rem)` block. */
-function narrowRule(selector: string): Record<string, string> {
-  const start = css.indexOf("@media (max-width: 40rem) {");
-  expect(start).toBeGreaterThan(-1);
-  const block = css.slice(start, css.indexOf("\n}\n", start));
+/** The declarations of `selector` at the top level, or in the `@media (max-width: …)` block. */
+function rule(selector: string, maxWidth?: string): Record<string, string> {
+  let block = css;
+  if (maxWidth) {
+    const start = css.indexOf(`@media (max-width: ${maxWidth}) {`);
+    expect(start).toBeGreaterThan(-1);
+    block = css.slice(start, css.indexOf("\n}\n", start));
+  }
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const body = new RegExp(`^ {2}${escaped} \\{([^}]*)\\}`, "m").exec(block)?.[1] ?? "";
+  const indent = maxWidth ? " {2}" : "";
+  const body = new RegExp(`^${indent}${escaped} \\{([^}]*)\\}`, "m").exec(block)?.[1] ?? "";
   return Object.fromEntries(
     [...body.matchAll(/([\w-]+):\s*([^;]+);/g)].map((m) => [
       m[1] as string,
@@ -26,12 +35,26 @@ function narrowRule(selector: string): Record<string, string> {
   );
 }
 
-describe("the top bar at 375 px (S-11)", () => {
-  it("wraps rather than letting ? touch the screen's edge", () => {
-    const topbar = narrowRule(".topbar");
+describe("the top bar (S-11, S2-3)", () => {
+  it("wraps rather than scrolling sideways, at any width", () => {
+    expect(rule(".topbar")["flex-wrap"]).toBe("wrap");
+  });
+
+  it("keeps the Sync summary on one line", () => {
+    expect(rule(".sync-summary")["white-space"]).toBe("nowrap");
+  });
+
+  it("hides the summary and shows the count on the button below 72rem", () => {
+    expect(rule(".sync-summary", "72rem")).toMatchObject({ position: "absolute", width: "1px" });
+    expect(rule(".sync-button .sync-count", "72rem").display).toBe("inline-block");
+  });
+
+  it("keeps ? off the screen's edge in its compact layout below 48rem", () => {
+    const topbar = rule(".topbar", "48rem");
     expect(topbar["flex-wrap"]).toBe("wrap");
     // Left and right padding: the margin ? keeps from the edge.
     const [, horizontal = "0"] = (topbar.padding ?? "").split(/\s+/);
     expect(Number.parseFloat(horizontal)).toBeGreaterThan(0);
+    expect(rule(".brand", "48rem").display).toBe("none");
   });
 });

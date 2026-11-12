@@ -345,15 +345,18 @@ function nameStatus(output: string): { status: string; path: string }[] {
 }
 
 /**
- * Paths the remote adds where something git doesn't track is in the way here: a file,
- * folder or link at that path, or a file or link where the remote needs a folder (and the
- * remote doesn't remove it). `known` paths are already reported.
+ * Paths the remote adds where something git doesn't track is in the way here: an untracked
+ * or ignored file or link at that path or in a folder there, or a file or link where the
+ * remote needs a folder (and the remote doesn't remove it). Tracked content at the path (a
+ * folder the same pull replaces with a file, or the name in another case on a file system
+ * that ignores case) is the pull's to change. `known` paths are already reported.
  */
 async function untrackedInTheWay(
-  dir: string,
+  repo: Repo,
   remoteChanged: { status: string; path: string }[],
   known: ReadonlySet<string>,
 ): Promise<string[]> {
+  const dir = repo.dir;
   const changed = new Set(remoteChanged.map(({ path }) => path));
   const kind = (path: string) =>
     lstat(join(dir, path)).then(
@@ -364,7 +367,9 @@ async function untrackedInTheWay(
   for (const { status, path } of remoteChanged) {
     if (!status.startsWith("A") || known.has(path)) continue;
     if (await kind(path)) {
-      found.push(path);
+      // Without --exclude-standard, ignored files are listed too; git applies core.ignorecase.
+      const untracked = await repo.paths(["ls-files", "--others", "-z", "--", `:(literal)${path}`]);
+      if (untracked.length > 0) found.push(path);
       continue;
     }
     const parts = path.split("/");
@@ -469,15 +474,16 @@ export async function syncRepo(
 }
 
 /**
- * {@link syncRepo}, plus the card files (paths relative to `dir`) whose content the pull
- * changed in the checkout, for "Sync just brought in a newer version of this card".
+ * {@link syncRepo}, plus the card files whose content the pull changed in the checkout, at
+ * the revisions read right after the pull, for "Sync just brought in a newer version of
+ * this card".
  */
 export async function syncRepoDetailed(
   dir: string,
   name: string,
   options: SyncOptions = {},
-): Promise<{ result: RepoSyncResult; broughtIn: string[] }> {
-  const pulled = { broughtIn: [] as string[] };
+): Promise<{ result: RepoSyncResult; broughtIn: CardRevision[] }> {
+  const pulled = { broughtIn: [] as CardRevision[] };
   return { result: await guardedSequence(dir, name, options, pulled), broughtIn: pulled.broughtIn };
 }
 
@@ -485,7 +491,7 @@ async function guardedSequence(
   dir: string,
   name: string,
   options: SyncOptions,
-  pulled: { broughtIn: string[] },
+  pulled: { broughtIn: CardRevision[] },
 ): Promise<RepoSyncResult> {
   const repo = new Repo(dir, options);
   try {
@@ -501,11 +507,31 @@ async function guardedSequence(
   }
 }
 
+/** A card file (relative to its project's folder) at a revision. */
+export interface CardRevision {
+  path: string;
+  revision: string;
+}
+
+/** The revisions of the card files at `paths` in `dir` now; deleted or unreadable ones are left out. */
+async function cardRevisions(dir: string, paths: string[]): Promise<CardRevision[]> {
+  const found: CardRevision[] = [];
+  for (const path of paths) {
+    if (!isCardPath(path)) continue;
+    try {
+      found.push({ path, revision: revisionOf(await readFile(join(dir, path), "utf8")) });
+    } catch {
+      // Deleted by the pull, or unreadable: no card view shows it.
+    }
+  }
+  return found;
+}
+
 async function runSequence(
   repo: Repo,
   name: string,
   machine: string,
-  report: { broughtIn: string[] },
+  report: { broughtIn: CardRevision[] },
 ): Promise<RepoSyncResult> {
   const dir = repo.dir;
   const unavailable = await repo.unavailable();
@@ -602,9 +628,9 @@ async function runSequence(
       ...(await repo.paths(["ls-files", "--others", "--exclude-standard", "-z"])),
     ]);
     const clash = remoteChanged.map(({ path }) => path).filter((path) => edited.has(path));
-    // What the remote adds can't be in HEAD, so anything at that path here is a file git
-    // doesn't track: an ignored one too, which the pull would overwrite without a word.
-    clash.push(...(await untrackedInTheWay(dir, remoteChanged, edited)));
+    // A file git doesn't track where the remote adds one, an ignored one too: the pull
+    // would overwrite it without a word.
+    clash.push(...(await untrackedInTheWay(repo, remoteChanged, edited)));
     if (clash.length > 0) {
       return result(
         "not-now",
@@ -697,7 +723,9 @@ async function runSequence(
     });
   }
 
-  // The cards the pull changed here (whatever happens next, they are in the checkout now).
+  // The cards the pull changed here (whatever happens next, they are in the checkout now),
+  // read at once: an agent may rewrite one during the checks and the push, and that
+  // revision is the agent's, not Sync's.
   const pulledHead = await repo.run(["rev-parse", "--verify", "HEAD^{commit}"]);
   if (pulledHead.code === 0) {
     const changed = await repo.run([
@@ -710,7 +738,7 @@ async function runSequence(
       "--",
       CARDS,
     ]);
-    if (changed.code === 0) report.broughtIn = splitZ(changed.stdout);
+    if (changed.code === 0) report.broughtIn = await cardRevisions(dir, splitZ(changed.stdout));
   }
 
   // Look before pushing: a file an agent wrote while the pull had it set aside leaves
@@ -794,8 +822,10 @@ async function runSequence(
       CARDS,
     ]),
   );
-  const remoteHead = (await repo.out(["rev-parse", "--verify", `${expected}^{commit}`])).trim();
-  if (head !== remoteHead) {
+  // Nothing to send when the remote already has HEAD: equal, or behind it when a fetch
+  // (another hub's, an agent's) moved the remote-tracking branch since the pull.
+  const remoteHas = (await repo.run(["merge-base", "--is-ancestor", head, expected])).code === 0;
+  if (!remoteHas) {
     // Exactly the checked commit, to the branch main tracks on the remote main tracks. Not a
     // bare `git push`, which follows push.default (matching pushes every branch with a
     // namesake on the remote), remote.pushDefault and branch.main.pushRemote; no tags and no
@@ -1010,18 +1040,10 @@ export class SyncService {
     return this.#broughtIn.get(broughtInKey(project, cardPath))?.includes(revision) ?? false;
   }
 
-  async #recordBroughtIn(project: Project, paths: string[]): Promise<void> {
-    for (const path of paths) {
-      if (!isCardPath(path)) continue;
-      let text: string;
-      try {
-        text = await readFile(join(project.path, path), "utf8");
-      } catch {
-        continue; // Deleted by the pull, or unreadable: no card view shows it.
-      }
+  #recordBroughtIn(project: Project, cards: CardRevision[]): void {
+    for (const { path, revision } of cards) {
       const key = broughtInKey(project, path);
       const list = this.#broughtIn.get(key) ?? [];
-      const revision = revisionOf(text);
       if (!list.includes(revision)) list.push(revision);
       if (list.length > 20) list.shift();
       this.#broughtIn.delete(key);
@@ -1076,7 +1098,7 @@ export class SyncService {
             const run = await syncRepoDetailed(project.path, project.name, this.#options);
             // Recorded before the `cards` event below, so a card view that reloaded while
             // the pull ran (and took the change for an agent's) gets it right on that event.
-            await this.#recordBroughtIn(project, run.broughtIn);
+            this.#recordBroughtIn(project, run.broughtIn);
             return run.result;
           } catch (error) {
             console.error(error);

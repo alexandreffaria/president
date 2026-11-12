@@ -164,8 +164,11 @@ kbd {
   top: 0;
   z-index: 10;
   display: flex;
+  /* Only if something still doesn't fit (a large font): a second line, never a sideways
+     scroll. */
+  flex-wrap: wrap;
   align-items: center;
-  gap: 1.5rem;
+  gap: 0.25rem 1.5rem;
   padding: 0.6rem 1.25rem;
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(8px);
@@ -243,9 +246,11 @@ kbd {
   gap: 0.5rem;
 }
 
+/* One line: the bar never grows tall around a squeezed column of words. */
 .sync-summary {
   font-size: 0.8rem;
   color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .sync-button {
@@ -1339,7 +1344,28 @@ body:has(.action-bar-open) .toasts {
   }
 }
 
-@media (max-width: 40rem) {
+/* Below this the full Sync summary (three-digit counts, "Connecting") doesn't fit next to
+   the nav on one line: the count moves onto the Sync button instead (S2-3, measured in
+   Chrome from 320 to 1280 px). */
+@media (max-width: 72rem) {
+  /* Hidden from sight only: screen readers still read (and announce) it. */
+  .sync-summary {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .sync-button .sync-count {
+    display: inline-block;
+  }
+}
+
+/* The top bar's own narrow layout starts wider than the rest: up to 48rem the nav, the Sync
+   button with its count and key, the connection label ("Connecting") and ? don't fit on
+   one line at full size (S2-3). */
+@media (max-width: 48rem) {
   /* The padding is the margin at the screen's edges: if the bar's contents ever don't fit
      on one line (large counts, a large font), the end group wraps to its own line rather
      than spilling into it. */
@@ -1367,18 +1393,13 @@ body:has(.action-bar-open) .toasts {
   }
 
   /* Hidden from sight only: screen readers still read (and announce) it. */
-  .connection-label,
-  .sync-summary {
+  .connection-label {
     position: absolute;
     width: 1px;
     height: 1px;
     overflow: hidden;
     clip: rect(0 0 0 0);
     white-space: nowrap;
-  }
-
-  .sync-button .sync-count {
-    display: inline-block;
   }
 
   .sync-button kbd {
@@ -1389,7 +1410,9 @@ body:has(.action-bar-open) .toasts {
   .topbar-end .button {
     padding: 0.3rem 0.4rem;
   }
+}
 
+@media (max-width: 40rem) {
   .notice.sync-report {
     margin: 1rem 0.9rem 0;
   }

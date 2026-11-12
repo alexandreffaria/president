@@ -122,7 +122,13 @@ export function CardView({ project, id }: { project: string; id: string }) {
       }
       const card = res.card;
       setLoaded({ state: "ok", card });
-      if (seen?.revision === card.revision) return false;
+      if (seen?.revision === card.revision) {
+        // Back at the version the human read (a reload mid-pull caught the card in between,
+        // say): nothing is unread, so no notice either.
+        setChangedBy(null);
+        setChoiceCleared(false);
+        return false;
+      }
       // First load, our own action (here, or undone from a toast), or nothing the human has
       // to look at again (an agent marking notes read): nothing to point out.
       if (
