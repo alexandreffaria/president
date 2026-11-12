@@ -197,8 +197,8 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
    with git submodules (a `.gitmodules` file or a submodule in the index), or whose file
    list is too long to check for them: commit and push `decisions/` there by hand. If git
    prints more than Sync reads (4 MiB) anywhere else, Sync stops with "git output too large"
-   and says to commit or pull by hand. A large change on the online copy doesn't count: Sync
-   only looks up the files edited here.
+   and changes nothing. A very large change on the online copy means a pull by hand, but
+   only when an agent has uncommitted edits here; otherwise its size doesn't matter.
 
 To try it with sample cards:
 

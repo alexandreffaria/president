@@ -180,11 +180,13 @@ section left open were settled the simplest safe way, and the human can change a
   pull can delete an agent's untracked files inside a submodule without a word. The check
   reads `git ls-files --format=%(objectmode)` (`--stage` on a git older than 2.38), and a
   list cut at Sync's output limit skips the project too, so a gitlink is never missed.
-  Anywhere else, output cut at that limit is a git failure ("git output too large", with
-  "commit or pull by hand" as the action). Check 3 reads `git diff --name-only HEAD` first and,
-  only when that lists files outside `decisions/`, `git diff --name-only HEAD...@{u} --` with
-  those files as literal pathspecs (100 per command), so the size of the remote's change never
-  matters. The pull runs with `LANGUAGE=en`, so git's untracked-file wording is matched in
+  Anywhere else, output cut at that limit stops Sync before it changes anything ("git output
+  too large"). Check 3 reads `git diff --name-only HEAD` first and, only when that lists files
+  outside `decisions/`, the whole `git diff --name-only HEAD...@{u}`. So a very large change
+  list on the remote means a hand pull, but only when an agent has uncommitted edits here. If
+  the remote's list is cut, the action says to pull by hand when no agent is working there; if
+  check 2's log or the list of files edited here is cut, it says to commit and push that work
+  by hand, or put it away. The pull runs with `LANGUAGE=en`, so git's untracked-file wording is matched in
   English under a localized git too.
 - The rebase, merge, detached-HEAD and no-upstream parts of check 1 run **before** the fetch
   (they need no network); the rest after it, as in the card.

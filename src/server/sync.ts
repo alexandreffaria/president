@@ -11,8 +11,8 @@
  *   #     cherry-pick, revert, sequence of those or bisect in progress, and no unmerged file
  *   #  2. git log @{u}..HEAD has no unpushed commit that changes files outside decisions/
  *   #     (or no files at all: an empty commit)
- *   #  3. no file outside decisions/ with uncommitted edits here (git diff HEAD) also
- *   #     changed on the remote (git diff HEAD...@{u} -- those files)
+ *   #  3. no file outside decisions/ that the remote changed (git diff HEAD...@{u}) has
+ *   #     uncommitted edits here (git diff HEAD)
  *   # the "in progress" part of check 1 once more, right before the first change
  *   git add -- decisions/
  *   git commit --only -m "decisions from laptop: 0003, 0005" -- decisions/   # if anything is staged
@@ -62,15 +62,18 @@ export type RepoSyncResult = Omit<SyncResultDto, "project" | "at">;
 const CARDS = `${DECISIONS_DIR}/`;
 const MAX_GIT_ERROR = 1200;
 const SUBMODULES = "it has git submodules, which Sync doesn't handle";
-/** Paths per `git diff` in check 3, which keeps each command line short. */
-const PATHS_PER_DIFF = 100;
+const TOO_MANY_HERE =
+  "This project has more changed files than Sync can check. Commit and push the work there by hand, or put it away, then press Sync again.";
 
 /** A git command that failed where the sequence can't go on. */
 class GitFailed extends Error {
   readonly result: GitResult;
-  constructor(args: string[], result: GitResult) {
+  /** What the human can do, when it isn't "fix what git reports". */
+  readonly action?: string;
+  constructor(args: string[], result: GitResult, action?: string) {
     super(`git ${args.join(" ")} failed`);
     this.result = result;
+    this.action = action;
   }
 }
 
@@ -96,22 +99,23 @@ class Repo {
     return runGit(this.dir, args, options);
   }
 
-  /** Runs git and returns its output; a failure, or output cut at the limit, throws GitFailed. */
-  async out(args: string[]): Promise<string> {
+  /**
+   * Runs git and returns its output; a failure, or output cut at the limit, throws GitFailed.
+   * `tooLarge` is the action shown when the output is cut.
+   */
+  async out(args: string[], tooLarge = TOO_MANY_HERE): Promise<string> {
     const result = await this.run(args);
     if (result.code !== 0) throw new GitFailed(args, result);
     if (result.truncated) {
-      throw new GitFailed(args, {
-        ...result,
-        stderr: `git output too large: git ${args[0]} printed more than Sync reads, so Sync stopped there.`,
-      });
+      const stderr = `git output too large: git ${args[0]} printed more than Sync reads, so Sync stopped there.`;
+      throw new GitFailed(args, { ...result, stderr }, tooLarge);
     }
     return result.stdout;
   }
 
   /** NUL-separated paths from a `-z` command. */
-  async paths(args: string[]): Promise<string[]> {
-    return splitZ(await this.out(args));
+  async paths(args: string[], tooLarge?: string): Promise<string[]> {
+    return splitZ(await this.out(args, tooLarge));
   }
 
   /**
@@ -469,12 +473,9 @@ async function guardedSequence(
     return await runSequence(repo, name, options.hostname ?? machineName(), pulled);
   } catch (error) {
     if (error instanceof GitFailed) {
-      const tooLarge = error.result.code === 0 && error.result.truncated;
       return result("not-synced", `Not synced: git failed in ${name}`, {
         gitError: gitErrorText(error.result),
-        action: tooLarge
-          ? `${name} has more changed files than Sync can check. Commit or pull by hand (git pull --rebase --autostash in ${dir}), then press Sync again.`
-          : "Fix what git reports, then press Sync again.",
+        action: error.action ?? "Fix what git reports, then press Sync again.",
       });
     }
     throw error;
@@ -595,26 +596,21 @@ async function runSequence(
   // Check 2 passed, so outside decisions/ HEAD is the last commit in common with the remote.
   // Untracked files in the pull's way are left to git, which refuses to overwrite them (the
   // pull fails and is undone); ignored files git replaces, as a plain git pull does.
-  // Only the files edited here are looked up on the remote, so the size of the remote's
-  // whole change (a committed dependency folder, say) doesn't matter.
-  const edited = (await repo.paths(["diff", "--name-only", "-z", "--no-renames", "HEAD"])).filter(
-    (path) => !isCardPath(path),
+  // The edits here are read first: with none, the remote's change list isn't needed.
+  const edited = new Set(
+    (await repo.paths(["diff", "--name-only", "-z", "--no-renames", "HEAD"])).filter(
+      (path) => !isCardPath(path),
+    ),
   );
-  const clash: string[] = [];
-  for (let i = 0; i < edited.length; i += PATHS_PER_DIFF) {
-    const chunk = edited.slice(i, i + PATHS_PER_DIFF);
-    const wanted = new Set(chunk);
-    const changed = await repo.paths([
-      "diff",
-      "--name-only",
-      "-z",
-      "--no-renames",
-      `HEAD...${expected}`,
-      "--",
-      ...chunk.map((path) => `:(literal)${path}`),
-    ]);
-    clash.push(...changed.filter((path) => wanted.has(path)));
-  }
+  const clash =
+    edited.size === 0
+      ? []
+      : (
+          await repo.paths(
+            ["diff", "--name-only", "-z", "--no-renames", `HEAD...${expected}`],
+            `The online copy of ${name} changed too many files for Sync to check. Pull by hand (git pull --rebase --autostash in ${dir}) when no agent is working there, then press Sync again.`,
+          )
+        ).filter((path) => edited.has(path));
   if (clash.length > 0) {
     return result(
       "not-now",

@@ -1104,19 +1104,21 @@ describe("output cut at the limit (S4-2)", () => {
   });
 });
 
-describe("check 3 reads only the files edited here (S5-1)", () => {
+describe("a list too large to read (S5-1, S6-2)", () => {
   const vendorFile = (i: number) => `vendor/${"long-name-".repeat(10)}${i}.js`;
-  /** The desktop pushes 50 files with long names: about 5 KB of paths. */
-  async function desktopPushesManyFiles(s: Sandbox, extra: Record<string, string> = {}) {
-    const files: Record<string, string> = { ...extra };
-    for (let i = 0; i < 50; i++) files[vendorFile(i)] = "v\n";
-    await desktopPushes(s, files, "a big vendor folder");
+  /** 50 files with long names: about 5 KB of paths. */
+  function manyFiles(text: string): Record<string, string> {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 50; i++) files[vendorFile(i)] = text;
+    return files;
   }
   const small = (s: Sandbox) => ({ ...s.options, maxOutput: 1000 });
+  const tooManyHere =
+    "This project has more changed files than Sync can check. Commit and push the work there by hand, or put it away, then press Sync again.";
 
   it("syncs when the remote changed many files and nothing is edited here", async () => {
     const s = await gitSandbox();
-    await desktopPushesManyFiles(s);
+    await desktopPushes(s, manyFiles("v\n"));
     await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
 
     const result = await syncRepo(s.laptop, "shop", small(s));
@@ -1125,76 +1127,53 @@ describe("check 3 reads only the files edited here (S5-1)", () => {
     expect(s.remoteLog()[0]).toBe("decisions from laptop: 0001");
   });
 
-  it("still says not now when an edited file changed on the remote too", async () => {
+  it("says to pull by hand when the remote's change list is cut", async () => {
     const s = await gitSandbox();
-    await desktopPushesManyFiles(s, { "lib.js": "y = remote\n" });
+    await desktopPushes(s, manyFiles("v\n"));
     await answerAndAgentWork(s);
     const before = snapshot(s);
 
     const result = await syncRepo(s.laptop, "shop", small(s));
 
     expect(result).toMatchObject({
-      outcome: "not-now",
-      message:
-        "Not now: an agent in shop has uncommitted edits to lib.js, which also changed on the remote",
+      outcome: "not-synced",
+      action: `The online copy of shop changed too many files for Sync to check. Pull by hand (git pull --rebase --autostash in ${s.laptop}) when no agent is working there, then press Sync again.`,
     });
+    expect(result.gitError).toMatch(/^git output too large: git diff/);
     expect(snapshot(s)).toEqual(before);
   });
 
-  it("finds a clash past the first group of edited files", async () => {
+  it("says to commit or put away the work when the files edited here are too many", async () => {
     const s = await gitSandbox();
-    const files: Record<string, string> = {};
-    for (let i = 0; i < 150; i++) files[`src/f${String(i).padStart(3, "0")}.js`] = "a\n";
-    await desktopPushes(s, files, "many files");
+    await desktopPushes(s, manyFiles("v\n"));
     s.git(s.laptop, "pull", "--quiet");
-    await desktopPushes(s, { "src/f149.js": "remote\n" });
-    for (const file of Object.keys(files)) await s.write(s.laptop, file, "mine\n");
-    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
-    const before = snapshot(s);
-
-    const result = await syncRepo(s.laptop, "shop", s.options);
-
-    expect(result).toMatchObject({
-      outcome: "not-now",
-      message:
-        "Not now: an agent in shop has uncommitted edits to src/f149.js, which also changed on the remote",
-    });
-    expect(snapshot(s)).toEqual(before);
-  });
-
-  it("matches edited file names literally", async () => {
-    const s = await gitSandbox();
-    // Read as pathspec magic, ":x.js" would mean x.js.
-    await desktopPushes(s, { ":x.js": "a\n" }, "an odd name");
-    s.git(s.laptop, "pull", "--quiet");
-    await desktopPushes(s, { ":x.js": "remote\n" });
-    await s.write(s.laptop, ":x.js", "mine\n");
-    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
-    const before = snapshot(s);
-
-    const result = await syncRepo(s.laptop, "shop", s.options);
-
-    expect(result.outcome).toBe("not-now");
-    expect(result.message).toMatch(/uncommitted edits to :x\.js/);
-    expect(snapshot(s)).toEqual(before);
-  });
-
-  it("says what to do when the files edited here are too many to read", async () => {
-    const s = await gitSandbox();
-    await desktopPushesManyFiles(s);
-    s.git(s.laptop, "pull", "--quiet");
-    for (let i = 0; i < 50; i++) await s.write(s.laptop, vendorFile(i), "edited\n");
+    for (const [file, text] of Object.entries(manyFiles("edited\n"))) {
+      await s.write(s.laptop, file, text);
+    }
     await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
     const before = snapshot(s);
 
     const result = await syncRepo(s.laptop, "shop", small(s));
 
-    expect(result).toMatchObject({
-      outcome: "not-synced",
-      message: "Not synced: git failed in shop",
-      action: `shop has more changed files than Sync can check. Commit or pull by hand (git pull --rebase --autostash in ${s.laptop}), then press Sync again.`,
-    });
+    expect(result).toMatchObject({ outcome: "not-synced", action: tooManyHere });
     expect(result.gitError).toMatch(/^git output too large: git diff/);
+    expect(snapshot(s)).toEqual(before);
+  });
+
+  it("says to commit or put away the work when check 2's log is cut", async () => {
+    const s = await gitSandbox();
+    for (const [file, text] of Object.entries(manyFiles("agent\n"))) {
+      await s.write(s.laptop, file, text);
+    }
+    s.git(s.laptop, "add", "vendor");
+    s.git(s.laptop, "commit", "--quiet", "-m", "agent work");
+    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+    const before = snapshot(s);
+
+    const result = await syncRepo(s.laptop, "shop", small(s));
+
+    expect(result).toMatchObject({ outcome: "not-synced", action: tooManyHere });
+    expect(result.gitError).toMatch(/^git output too large: git log/);
     expect(snapshot(s)).toEqual(before);
   });
 });
