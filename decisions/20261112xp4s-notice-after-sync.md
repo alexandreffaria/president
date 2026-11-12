@@ -12,15 +12,15 @@ recommendation:
   option: from-sync
   why: >-
     It is the only wording that is always true without guessing: the hub knows which cards its
-    own Sync just brought in, but not who made each change on the other machine (it may be you,
-    or an agent working there). It keeps the "read it before you act" pause, which protects you
+    own Sync just brought in from the online copy, but not who changed them there (you on your
+    other machine, an agent there, or a pull request someone merged). It keeps the "read it before you act" pause, which protects you
     from deciding on text you haven't seen, and it is a small change. Pick by-change if you
     often have agents rewriting cards on one machine while you answer on another, and want each
     line of the notice to say who did it; pick neutral if you'd rather never see a "who" at all.
 options:
   - id: neutral
     title: A neutral "This card changed"
-    summary: The notice drops the "who" and says only that the card changed while you had it open, then lists what changed, for every change that didn't come from this browser or another president tab.
+    summary: The notice drops the "who" and says only that the card changed while you had it open, then lists what changed, for every change that didn't come from this tab or another president tab.
     pros:
       - Never wrong, whoever or whatever made the change
       - The smallest change; one sentence of wording
@@ -29,17 +29,17 @@ options:
       - After a Sync you still have to work out for yourself that it was your own answer from the other machine
   - id: from-sync
     title: Say it came in with Sync
-    summary: When the change arrived with this hub's Sync, the notice says "This card changed on another machine. Sync just brought the change in."; other changes keep today's wording.
+    summary: When the change arrived with this hub's Sync, the notice says "Sync just brought in a newer version of this card from the online copy."; other changes keep today's wording.
     pros:
       - Tells you the real reason the card moved, at the moment you pressed Sync
-      - Always true; it says where the change came from, not who made it
+      - Always true; it says how the change arrived, not who made it or where
       - Keeps today's wording for an agent working on this machine, where it is right
     cons:
-      - Doesn't say whether it was you or an agent on the other machine; the list of changes is your only clue
+      - Doesn't say whether it was you on your other machine, an agent, or a merged pull request; the list of changes is your only clue
       - A change brought in some other way (someone running git pull in a terminal) still says "An agent changed this card"
   - id: by-change
     title: Say who made each change
-    summary: The notice sorts the changes by kind; your kinds of change (a decision, a note, a deferral, an undo) are listed as yours, the agent's kinds (new options, a new recommendation, new text) as the agent's.
+    summary: The notice sorts the changes by kind; your kinds of change (a decision, a note, a deferral, a reopen, a Neither, an undo) are listed as yours, the agent's kinds (new options, a new recommendation, new text) as the agent's.
     pros:
       - The most informative; you see at a glance "your decision from the other machine" and "an agent added an option"
       - Works however the change arrived, through Sync or not
@@ -49,7 +49,7 @@ options:
       - A longer notice to read
   - id: quiet
     title: No notice for your own answers
-    summary: When every change Sync brought in is one of your kinds (a decision, a note, a deferral, an undo), the card just updates with no notice and no "I've read it"; anything else still gets the notice.
+    summary: When every change Sync brought in is one of your kinds (a decision, a note, a deferral, a reopen, a Neither, an undo), the card just updates with no notice and no "I've read it"; anything else still gets the notice.
     pros:
       - No interruption for something you did yourself
       - The card simply shows its new state, for example "Decided" with your answer
@@ -67,8 +67,9 @@ answers from one machine and brings in the answers you gave on your other machin
 flagged two left-over questions as yours to answer; this is one of them (the other is
 [2026111209dq](2026111209dq-sync-inside-bigger-repo.md)).
 
-**The situation.** You decide card #0003 on your laptop and press Sync there. Later, at your
-desktop, card #0003 happens to be open on the screen (still undecided there). You press Sync.
+**The situation.** You decide a card, say "What should the empty trip list say?", on your
+laptop and press Sync there. Later, at your desktop, the same card happens to be open on the
+screen (still undecided there). You press Sync.
 The pull brings in your laptop answer, the card on the screen changes, and today it shows:
 
 ```
@@ -88,7 +89,7 @@ under you: until you press "I've read it", the hub refuses to record a decision 
 the old text, and if you had picked an option, the pick is cleared ("Your choice was cleared.
 Read it again before deciding."). Every option except `quiet` keeps that pause.
 
-**What the hub can know.** It knows when a change came from this browser (no notice) or from
+**What the hub can know.** It knows when a change came from this tab (no notice) or from
 another president tab on this machine ("You changed this card in another president tab.").
 Anything else counts as "an agent". Once Sync exists, the hub can also know which cards its own
 Sync just brought in. It can **not** know who made a change on the other machine: Sync there
@@ -113,7 +114,7 @@ The same wording for an agent on this machine and for a Sync. A change from anot
 After your Sync:
 
 ```
-This card changed on another machine. Sync just brought the change in.
+Sync just brought in a newer version of this card from the online copy.
 Read what changed before you act on it.
   • It is now resolved (was open).
   • It was decided: "Lead with the next action".
@@ -149,10 +150,13 @@ brought in an agent's new option, you get the usual notice instead.
   `CardDetailDto` next to `writtenByPresident`, and `CardView` picks the sentence from it. The
   current line is `setChangedBy(card.writtenByPresident ? "other-tab" : "agent")` in
   `src/web/views/CardView.tsx` on `feat/sync`.
+  The watcher can reload the card mid-pull, before the Sync knows what it brought in; the
+  reload on the `cards` event after the Sync must pick the sentence again (record the
+  revisions before emitting it).
 - `by-change` and `quiet`: `src/web/card-changes.ts` (`describeChanges`) gains a "who" per
-  line: `resolution`, `status` and new `feedback` entries of type `note`, `defer`, `reopen` and
-  `undo` count as yours; `options`, `recommendation`, the body sections, `title` and
-  `needs_new_options` being cleared count as an agent's. `quiet` also has to acknowledge the new
+  line: `resolution`, `status`, `needs_new_options` being set and new `feedback` entries of type
+  `note`, `defer`, `reopen`, `neither` and `undo` count as yours; `options`, `recommendation`,
+  the body sections, `title` and `needs_new_options` being cleared count as an agent's. `quiet` also has to acknowledge the new
   revision by itself, so the hub accepts actions on it.
 
 ## Sources

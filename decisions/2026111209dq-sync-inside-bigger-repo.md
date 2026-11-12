@@ -26,7 +26,6 @@ options:
       - Nothing more to build or explain
     cons:
       - A project in a monorepo or a home-folder repository never gets Sync; its answers stay on the machine where you gave them until someone commits them by hand
-      - The top bar's "answers not synced" count leaves such a project out, so between Syncs nothing reminds you its answers haven't moved
   - id: opt-in
     title: Inside a bigger repository, only once you say yes
     summary: Such a project is skipped until you turn Sync on for it; the question names the bigger repository and what Sync will do to it, and from then on Sync runs there as in any project.
@@ -47,7 +46,7 @@ options:
     cons:
       - Every Sync pulls the whole bigger repository, so files far from your project can change on this machine (your shell settings, in a home-folder repository)
       - It pushes straight to the bigger repository's main branch; in a shared monorepo that may be refused, or put "decisions from thinkpad" commits in your team's history
-      - Sync says "not now" more often, because an agent's unpushed work anywhere in the bigger repository blocks it
+      - Sync says "not now" more often, because unpushed commits or edited files anywhere in the bigger repository (an agent's, a teammate's merged change to a file you edited, your own settings files) block it, and while it pulls it sets aside every uncommitted change in that repository and puts it back
 ---
 
 ## Context
@@ -73,9 +72,11 @@ is the repository's top folder. Two common setups break that:
 repository. Otherwise pressing Sync shows, greyed out:
 
 ```
-Not synced: web is skipped because it is inside the git repository /home/you/shop
-rather than its top folder, and Sync only works on a project that is a repository's top folder
+Not synced: web is skipped because it isn't the top folder of a git repository
 ```
+
+(The same sentence appears for a folder that isn't in git at all; it doesn't name the bigger
+repository.)
 
 The reason is safety. Sync does three things to the whole repository, not just to your cards:
 it **brings in** everything the online copy has that this machine doesn't (*pull*), it
@@ -88,15 +89,19 @@ work in it.
 `decisions/` folder, so it never adds anyone else's files. Sync still refuses ("Not now") when
 an agent has unfinished or unsent work it could disturb, and still stops, changing nothing, if
 something looks wrong.
+Today the top bar's "answers not synced" count leaves a skipped project out, so nothing
+reminds you its answers haven't moved; whichever option you pick, it can count them too
+("web: 2 answers not synced (Sync skips it)").
 
 **What there is today.** One project is registered on this machine: president, which is the
-top folder of its own repository. So no project is affected yet.
+top folder of its own repository. So no project is affected yet, though the decision-cards
+skill already shows agents how to register a monorepo subfolder (`--name shop-web`).
 
 ## Option top-only: Only projects that are their own repository
 
 What pull request 12 does. For `shop/web`, Sync always says it is skipped. To move its answers
 to your other machine, you (or an agent you ask) commit `shop/web/decisions/` and push by hand,
-as everyone does today before Sync exists.
+as before Sync existed.
 
 ## Option opt-in: Inside a bigger repository, only once you say yes
 
@@ -122,7 +127,8 @@ in a local commit.
 ## Technical detail (for the implementer)
 
 - `opt-in` and `any-repo`: `Repo.unavailable()` in `src/server/sync.ts` (on `feat/sync`) stops
-  requiring `realpath(show-toplevel) === realpath(dir)`; every path in the sequence becomes
+  requiring a `.git` entry in the project folder (the `lstat` at the top, which is what skips
+  subfolders today) and `realpath(show-toplevel) === realpath(dir)`; every path in the sequence becomes
   `<prefix>/decisions/` (from `git rev-parse --show-prefix`): `git add`, `commit --only`, the
   counts, check 2 ("no unpushed commit outside decisions/") and check 3's `isCardPath`. Checks 2
   and 3 stay repository-wide, which is where the extra "not now" comes from.
