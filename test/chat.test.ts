@@ -15,7 +15,12 @@ import type {
   HubEvent,
 } from "../src/core/api.ts";
 import { createApp } from "../src/server/app.ts";
-import { claudeArgs, describeTool, runClaude } from "../src/server/chat/runner.ts";
+import {
+  claudeArgs,
+  describeTool,
+  runClaude,
+  transcriptExists,
+} from "../src/server/chat/runner.ts";
 import { ChatService, KEEP_MISSING_MS } from "../src/server/chat/service.ts";
 import { defaultStateDir } from "../src/server/chat/store.ts";
 import { Registry } from "../src/server/registry.ts";
@@ -418,6 +423,19 @@ describe("the pick line (20261111mby8, 2026111272fu)", () => {
 });
 
 describe("when Claude Code no longer has the session (#0018, #0021)", () => {
+  it("still remembers during a new session's first run, before its transcript exists", async () => {
+    const t = await setup();
+    await t.script([{ pauseMs: 400, lateTranscript: true }]);
+    const reply = t.post("/api/chats/demo/0002/messages", { text: "One" });
+    // The session is stored once Claude Code started it; its transcript isn't there yet.
+    await vi.waitFor(async () => expect((await t.sessions())["demo/0002"]?.session).toBeDefined());
+    const session = (await t.sessions())["demo/0002"]?.session as string;
+    expect(await transcriptExists(join(t.root, "claude"), session)).toBe(false);
+    expect(await t.conversation()).toMatchObject({ running: true, remembers: true });
+    await (await reply).text();
+    expect(await t.conversation()).toMatchObject({ running: false, remembers: true });
+  });
+
   it("says the agent no longer remembers, then starts over from the summaries", async () => {
     const t = await setup();
     await t.send("One");

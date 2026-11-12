@@ -125,6 +125,11 @@ export class ChatService {
   readonly #now: () => Date;
   /** Cards with a run going on (a reply or a summary): one at a time per card. */
   readonly #running = new Map<string, ChatRun | "summary">();
+  /**
+   * Cards whose run is starting a new session: Claude Code may not have written its
+   * transcript yet, which doesn't mean it forgot the conversation.
+   */
+  readonly #starting = new Set<string>();
   /** Card revisions written by saving a summary, with what to put back if that is undone. */
   readonly #summaryWrites = new Map<string, { key: CardKey; before: SessionEntry | undefined }>();
   /** How many messages the summary last offered for a card covers. */
@@ -167,7 +172,12 @@ export class ChatService {
     return {
       messages,
       unsummarized: entry?.unsummarized === true,
-      remembers: !entry?.session || (await transcriptExists(this.#claudeDir, entry.session)),
+      // "No longer remembers" only for a stored session whose transcript Claude Code no
+      // longer has, never during a new session's first run (before its transcript exists).
+      remembers:
+        !entry?.session ||
+        this.#starting.has(keyName(key)) ||
+        (await transcriptExists(this.#claudeDir, entry.session)),
       running: this.#running.has(keyName(key)),
     };
   }
@@ -192,6 +202,7 @@ export class ChatService {
       })
       .finally(() => {
         this.#running.delete(keyName(key));
+        this.#starting.delete(keyName(key));
         this.#changed(key);
       });
     return run;
@@ -227,6 +238,8 @@ export class ChatService {
     let entryWrite: Promise<unknown> = Promise.resolve();
     const attempt = async (): Promise<RunResult> => {
       const session = resume && entry?.session ? entry.session : randomUUID();
+      if (resume) this.#starting.delete(keyName(key));
+      else this.#starting.add(keyName(key));
       const message = withPickLine(
         pickLine(card, revealed),
         startOver ? `${startOverNote(card)}\n\n${input.text}` : input.text,
