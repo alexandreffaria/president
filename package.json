@@ -9,8 +9,7 @@
     "node": ">=24.9"
   },
   "bin": {
-    "preside": "bin/preside.js",
-    "president": "bin/president.js"
+    "preside": "bin/preside.js"
   },
   "scripts": {
     "dev": "node bin/check-node.js && concurrently --kill-others-on-fail --names api,web --prefix-colors blue,magenta \"node --watch-path=src/server --watch-path=src/core --watch-path=src/cli src/server/main.ts\" \"vite\"",

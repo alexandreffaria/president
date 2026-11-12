@@ -8,7 +8,10 @@
  *   GET    /api/cards?project=&status=&tag=  cards, broken files and projects (with counts)
  *   GET    /api/cards/:project/:id?since=    since = a revision the client read (see
  *                                            CardDetailDto.writtenByPresident)
- *   POST   /api/cards/:project/:id/actions   { type, ..., revision }  (see core/actions.ts)
+ *   POST   /api/cards/:project/:id/actions   { type, ..., revision, closeChat? }  (see
+ *                                            core/actions.ts); closeChat on a decision
+ *                                            without summary also closes the card's
+ *                                            conversation, and its undo reopens it (20261112hq3k)
  *   POST   /api/cards/:project/:id/undo      { revision }  revision = what the action returned
  *   GET    /api/chats/:project/:id           the card's conversation on this machine (ChatDto)
  *   POST   /api/chats/:project/:id/messages  { text | ask, revealed?, revision? }  sends a
@@ -21,7 +24,8 @@
  *                                            card action (or "resolve" with `summary`)
  *   POST   /api/chats/:project/:id/close     {}  ends the conversation without a summary: the
  *                                            "not summarized" reminder goes; the card isn't
- *                                            written (202611111ky9)
+ *                                            written (202611111ky9). Answers { chat, closed }
+ *   POST   /api/chats/:project/:id/reopen    { closed }  undoes that close (its notice's Undo)
  *   GET    /api/sync                         per project: answers not synced, card changes on
  *                                            the remote, the last Sync's result (sync.ts)
  *   POST   /api/sync                         {}  runs Sync in every project; answers when done
@@ -113,6 +117,11 @@ const ChatMessageSchema = ChatContextSchema.extend({
 });
 
 const ChatSummarySchema = ChatContextSchema;
+
+/** Hub-only extras of a card action, next to it in the body. */
+const ActionExtrasSchema = z.object({ closeChat: z.boolean().optional() });
+
+const ReopenSchema = z.object({ closed: z.string().min(1).max(200) });
 
 const ListQuerySchema = z.object({
   project: z.string().optional(),
@@ -223,12 +232,28 @@ export function createApp(options: AppOptions): Hono {
     const body = await readJson(c.req.raw);
     const action = parseBody(CardActionSchema, body);
     const { revision } = parseBody(RevisionSchema, body);
+    const { closeChat } = parseBody(ActionExtrasSchema, body);
+    if (closeChat && (action.type !== "resolve" || action.summary)) {
+      throw new UserError("closeChat goes with a decision that carries no summary", {
+        status: 400,
+      });
+    }
     const card = await sync.writeCard(project, () =>
       actOnCard(project, c.req.param("id"), action, { revision }),
     );
     writes.record(card.path, revision, card.revision);
     if (action.type === "chat" || (action.type === "resolve" && action.summary)) {
-      await chat.summarySaved(project, card.id, card.revision);
+      // Bookkeeping: the card is already written, so a failure here is logged, never a 500
+      // (the page would save the summary again).
+      await chat
+        .summarySaved(project, card.id, card.revision)
+        .catch((error: unknown) => console.error("[chat] recording a saved summary:", error));
+    }
+    if (closeChat) {
+      // "Decide without summary" (20261112hq3k): bookkeeping too, never a failed write.
+      await chat
+        .closeWithoutSummary(project, card.id, { decision: card.revision })
+        .catch((error: unknown) => console.error("[chat] closing the conversation:", error));
     }
     // The watcher will notice too; emitting now makes other tabs update immediately.
     bus.emit({ type: "cards", project: project.name });
@@ -242,7 +267,10 @@ export function createApp(options: AppOptions): Hono {
       undoLastAction(project, c.req.param("id"), revision),
     );
     writes.record(card.path, revision, card.revision);
-    await chat.undone(revision);
+    // Bookkeeping, as for summarySaved: the undo itself is done.
+    await chat
+      .undone(revision)
+      .catch((error: unknown) => console.error("[chat] recording an undone summary:", error));
     bus.emit({ type: "cards", project: project.name });
     return c.json({ ok: true, card: toCardDetailDto(card, true) } satisfies CardResponse);
   });
@@ -266,7 +294,11 @@ export function createApp(options: AppOptions): Hono {
         lines.push(event);
         wake();
       });
-      out.onAbort(unsubscribe);
+      // Wake the loop too, so it sees the page went away and the handler ends.
+      out.onAbort(() => {
+        unsubscribe();
+        wake();
+      });
       try {
         while (!out.aborted) {
           const event = lines.shift();
@@ -297,6 +329,12 @@ export function createApp(options: AppOptions): Hono {
     // A JSON body, like every write (security.ts); nothing in it is used.
     await readJson(c.req.raw);
     return c.json(await chat.closeWithoutSummary(project, cardId(c.req.param("id"))));
+  });
+
+  api.post("/chats/:project/:id/reopen", async (c) => {
+    const project = await requireProject(registry, c.req.param("project"));
+    const { closed } = parseBody(ReopenSchema, await readJson(c.req.raw));
+    return c.json(await chat.reopen(project, cardId(c.req.param("id")), closed));
   });
 
   api.get("/sync", async (c) => c.json(await sync.status()));

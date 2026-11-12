@@ -124,8 +124,15 @@ export interface ChatDto {
    * starts from the summaries." (#0018). True otherwise, also when there is no conversation.
    */
   remembers: boolean;
-  /** A run of the card's session is going on now (a reply, a summary). */
-  running: boolean;
+  /** The run of the card's session going on now: a reply, a summary, or none (false). */
+  running: false | "reply" | "summary";
+}
+
+/** `POST /api/chats/:project/:id/close`: the conversation now, and what undoes the close. */
+export interface ChatCloseResponse {
+  chat: ChatDto;
+  /** Sent back to `POST /api/chats/:project/:id/reopen` by the notice's Undo. */
+  closed: string;
 }
 
 /**

@@ -8,7 +8,8 @@
  *   └──────────────────────────────────────────────────────────────┘
  *
  * Save and decide is one `resolve` write carrying the summary; Decide without summary is
- * today's Decide; Esc goes back to the card without deciding. It sits where the action bar
+ * today's Decide, closing the conversation as "Close without summary" does (20261112hq3k);
+ * Esc goes back to the card without deciding. It sits where the action bar
  * is, and while it is open it is a key layer: Esc and Enter (off the text box) work, nothing
  * else on the page does. CardView holds the state and does the writes.
  */

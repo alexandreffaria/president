@@ -103,3 +103,22 @@ describe("the action bar below 40rem (R1-3)", () => {
     );
   });
 });
+
+/**
+ * Withdrawn cards (#0014): the agent's reason shows in the queue's "Withdrawn by agents"
+ * list and in the card page's notice. A reason holding a long path or URL wraps instead of
+ * scrolling the page sideways at 320 px. On the card page, Back to queue takes the place of
+ * Defer a week and Defer until…, so a withdrawn card's action bar is never taller than the
+ * tallest one measured above.
+ */
+describe("withdrawn cards at narrow widths (#0014)", () => {
+  it("wraps a long reason in the Withdrawn list and in the card's notice", () => {
+    expect(rule(".compact-list li")["overflow-wrap"]).toBe("anywhere");
+    expect(rule(".notice")["overflow-wrap"]).toBe("anywhere");
+  });
+
+  it("styles a decided card's withdrawal line inside the notice, which wraps it (20261112jdyg)", () => {
+    expect(rule(".notice .withdrawal-note")["margin-top"]).toBe("0.4rem");
+    expect(rule(".notice")["overflow-wrap"]).toBe("anywhere");
+  });
+});

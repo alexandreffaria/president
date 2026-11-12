@@ -470,6 +470,25 @@ describe("preside CLI", () => {
       expect(result.err).toMatch(/the human added 1 entry since you read the card/);
       expect(await readFile(tiles, "utf8")).not.toContain("withdrawn:");
     });
+
+    it("after Back to queue, refuses an agent's update made from an earlier read (#0014)", async () => {
+      const demo = await copyDemoProject();
+      const tiles = await writeMapCards(demo);
+      // The agent read the withdrawn card, and rewrites it (keeping its withdrawal)...
+      const read = await readFile(tiles, "utf8");
+      // ...after the human put it back in the queue.
+      await human(demo, "20261111k7q2", { type: "unwithdraw" });
+      expect(await readFile(tiles, "utf8")).not.toContain("withdrawn:");
+      const mine = join(demo, "decisions", ".tiles.new");
+      await writeFile(mine, read.replace("title: Which map tiles?", "title: Which map tiles now?"));
+      const result = await cli("update", tiles, mine);
+      expect(result.code).toBe(1);
+      expect(result.err).toMatch(/the human added 1 entry since you read the card/);
+      expect(await readFile(tiles, "utf8")).not.toContain("withdrawn:");
+      // And pending tells the agent, as a note from the human.
+      expect((await cli("pending", demo)).out).toContain("note ");
+      expect((await cli("pending", demo)).out).toContain("Back in the queue");
+    });
   });
 
   it("prints a conversation summary as chat in pending (#0023)", async () => {
@@ -1536,24 +1555,19 @@ describe("preside CLI", () => {
       timeout: 9000,
     });
     expect(stdout).toMatch(/Usage:/);
+    // The README installs it as a symlink named preside; run it that way too.
+    const link = join(await tempDir(), "preside");
+    await symlink(BIN, link);
+    const viaLink = await promisify(execFile)(process.execPath, [link, "help"], {
+      timeout: 9000,
+    });
+    expect(viaLink.stdout).toMatch(/Usage:/);
   });
 
-  // `president` is the old name, kept as an alias until F2 (20261111dmvt): its script, and a
-  // link made by the README's old install line (`ln -s .../bin/president.js .../president`).
-  it("runs through the president alias, also from an old install's link", {
-    timeout: 10_000,
-  }, async () => {
-    const alias = join(dirname(BIN), "president.js");
-    const link = join(await tempDir(), "president");
-    await symlink(alias, link);
-    for (const entry of [alias, link]) {
-      const { stdout } = await promisify(execFile)(process.execPath, [entry, "help"], {
-        timeout: 9000,
-      });
-      expect(stdout).toMatch(/Usage:\n {2}preside add/);
-    }
+  // The `president` alias was removed in F2 (20261111dmvt): `preside` is the only command.
+  it("installs only the preside command", async () => {
     const pkg = JSON.parse(await readFile(join(dirname(BIN), "..", "package.json"), "utf8"));
-    expect(pkg.bin).toEqual({ preside: "bin/preside.js", president: "bin/president.js" });
+    expect(pkg.bin).toEqual({ preside: "bin/preside.js" });
   });
 
   // Before 24.9 the server's shouldUpgradeCallback is ignored without a word (R6-14), so

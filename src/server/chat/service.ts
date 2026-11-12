@@ -22,6 +22,7 @@ import { readdir } from "node:fs/promises";
 import { timestamp } from "../../core/actions.ts";
 import type {
   ChatAsk,
+  ChatCloseResponse,
   ChatDto,
   ChatMessageDto,
   ChatStreamEvent,
@@ -131,6 +132,11 @@ export class ChatService {
   readonly #now: () => Date;
   /** Cards with a run going on (a reply or a summary): one at a time per card. */
   readonly #running = new Map<string, ChatRun | "summary">();
+  /**
+   * Cards whose run is starting a new session: Claude Code may not have written its
+   * transcript yet, which doesn't mean it forgot the conversation.
+   */
+  readonly #starting = new Set<string>();
   /** Card revisions written by saving a summary, with what to put back if that is undone. */
   readonly #summaryWrites = new Map<string, { key: CardKey; before: SessionEntry | undefined }>();
   /** How many messages the summary last offered for a card covers. */
@@ -170,11 +176,17 @@ export class ChatService {
   async conversation(project: Project, id: string): Promise<ChatDto> {
     const key = { project: project.name, id };
     const [messages, entry] = await Promise.all([this.store.messages(key), this.store.entry(key)]);
+    const run = this.#running.get(keyName(key));
     return {
       messages,
       unsummarized: entry?.unsummarized === true,
-      remembers: !entry?.session || (await transcriptExists(this.#claudeDir, entry.session)),
-      running: this.#running.has(keyName(key)),
+      // "No longer remembers" only for a stored session whose transcript Claude Code no
+      // longer has, never during a new session's first run (before its transcript exists).
+      remembers:
+        !entry?.session ||
+        this.#starting.has(keyName(key)) ||
+        (await transcriptExists(this.#claudeDir, entry.session)),
+      running: run === undefined ? false : run === "summary" ? "summary" : "reply",
     };
   }
 
@@ -198,6 +210,7 @@ export class ChatService {
       })
       .finally(() => {
         this.#running.delete(keyName(key));
+        this.#starting.delete(keyName(key));
         this.#changed(key);
       });
     return run;
@@ -230,12 +243,17 @@ export class ChatService {
     const shown = input.ask ? ASK_LABEL[input.ask] : (input.text ?? "");
     const request = input.ask ? askRequest(input.ask, card) : shown;
     await save(this.#message("you", shown));
+    // Unsummarized from the moment the message is in (#0024): leaving while the agent
+    // thinks still gets the reminder.
+    await this.store.updateEntry(key, (e) => ({ ...e, unsummarized: true }));
 
     let revealed = resume ? (revealedNow ?? entry?.revealed) : revealedNow;
     const texts: string[] = [];
     let entryWrite: Promise<unknown> = Promise.resolve();
     const attempt = async (): Promise<RunResult> => {
       const session = resume && entry?.session ? entry.session : randomUUID();
+      if (resume) this.#starting.delete(keyName(key));
+      else this.#starting.add(keyName(key));
       const message = withPickLine(
         pickLine(card, revealed),
         startOver ? `${startOverNote(card)}\n\n${request}` : request,
@@ -378,25 +396,56 @@ export class ChatService {
    * 202611111ky9 `remind`: the reminder lasts "until you close the conversation, saving its
    * summary or not"). Nothing is written to the card. The messages so far stay in the hub's
    * copy, and the next summary covers only what comes after them.
+   *
+   * `decision`: the revision of a decision made with "Decide without summary", which closes
+   * the conversation too (20261112hq3k `ends`); undoing that decision (`undone`) reopens it.
+   * Without it, the close is undone with `reopen` and the returned `closed`.
    */
-  async closeWithoutSummary(project: Project, id: string): Promise<ChatDto> {
+  async closeWithoutSummary(
+    project: Project,
+    id: string,
+    options: { decision?: string } = {},
+  ): Promise<ChatCloseResponse> {
     const card = await this.#card(project, id);
     const key = { project: project.name, id: card.id };
-    if (this.#running.has(keyName(key))) {
+    // A decision is already written: a reply still coming in is left to mark itself.
+    if (options.decision === undefined && this.#running.has(keyName(key))) {
       throw new UserError("the agent is still answering on this card; wait for it to finish", {
         status: 409,
         code: "chat_busy",
       });
     }
-    const messages = await this.store.messages(key);
-    await this.store.updateEntry(key, (entry) => {
+    let before: SessionEntry | undefined;
+    await this.store.updateEntry(key, async (entry) => {
+      before = entry;
       if (!entry) return entry;
+      // Counted under the entry's lock, as in summarySaved.
+      const messages = await this.store.messages(key);
       const next: SessionEntry = { ...entry, summarized: messages.length };
       delete next.unsummarized;
       return next;
     });
     this.#offered.delete(keyName(key));
+    const closed = options.decision ?? randomUUID();
+    if (before) this.#remember(closed, key, before);
     this.#changed(key);
+    return { chat: await this.conversation(project, card.id), closed };
+  }
+
+  /**
+   * Undoes `closeWithoutSummary` (its notice's Undo): the conversation is "not summarized"
+   * again, and the next summary covers what it covered before the close.
+   */
+  async reopen(project: Project, id: string, closed: string): Promise<ChatDto> {
+    const card = await this.#card(project, id);
+    const write = this.#summaryWrites.get(closed);
+    if (!write || write.key.project !== project.name || write.key.id !== card.id) {
+      throw new UserError("this close can no longer be undone", {
+        status: 409,
+        code: "not_undoable",
+      });
+    }
+    await this.undone(closed);
     return this.conversation(project, card.id);
   }
 
@@ -407,26 +456,36 @@ export class ChatService {
    */
   async summarySaved(project: Project, id: string, revision: string): Promise<void> {
     const key = { project: project.name, id };
-    const messages = await this.store.messages(key);
-    const through = this.#offered.get(keyName(key)) ?? messages.length;
+    const offered = this.#offered.get(keyName(key));
     this.#offered.delete(keyName(key));
     let before: SessionEntry | undefined;
-    await this.store.updateEntry(key, (entry) => {
+    await this.store.updateEntry(key, async (entry) => {
       before = entry;
+      // Counted under the entry's lock: a message saved in between keeps its mark.
+      const messages = await this.store.messages(key);
+      const through = offered ?? messages.length;
       const covered = Math.min(through, messages.length);
       const next: SessionEntry = { ...entry, summarized: covered };
       // A message sent while the summary was being edited is still not summarized.
       if (covered >= messages.length) delete next.unsummarized;
       return next;
     });
-    this.#summaryWrites.set(revision, { key, before });
-    if (this.#summaryWrites.size > 200) {
-      this.#summaryWrites.delete(this.#summaryWrites.keys().next().value as string);
-    }
+    this.#remember(revision, key, before);
     this.#changed(key);
   }
 
-  /** An undo took back the write that produced `revision`; a summary in it is unsaved again. */
+  /** What an undo of `write` (a card revision, or a close's id) puts back; the last 200. */
+  #remember(write: string, key: CardKey, before: SessionEntry | undefined): void {
+    this.#summaryWrites.set(write, { key, before });
+    if (this.#summaryWrites.size > 200) {
+      this.#summaryWrites.delete(this.#summaryWrites.keys().next().value as string);
+    }
+  }
+
+  /**
+   * An undo took back the write that produced `revision`; a summary in it is unsaved again,
+   * and a close in it (Decide without summary, or `reopen`) is undone.
+   */
   async undone(revision: string): Promise<void> {
     const write = this.#summaryWrites.get(revision);
     if (!write) return;

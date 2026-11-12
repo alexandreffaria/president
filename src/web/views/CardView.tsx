@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CardAction } from "../../core/actions.ts";
 import type { BrokenCardDto, CardDetailDto, CardDto } from "../../core/api.ts";
-import { CUSTOM_CHOICE } from "../../core/model.ts";
+import { CUSTOM_CHOICE, withdrawalOf } from "../../core/model.ts";
 import {
+  activeWithdrawal,
   buildQueue,
+  describeDependencies,
   isBackFromDeferral,
+  isSnoozed,
   isWaitingOnAgent,
+  isWithdrawn,
   openDependencies,
   unknownDependencies,
 } from "../../core/queue.ts";
 import { api, RequestError } from "../api.ts";
-import { decidedRecently, recordDecision, wroteHere } from "../app-writes.ts";
+import { decidedHere, forgetDecision, recordDecision, wroteHere } from "../app-writes.ts";
 import { describeChanges } from "../card-changes.ts";
 import { useCardChat, useMinWidth } from "../chat.ts";
 import { BeforeDeciding } from "../components/BeforeDeciding.tsx";
@@ -32,7 +36,7 @@ import { useHub } from "../hub.tsx";
 import { type KeyMap, useKeyboard, useKeyLayer } from "../keyboard.ts";
 import { cardPath, Link, navigate } from "../router.tsx";
 import { dateInputValue, nextMonth, startOfDay, tomorrow } from "../snooze.ts";
-import { useDismissToasts, useToast } from "../toast.tsx";
+import { useDismissToasts, useToast, useToastShown } from "../toast.tsx";
 
 type Loaded =
   | { state: "loading" }
@@ -51,6 +55,8 @@ interface ActOptions {
   sent?: Partial<Draft>;
   /** The panel to open again with the sent text if the action is undone. */
   panel?: DraftPanel;
+  /** A decision that also closes the card's conversation (Decide without summary). */
+  closeChat?: boolean;
 }
 
 /**
@@ -103,6 +109,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const hub = useHub();
   const toast = useToast();
   const dismissToasts = useDismissToasts();
+  const toastShown = useToastShown();
   const [loaded, setLoaded] = useState<Loaded>({ state: "loading" });
   // `latest` is read inside async callbacks, where `draft` would be stale.
   const [draft, updateDraft, latest] = useDraft(project, id);
@@ -153,10 +160,36 @@ export function CardView({ project, id }: { project: string; id: string }) {
   useEffect(() => {
     if (chatLoaded) setChatOpen((open) => open ?? hasConversation);
   }, [chatLoaded, hasConversation]);
-  /** For the notice on leaving (#0024): read when the view goes away. */
+  /** Set when the human opens the panel (c, the button): focus goes to the message box. */
+  const focusChat = useRef(false);
+  /** Set when the panel hides with focus inside it: focus goes to the button that shows it. */
+  const focusChatToggle = useRef(false);
+  const chatToggle = useRef<HTMLButtonElement>(null);
+  const openChat = () => {
+    focusChat.current = true;
+    setChatOpen(true);
+  };
+  const hideChat = () => {
+    focusChatToggle.current = document.activeElement?.closest(".chat") != null;
+    setChatOpen(false);
+  };
+  useEffect(() => {
+    if (chatOpen || !focusChatToggle.current) return;
+    focusChatToggle.current = false;
+    chatToggle.current?.focus();
+  }, [chatOpen]);
+  /**
+   * For the notice on leaving (#0024): read when the view goes away. A message this tab has
+   * sent counts at once, as it does on the hub, before the copy says so.
+   */
   const unsummarized = useRef(false);
-  unsummarized.current = cardChat.chat?.unsummarized === true;
-  /** Set as Save and decide leaves the card: its summary is saved, so no reminder. */
+  unsummarized.current =
+    cardChat.chat?.unsummarized === true ||
+    (cardChat.live?.saved.some((m) => m.from === "you") ?? false);
+  /**
+   * Set as a decision from the "Before deciding" box leaves the card: its summary is saved,
+   * or the conversation is closed without one (20261112hq3k), so no reminder.
+   */
   const leavingSummarized = useRef(false);
   /** The "Before deciding" box (#0019), open while a decision waits for the summary. */
   const [beforeDeciding, setBeforeDeciding] = useState<PendingDecision | null>(null);
@@ -323,7 +356,11 @@ export function CardView({ project, id }: { project: string; id: string }) {
     try {
       // The revision the human read, not the newest one: if the card changed since, the
       // server refuses, and they see what changed first.
-      const res = await api.act(project, id, action, seen.revision);
+      const res = await api.act(project, id, action, seen.revision, {
+        closeChat: options.closeChat === true,
+      });
+      // A decision's Undo window (see saveSummary) ends with any later action.
+      if (action.type !== "resolve") forgetDecision(project, id);
       setLoaded({ state: "ok", card: res.card });
       acknowledge(res.card);
       // What the action sent, to put back as a draft if it is undone.
@@ -352,6 +389,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
                 return hub.refresh();
               })
               .then(() => {
+                forgetDecision(project, id);
                 restoreDraft(project, id, wasSent, panelToRestore);
                 navigate(cardPath(project, id));
                 toast(
@@ -412,18 +450,22 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const options = fm?.options ?? [];
   const selected = draft.selected;
 
-  /** Records the decision, with the conversation's summary in the same write when given. */
+  /**
+   * Records the decision, with the conversation's summary in the same write when given, or
+   * closing the conversation without one (`closeChat`, Decide without summary: 20261112hq3k).
+   */
   const resolve = async (
     choice: string,
     note: string,
     sent: Partial<Draft>,
     panel: DraftPanel | undefined,
     summary?: string,
+    closeChat?: boolean,
   ) => {
     if (!card || !fm) return false;
     const option = fm.options.find((o) => o.id === choice);
     const label = option ? option.title : "your own answer";
-    leavingSummarized.current = summary !== undefined;
+    leavingSummarized.current = summary !== undefined || closeChat === true;
     const ok = await act(
       { type: "resolve", choice, note: note.trim() || undefined, summary },
       {
@@ -431,6 +473,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
         done: `Decided #${id}: ${label}${summary !== undefined ? ", with the conversation's summary" : ""}.`,
         sent,
         ...(panel ? { panel } : {}),
+        ...(closeChat ? { closeChat } : {}),
       },
     );
     if (ok) recordDecision(project, id);
@@ -454,7 +497,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
     const conversation = cardChat.chat;
     const waits =
       conversation?.unsummarized === true ||
-      conversation?.running === true ||
+      Boolean(conversation?.running) ||
       cardChat.live !== undefined;
     if (!waits) return resolve(choice, note, sent, panel);
     const pending = { choice, note, sent, panel };
@@ -477,7 +520,11 @@ export function CardView({ project, id }: { project: string; id: string }) {
     return false;
   };
 
-  /** The "Before deciding" box's buttons. The summary goes back in the box on Undo. */
+  /**
+   * The "Before deciding" box's buttons. Decide without summary also closes the conversation
+   * (20261112hq3k `ends`), as Close without summary does. Undo takes the decision back, with
+   * the summary in the box and the "not summarized" reminder.
+   */
   const finishDeciding = async (withSummary: boolean) => {
     const pending = beforeDeciding;
     if (!pending || pending.writing) return;
@@ -489,6 +536,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
       { ...pending.sent, summary: "" },
       pending.panel,
       withSummary ? summary : undefined,
+      !withSummary,
     );
     // Refused (the card changed, the hub is unreachable): back to the card, where the notice
     // says why; the summary stays in the box for the next Decide.
@@ -505,10 +553,11 @@ export function CardView({ project, id }: { project: string; id: string }) {
 
   /**
    * Saves an edited conversation summary as a `chat` entry (#0003, #0023), on decided cards
-   * too (#0020), but never inside the Undo window of a decision made here (#0006).
+   * too (#0020), but never while the Undo notice of a decision made here is shown (#0006):
+   * saving would take that Undo away.
    */
   const saveSummary = (summary: string) => {
-    if (decidedRecently(project, id)) {
+    if (decidedHere(project, id) && toastShown(undoGroup)) {
       toast(
         `#${id} was decided a moment ago and can still be undone; save the summary once its Undo notice has closed.`,
         { tone: "error" },
@@ -518,8 +567,13 @@ export function CardView({ project, id }: { project: string; id: string }) {
     return act({ type: "chat", note: summary }, { done: "Summary saved.", sent: { summary: "" } });
   };
 
-  /** `d` and the Defer menu work on open cards and on cards back from deferral (#0017). */
-  const canDefer = card !== undefined && (fm?.status === "open" || isBackFromDeferral(card));
+  /**
+   * `d` and the Defer menu work on open cards and on cards back from deferral (#0017). Not on
+   * a withdrawn card: its date would be ignored while it is withdrawn (202611116ff6), and its
+   * action bar offers Back to queue instead.
+   */
+  const canDefer =
+    card !== undefined && !isWithdrawn(card) && (fm?.status === "open" || isBackFromDeferral(card));
 
   /**
    * Defers the card until `until`, or for a week (the hub's default) without it, unless the
@@ -589,7 +643,8 @@ export function CardView({ project, id }: { project: string; id: string }) {
     // Shows or hides the conversation (#0002).
     c: () => {
       if (!chatLoaded) return false;
-      setChatOpen((open) => !open);
+      if (chatOpen) hideChat();
+      else openChat();
     },
   };
   // Shift+d opens the Defer menu (#0017); `d` itself never waits for a second key.
@@ -731,7 +786,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
       <StatusNotice card={card} />
       {blockers.length > 0 && isActive && (
         <p className="notice notice-warn">
-          This depends on {blockers.map((b) => `#${b}`).join(", ")}, which{" "}
+          This depends on {describeDependencies(card, blockers, hub.cards)}, which{" "}
           {blockers.length === 1 ? "isn't" : "aren't"} decided yet.
         </p>
       )}
@@ -818,14 +873,15 @@ export function CardView({ project, id }: { project: string; id: string }) {
           layout={wide ? "side" : "inline"}
           draft={draft}
           onDraft={updateDraft}
-          onClose={() => setChatOpen(false)}
+          onClose={hideChat}
+          focusOnOpen={focusChat}
           onSaveSummary={saveSummary}
           deciding={beforeDeciding !== null}
         />
       ) : (
         chatLoaded && (
           <p className="chat-closed">
-            <button type="button" className="button" onClick={() => setChatOpen(true)}>
+            <button type="button" className="button" ref={chatToggle} onClick={openChat}>
               {hasConversation ? "Show the conversation" : "Ask about this card"} <kbd>c</kbd>
             </button>
             {cardChat.chat?.unsummarized && (
@@ -878,6 +934,9 @@ function StatusNotice({ card }: { card: CardDetailDto }) {
   const fm = card.frontmatter;
   if (fm.status === "resolved" && fm.resolution) {
     const option = fm.options.find((o) => o.id === fm.resolution?.choice);
+    // 20261112jdyg (quiet-line): a decision keeps `withdrawn` (#0014 D), and the withdrawal is
+    // a field, not in the card's history, so say it under the decision, muted.
+    const withdrawal = withdrawalOf(fm);
     return (
       <div className="notice notice-done">
         <p>
@@ -897,18 +956,36 @@ function StatusNotice({ card }: { card: CardDetailDto }) {
             : "Waiting for an agent to apply it to the project."}
         </p>
         {fm.resolution.note && <p className="resolution-note">{fm.resolution.note}</p>}
+        {withdrawal && (
+          <p className="withdrawal-note muted small">
+            An agent had withdrawn this card: {withdrawal.reason}
+          </p>
+        )}
       </div>
     );
   }
-  // Open, or back from deferral (R1-1): either way it waits on the agent.
-  if (isWaitingOnAgent(card)) {
+  const newOptionsNotice = (
+    <p className="notice notice-info">
+      You asked for different options. An agent will rewrite this card; you can still pick one of
+      these.
+    </p>
+  );
+  // #0014: above the options, which still work. Shown instead of a deferred card's date,
+  // which is ignored while the card is withdrawn (202611116ff6), but not instead of the
+  // human's own request for new options.
+  const withdrawal = activeWithdrawal(card);
+  if (withdrawal) {
     return (
-      <p className="notice notice-info">
-        You asked for different options. An agent will rewrite this card; you can still pick one of
-        these.
-      </p>
+      <>
+        <p className="notice notice-info">
+          <strong>Withdrawn by the agent:</strong> {withdrawal.reason}
+        </p>
+        {fm.needs_new_options === true && newOptionsNotice}
+      </>
     );
   }
+  // Open, or back from deferral (R1-1): either way it waits on the agent.
+  if (isWaitingOnAgent(card)) return newOptionsNotice;
   if (fm.status === "deferred") {
     // #0017 snooze; a deferred card without a date counts as due (202611112hzh, back-now).
     const until = fm.defer_until;
@@ -1081,7 +1158,16 @@ function ActionBar(props: {
               className="button"
               disabled={busy}
               onClick={() =>
-                void props.onAct({ type: "reopen" }, { done: `Reopened #${card.id}.` })
+                void props.onAct(
+                  { type: "reopen" },
+                  {
+                    // A decision keeps `withdrawn` (D), so the reopened card is open with the
+                    // field and listed under Withdrawn by agents, not the queue (#0014).
+                    done: withdrawalOf(fm)
+                      ? `Reopened #${card.id}; it is still withdrawn by the agent, so it is listed under Withdrawn by agents.`
+                      : `Reopened #${card.id}.`,
+                  },
+                )
               }
             >
               Reopen
@@ -1208,6 +1294,29 @@ function ActionBar(props: {
                 Defer until… <kbd>D</kbd>
               </button>
             </>
+          ) : isWithdrawn(card) ? (
+            // #0014: removes the agent's `withdrawn` and adds a note; the status stays, so a
+            // deferred card's date applies again (202611116ff6).
+            <button
+              type="button"
+              className="button"
+              disabled={busy}
+              onClick={() =>
+                void props.onAct(
+                  { type: "unwithdraw" },
+                  {
+                    done: (after) => {
+                      const until = after.frontmatter.defer_until;
+                      return isSnoozed(after) && until
+                        ? `#${card.id} is no longer withdrawn; it stays deferred until ${fullDate(until)}.`
+                        : `Moved #${card.id} back to the queue.`;
+                    },
+                  },
+                )
+              }
+            >
+              Back to queue
+            </button>
           ) : (
             <button
               type="button"

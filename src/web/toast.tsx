@@ -40,6 +40,7 @@ type ShowToast = (
 const ToastContext = createContext<{
   show: ShowToast;
   dismissGroup: (group: string) => void;
+  shown: (group: string) => boolean;
 } | null>(null);
 
 /**
@@ -50,6 +51,8 @@ const ToastContext = createContext<{
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextId = useRef(1);
+  const current = useRef(toasts);
+  current.current = toasts;
 
   const dismiss = useCallback((id: number) => {
     setToasts((all) => all.filter((t) => t.id !== id));
@@ -65,14 +68,22 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       durationMs: options.durationMs ?? (options.action ? 10_000 : 5000),
       group: options.group,
     };
-    setToasts((all) => [...all.slice(-2), toast]);
+    setToasts((all) => {
+      if (all.length < 3) return [...all, toast];
+      // Three at most. A notice must not push an Undo out (the refusal to save a summary
+      // during a decision's Undo would take that very Undo away): plain ones go first.
+      const drop = all.find((t) => !t.action) ?? all[0];
+      return [...all.filter((t) => t !== drop), toast];
+    });
   }, []);
 
   const dismissGroup = useCallback((group: string) => {
     setToasts((all) => all.filter((t) => t.group !== group));
   }, []);
 
-  const context = useMemo(() => ({ show, dismissGroup }), [show, dismissGroup]);
+  const shown = useCallback((group: string) => current.current.some((t) => t.group === group), []);
+
+  const context = useMemo(() => ({ show, dismissGroup, shown }), [show, dismissGroup, shown]);
 
   // The newest toast whose action has a shortcut answers that key.
   const keys: Record<string, () => unknown> = {};
@@ -160,4 +171,11 @@ export function useDismissToasts(): (group: string) => void {
   const context = useContext(ToastContext);
   if (!context) throw new Error("useDismissToasts must be used inside <ToastProvider>");
   return context.dismissGroup;
+}
+
+/** Whether a toast of the group is on screen now (an Undo still within reach, say). */
+export function useToastShown(): (group: string) => boolean {
+  const context = useContext(ToastContext);
+  if (!context) throw new Error("useToastShown must be used inside <ToastProvider>");
+  return context.shown;
 }

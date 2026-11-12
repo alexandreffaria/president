@@ -6,16 +6,22 @@
  */
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type {
   CardResponse,
+  ChatCloseResponse,
   ChatDto,
   ChatStreamEvent,
   ChatSummaryResponse,
   HubEvent,
 } from "../src/core/api.ts";
 import { createApp } from "../src/server/app.ts";
-import { claudeArgs, describeTool, runClaude } from "../src/server/chat/runner.ts";
+import {
+  claudeArgs,
+  describeTool,
+  runClaude,
+  transcriptExists,
+} from "../src/server/chat/runner.ts";
 import { ChatService, KEEP_MISSING_MS } from "../src/server/chat/service.ts";
 import { defaultStateDir } from "../src/server/chat/store.ts";
 import { Registry } from "../src/server/registry.ts";
@@ -129,17 +135,49 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 describe("the session's command line (#0004)", () => {
   it("has exactly the read-only flags, the session first", () => {
-    expect(claudeArgs({ session: { start: "s-1" } })).toEqual([
+    const id = "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b";
+    expect(claudeArgs({ session: { start: id } })).toEqual([
       "-p",
       "--output-format",
       "stream-json",
       "--verbose",
       "--session-id",
-      "s-1",
+      id,
       ...READONLY_FLAGS,
     ]);
-    expect(claudeArgs({ session: { resume: "s-1" } }).slice(4, 6)).toEqual(["--resume", "s-1"]);
+    expect(claudeArgs({ session: { resume: id } }).slice(4, 6)).toEqual(["--resume", id]);
     expect(claudeArgs({ session: { oneOff: true } })).toContain("--no-session-persistence");
+  });
+
+  it("only passes a strict UUID as the session id", async () => {
+    for (const bad of ["-".repeat(36), "--dangerously-skip-permissions", "s-1", ""]) {
+      expect(() => claudeArgs({ session: { resume: bad } })).toThrow(/not a session id/);
+      expect(() => claudeArgs({ session: { start: bad } })).toThrow(/not a session id/);
+    }
+    const t = await setup();
+    const result = await runClaude({
+      bin: FAKE,
+      cwd: t.demo,
+      session: { resume: "-".repeat(36) },
+      message: "hi",
+      env: { ...process.env, FAKE_CLAUDE_DIR: join(t.root, "fake") },
+    });
+    expect(result).toMatchObject({ ok: false, started: false });
+    expect(await t.calls()).toEqual([]);
+
+    // A hand-edited sessions.json: the bad id is never resumed; a fresh session starts.
+    await t.send("One");
+    const file = join(t.root, "state", "sessions.json");
+    const table = await t.sessions();
+    const old = table["demo/0002"]?.session as string;
+    await mkdir(join(t.root, "claude", "projects", "x"), { recursive: true });
+    await writeFile(join(t.root, "claude", "projects", "x", `${"-".repeat(36)}.jsonl`), "");
+    await writeFile(file, (await readFile(file, "utf8")).replace(old, "-".repeat(36)));
+    expect((await t.conversation()).remembers).toBe(false);
+    await t.send("Two");
+    const second = (await t.calls())[1];
+    expect(second?.args).not.toContain("--resume");
+    expect(second?.args[second.args.indexOf("--session-id") + 1]).toMatch(UUID);
   });
 
   it("never puts the message on the command line", async () => {
@@ -162,6 +200,32 @@ describe("the session's command line (#0004)", () => {
     expect(describeTool("WebSearch", { query: "dexie safari" }, "/p")).toBe(
       'Searching the web for "dexie safari"',
     );
+  });
+
+  it("doesn't start a run once president is shutting down", async () => {
+    const t = await setup();
+    const controller = new AbortController();
+    controller.abort();
+    const result = await runClaude({
+      bin: FAKE,
+      cwd: t.demo,
+      session: { oneOff: true },
+      message: "hi",
+      env: { ...process.env, FAKE_CLAUDE_DIR: join(t.root, "fake") },
+      signal: controller.signal,
+    });
+    expect(result).toMatchObject({ ok: false, started: false });
+    expect(result.error).toMatch(/shutting down/);
+    expect(await t.calls()).toEqual([]);
+
+    // Through the service: a message sent after close() starts nothing.
+    await t.chat.close();
+    const events = await t.send("Too late");
+    expect(events.at(-1)).toMatchObject({
+      type: "error",
+      error: expect.stringMatching(/shutting down/),
+    });
+    expect(await t.calls()).toEqual([]);
   });
 
   it("says when Claude Code isn't installed", async () => {
@@ -217,6 +281,42 @@ describe("a conversation", () => {
     expect((await t.conversation()).messages).toHaveLength(4);
   });
 
+  it("ends the stream's handler when the page goes away, and the run goes on", async () => {
+    const t = await setup();
+    await t.script([{ delayMs: 400 }]);
+    let unsubscribed = 0;
+    const send = t.chat.send.bind(t.chat);
+    vi.spyOn(t.chat, "send").mockImplementation(async (...args) => {
+      const run = await send(...args);
+      const subscribe = run.subscribe.bind(run);
+      run.subscribe = (listener) => {
+        const unsubscribe = subscribe(listener);
+        return () => {
+          unsubscribed++;
+          return unsubscribe();
+        };
+      };
+      return run;
+    });
+    try {
+      const response = await t.post("/api/chats/demo/0002/messages", { text: "slow" });
+      const reader = (response.body as ReadableStream<Uint8Array>).getReader();
+      expect(new TextDecoder().decode((await reader.read()).value)).toMatch(/"type":"message"/);
+      // A pending read lets that write finish, so the handler waits for the next event.
+      const next = reader.read();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await reader.cancel();
+      await next;
+      // Once from onAbort, once from the handler's finally: the loop woke up and ended.
+      await vi.waitFor(() => expect(unsubscribed).toBe(2), { timeout: 300 });
+      expect((await t.conversation()).running).toBe("reply");
+      await vi.waitFor(async () => expect((await t.conversation()).running).toBe(false));
+      expect((await t.conversation()).messages.at(-1)?.text).toBe("Echo: slow");
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it("refuses a second message while the agent is answering", async () => {
     const t = await setup();
     await t.script([{ delayMs: 400 }]);
@@ -225,8 +325,21 @@ describe("a conversation", () => {
     const busy = await t.post("/api/chats/demo/0002/messages", { text: "again" });
     expect(busy.status).toBe(409);
     expect(await busy.json()).toMatchObject({ code: "chat_busy" });
-    expect((await t.conversation()).running).toBe(true);
+    expect((await t.conversation()).running).toBe("reply");
     await (await slow).text();
+    expect((await t.conversation()).running).toBe(false);
+  });
+
+  it("is unsummarized once the message is in, and says which run is going on (R1-5, R1-9)", async () => {
+    const t = await setup();
+    await t.script([{ delayMs: 400 }, { delayMs: 400, text: "A summary." }]);
+    const slow = t.post("/api/chats/demo/0002/messages", { text: "slow" });
+    await vi.waitFor(async () => expect((await t.conversation()).messages).toHaveLength(1));
+    expect(await t.conversation()).toMatchObject({ running: "reply", unsummarized: true });
+    await (await slow).text();
+    const summary = t.post("/api/chats/demo/0002/summary", {});
+    await vi.waitFor(async () => expect((await t.conversation()).running).toBe("summary"));
+    expect((await summary).status).toBe(200);
     expect((await t.conversation()).running).toBe(false);
   });
 
@@ -297,6 +410,18 @@ describe("the pick line (20261111mby8, 2026111272fu)", () => {
     expect((await t.calls())[0]?.stdin).toMatch(NOT_REVEALED);
   });
 
+  it("says a card without a pick has none, and stays neutral", async () => {
+    const t = await setup();
+    const { revision } = await t.card("0003");
+    await t.send("Which wording?", {}, "0003");
+    await t.send("And now?", { revealed: true, revision }, "0003");
+    for (const call of await t.calls()) {
+      expect(call.stdin).toMatch(/^\(president: This card has no pick \(no `recommendation`\)/);
+      expect(call.stdin).toMatch(/without recommending one of your own/);
+      expect(call.stdin).not.toMatch(/behind r|has not revealed|has revealed/);
+    }
+  });
+
   it("is neutral about a new pick that replaced the revealed one", async () => {
     const t = await setup();
     await t.send("Which one?", { revealed: true, revision: (await t.card()).revision });
@@ -312,6 +437,19 @@ describe("the pick line (20261111mby8, 2026111272fu)", () => {
 });
 
 describe("when Claude Code no longer has the session (#0018, #0021)", () => {
+  it("still remembers during a new session's first run, before its transcript exists", async () => {
+    const t = await setup();
+    await t.script([{ pauseMs: 400, lateTranscript: true }]);
+    const reply = t.post("/api/chats/demo/0002/messages", { text: "One" });
+    // The session is stored once Claude Code started it; its transcript isn't there yet.
+    await vi.waitFor(async () => expect((await t.sessions())["demo/0002"]?.session).toBeDefined());
+    const session = (await t.sessions())["demo/0002"]?.session as string;
+    expect(await transcriptExists(join(t.root, "claude"), session)).toBe(false);
+    expect(await t.conversation()).toMatchObject({ running: "reply", remembers: true });
+    await (await reply).text();
+    expect(await t.conversation()).toMatchObject({ running: false, remembers: true });
+  });
+
   it("says the agent no longer remembers, then starts over from the summaries", async () => {
     const t = await setup();
     await t.send("One");
@@ -437,6 +575,40 @@ describe("summaries (#0003, #0019, #0020, #0024, 20261111paot)", () => {
     expect((await t.calls()).at(-1)?.stdin).toMatch(/cover only what came after it/);
   });
 
+  it("keeps a message saved while the summary is saved unsummarized (R2-2)", async () => {
+    const t = await setup();
+    await t.send("Does our client throw?");
+    await t.post("/api/chats/demo/0002/summary", {});
+    const key = { project: "demo", id: "0002" };
+    const store = t.chat.store;
+    const original = store.updateEntry.bind(store);
+    let first = true;
+    // A message lands (copy and mark) just before the summary's bookkeeping takes the lock.
+    vi.spyOn(store, "updateEntry").mockImplementation(async (k, change) => {
+      if (first) {
+        first = false;
+        await store.append(key, {
+          from: "you",
+          text: "And on 500?",
+          at: new Date().toISOString(),
+        });
+        await original(key, (e) => ({ ...e, unsummarized: true }));
+      }
+      return original(k, change);
+    });
+    try {
+      await t.chat.summarySaved(
+        { name: "demo" } as Parameters<typeof t.chat.summarySaved>[0],
+        "0002",
+        "rev-x",
+      );
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect((await t.sessions())["demo/0002"]?.unsummarized).toBe(true);
+    expect((await t.sessions())["demo/0002"]?.summarized).toBe(2);
+  });
+
   it("undoing a saved summary makes the conversation unsummarized again", async () => {
     const t = await setup();
     await t.send("Does our client throw?");
@@ -474,6 +646,34 @@ describe("summaries (#0003, #0019, #0020, #0024, 20261111paot)", () => {
     expect((await t.conversation()).unsummarized).toBe(true);
   });
 
+  it("returns the written card even when the conversation's bookkeeping fails", async () => {
+    const t = await setup();
+    await t.send("Does our client throw?");
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(t.chat, "summarySaved").mockRejectedValue(new Error("EACCES: sessions.json"));
+    vi.spyOn(t.chat, "undone").mockRejectedValue(new Error("ENOSPC: sessions.json"));
+    try {
+      const { revision } = await t.card();
+      const saved = await t.post("/api/cards/demo/0002/actions", {
+        type: "chat",
+        note: "Summary.",
+        revision,
+      });
+      expect(saved.status).toBe(200);
+      const body = (await saved.json()) as CardResponse & { ok: true };
+      expect(body.card.frontmatter.feedback.at(-1)).toMatchObject({ type: "chat" });
+
+      const undone = await t.post("/api/cards/demo/0002/undo", { revision: body.card.revision });
+      expect(undone.status).toBe(200);
+      const after = ((await undone.json()) as CardResponse & { ok: true }).card;
+      // The undo took the summary back.
+      expect(after.frontmatter.feedback).toEqual([]);
+      expect(logged).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it("saves a summary on a decided card (#0020)", async () => {
     const t = await setup();
     await t.send("Does the README use the new name?", {}, "0004");
@@ -496,7 +696,9 @@ describe("summaries (#0003, #0019, #0020, #0024, 20261111paot)", () => {
     const before = await readFile(path, "utf8");
     const closed = await t.post("/api/chats/demo/0002/close", {});
     expect(closed.status).toBe(200);
-    expect(((await closed.json()) as ChatDto).unsummarized).toBe(false);
+    const closeBody = (await closed.json()) as ChatCloseResponse;
+    expect(closeBody.chat.unsummarized).toBe(false);
+    expect(closeBody.closed).toEqual(expect.any(String));
     expect(await readFile(path, "utf8")).toBe(before);
     expect((await t.sessions())["demo/0002"]?.unsummarized).toBeUndefined();
     expect((await t.conversation()).messages).toHaveLength(2);
@@ -509,6 +711,84 @@ describe("summaries (#0003, #0019, #0020, #0024, 20261111paot)", () => {
     expect((await t.conversation()).unsummarized).toBe(true);
     await t.post("/api/chats/demo/0002/summary", {});
     expect((await t.calls()).at(-1)?.stdin).toMatch(/cover only what came after it/);
+  });
+
+  it("undoes Close without summary: not summarized again, the next summary covers it all", async () => {
+    const t = await setup();
+    await t.send("Does our client throw?");
+    const { closed } = (await (
+      await t.post("/api/chats/demo/0002/close", {})
+    ).json()) as ChatCloseResponse;
+    expect((await t.sessions())["demo/0002"]?.summarized).toBe(2);
+
+    const reopened = await t.post("/api/chats/demo/0002/reopen", { closed });
+    expect(reopened.status).toBe(200);
+    expect(((await reopened.json()) as ChatDto).unsummarized).toBe(true);
+    expect((await t.sessions())["demo/0002"]?.summarized).toBeUndefined();
+    await t.post("/api/chats/demo/0002/summary", {});
+    expect((await t.calls()).at(-1)?.stdin).not.toMatch(/cover only what came after it/);
+
+    // Once only, and only on its own card.
+    const again = await t.post("/api/chats/demo/0002/reopen", { closed });
+    expect(again.status).toBe(409);
+    expect(await again.json()).toMatchObject({ code: "not_undoable" });
+    expect((await t.post("/api/chats/demo/0002/reopen", {})).status).toBe(400);
+  });
+
+  it("a reopen with another card's close is refused", async () => {
+    const t = await setup();
+    await t.send("Does our client throw?");
+    await t.send("And the README?", {}, "0004");
+    const { closed } = (await (
+      await t.post("/api/chats/demo/0002/close", {})
+    ).json()) as ChatCloseResponse;
+    const wrong = await t.post("/api/chats/demo/0004/reopen", { closed });
+    expect(wrong.status).toBe(409);
+    expect((await t.conversation()).unsummarized).toBe(false);
+  });
+
+  it("Decide without summary closes the conversation, and undo brings the reminder back (20261112hq3k)", async () => {
+    const t = await setup();
+    await t.send("Does our client throw?");
+    const path = join(t.demo, "decisions", "0002-api-errors.md");
+    const { revision } = await t.card();
+    const decided = (await (
+      await t.post("/api/cards/demo/0002/actions", {
+        type: "resolve",
+        choice: "result",
+        closeChat: true,
+        revision,
+      })
+    ).json()) as CardResponse & { ok: true };
+    expect(decided.card.frontmatter.status).toBe("resolved");
+    // Nothing from the conversation on the card: the decision only.
+    expect(decided.card.frontmatter.feedback).toEqual([]);
+    expect(await readFile(path, "utf8")).not.toMatch(/type: chat/);
+    expect((await t.conversation()).unsummarized).toBe(false);
+    expect((await t.sessions())["demo/0002"]?.summarized).toBe(2);
+
+    await t.post("/api/cards/demo/0002/undo", { revision: decided.card.revision });
+    expect((await t.conversation()).unsummarized).toBe(true);
+    expect((await t.sessions())["demo/0002"]?.summarized).toBeUndefined();
+  });
+
+  it("closeChat goes only with a decision that carries no summary", async () => {
+    const t = await setup();
+    await t.send("Does our client throw?");
+    const { revision } = await t.card();
+    for (const action of [
+      { type: "note", note: "Hm." },
+      { type: "resolve", choice: "result", summary: "It throws." },
+    ]) {
+      const refused = await t.post("/api/cards/demo/0002/actions", {
+        ...action,
+        closeChat: true,
+        revision,
+      });
+      expect(refused.status).toBe(400);
+    }
+    expect((await t.card()).revision).toBe(revision);
+    expect((await t.conversation()).unsummarized).toBe(true);
   });
 
   it("closing without a summary needs a JSON body and a card that exists", async () => {
@@ -560,12 +840,19 @@ describe("Teach me and More info (#0005, 20261111fauj)", () => {
     expect(call?.stdin).not.toMatch(/one column per option/);
   });
 
-  it("More info asks for research from primary sources, with quotes", async () => {
+  it("More info asks for the facts the decision turns on, each backed by a quote (20261112e1ik findings)", async () => {
     const t = await setup();
     await ask(t, "research");
     const [call] = await t.calls();
     expect(call?.stdin).toMatch(/from primary sources/);
-    expect(call?.stdin).toMatch(/quote the passage that matters/);
+    expect(call?.stdin).toMatch(/What this turns on:/);
+    expect(call?.stdin).toMatch(/the two or three facts this decision turns on/);
+    expect(call?.stdin).toMatch(/Answer each in a sentence or two/);
+    expect(call?.stdin).toMatch(/quoted from a primary source, and its link or file path/);
+    expect(call?.stdin).toMatch(/Couldn't verify:/);
+    expect(call?.stdin).toMatch(/without recommending an option/);
+    // Not the list of sources it replaced (20261112e1ik `sources`).
+    expect(call?.stdin).not.toMatch(/For each source/);
     expect((await t.conversation()).messages[0]).toMatchObject({
       from: "you",
       text: "More info",
