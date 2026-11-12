@@ -20,12 +20,57 @@ export function isWaitingOnAgent(card: CardDto): boolean {
   return card.frontmatter.status === "open" && card.frontmatter.needs_new_options === true;
 }
 
-/** Cards the human should look at now: open and not waiting on an agent. */
-export function buildQueue(cards: CardDto[], project?: string): CardDto[] {
-  return cards
-    .filter((c) => c.frontmatter.status === "open" && !isWaitingOnAgent(c))
-    .filter((c) => !project || c.project === project)
-    .sort(compareQueue);
+/**
+ * True for a deferred card whose snooze is over (#0017): its `defer_until` has passed, or it
+ * has none (deferred before snooze, or by hand), which counts as passed (202611112hzh). The
+ * card file isn't rewritten when the date passes; the queue works it out.
+ */
+export function isBackFromDeferral(card: CardDto, now: number = Date.now()): boolean {
+  const { status, defer_until } = card.frontmatter;
+  if (status !== "deferred") return false;
+  if (defer_until === undefined) return true;
+  return Date.parse(defer_until) <= now;
+}
+
+/** A deferred card still snoozed: it stays in the collapsed Deferred list. */
+export function isSnoozed(card: CardDto, now: number = Date.now()): boolean {
+  return card.frontmatter.status === "deferred" && !isBackFromDeferral(card, now);
+}
+
+/**
+ * Cards the human should look at now: open cards that aren't waiting on an agent, and
+ * deferred cards back from deferral. Ready cards come first, then the cards with an
+ * undecided dependency (#0009, sink); each group by priority, then oldest first (#0015).
+ * Dependencies are looked up in `cards`, so pass every card; `project` filters the result.
+ */
+export function buildQueue(
+  cards: CardDto[],
+  project?: string,
+  now: number = Date.now(),
+): CardDto[] {
+  const ready: CardDto[] = [];
+  const sunk: CardDto[] = [];
+  for (const card of cards) {
+    if (project && card.project !== project) continue;
+    const open = card.frontmatter.status === "open" && !isWaitingOnAgent(card);
+    if (!open && !isBackFromDeferral(card, now)) continue;
+    (openDependencies(card, cards).length > 0 ? sunk : ready).push(card);
+  }
+  return [...ready.sort(compareQueue), ...sunk.sort(compareQueue)];
+}
+
+/**
+ * The earliest `defer_until` still ahead of `now`: when the queue next changes on its own.
+ * Undefined when no deferred card is waiting for its date.
+ */
+export function nextReturn(cards: CardDto[], now: number = Date.now()): number | undefined {
+  let next: number | undefined;
+  for (const card of cards) {
+    if (!isSnoozed(card, now)) continue;
+    const until = Date.parse(card.frontmatter.defer_until ?? "");
+    if (next === undefined || until < next) next = until;
+  }
+  return next;
 }
 
 /** Resolved cards, most recently resolved first. */

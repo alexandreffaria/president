@@ -671,6 +671,30 @@ describe("undo", () => {
     expect((await post("/api/cards/demo/0004/undo", { revision: card.revision })).status).toBe(200);
     expect(await readFile(file, "utf8")).toBe(original);
   });
+
+  // #0012: only undoing a decision leaves a trace; these are put back byte for byte.
+  it("puts a decided card back byte for byte after a note on it (#0011)", async () => {
+    const { act, post, demo } = await setup();
+    const file = join(demo, "decisions", "0004-map-tiles.md");
+    const original = await readFile(file, "utf8");
+    const res = await act("0004", { type: "note", note: "Keep the old tiles as a fallback." });
+    expect(res.status).toBe(200);
+    const { card } = (await res.json()) as { card: CardDetailDto };
+    expect(card.frontmatter).toMatchObject({ status: "resolved", applied_at: expect.any(String) });
+    expect((await post("/api/cards/demo/0004/undo", { revision: card.revision })).status).toBe(200);
+    expect(await readFile(file, "utf8")).toBe(original);
+  });
+
+  it("puts a card back byte for byte after a deferral with a date (#0017)", async () => {
+    const { act, post, demo } = await setup();
+    const file = join(demo, "decisions", "0002-api-errors.md");
+    const original = await readFile(file, "utf8");
+    const res = await act("0002", { type: "defer", until: "2099-01-01T00:00:00Z" });
+    const { card } = (await res.json()) as { card: CardDetailDto };
+    expect(card.frontmatter.defer_until).toBe("2099-01-01T00:00:00Z");
+    expect((await post("/api/cards/demo/0002/undo", { revision: card.revision })).status).toBe(200);
+    expect(await readFile(file, "utf8")).toBe(original);
+  });
 });
 
 describe("who wrote a card (R3-6)", () => {

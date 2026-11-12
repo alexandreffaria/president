@@ -679,6 +679,10 @@ input:disabled {
   color: var(--warn);
 }
 
+.back {
+  color: var(--accent);
+}
+
 .priority {
   flex: none;
   width: 8px;
@@ -987,6 +991,12 @@ ul.broken {
   font-family: var(--font-reading);
 }
 
+.recommendation-reveal {
+  margin-top: 1.5rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
 .feedback {
   list-style: none;
   margin: 0;
@@ -1108,8 +1118,13 @@ ul.broken {
 
 .action-panel-buttons {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.5rem;
+}
+
+.defer-menu {
+  flex-wrap: wrap;
 }
 
 /* Decision log */

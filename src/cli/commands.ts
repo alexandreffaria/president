@@ -449,7 +449,14 @@ export async function seen(args: string[], out: Output): Promise<number> {
 }
 
 /** What the human (and president) own in a card; an agent's rewrite keeps these as they are. */
-const HUMAN_FIELDS = ["status", "resolution", "feedback", "applied_at", "seen_at"] as const;
+const HUMAN_FIELDS = [
+  "status",
+  "resolution",
+  "feedback",
+  "applied_at",
+  "seen_at",
+  "defer_until",
+] as const;
 
 /** Why `update` refuses a decided card, or one whose decision changed. */
 const DONT_REWRITE =

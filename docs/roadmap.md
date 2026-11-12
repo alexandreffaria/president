@@ -36,6 +36,11 @@ After that (2026-11-12): F (the command is now `preside`, #0016 and 20261111dmvt
 pull request "Rename the command to preside (F)" (PR #19, branch `feat/rename-preside`), with
 `president` kept as an alias. F2, which removes the alias, isn't built.
 
+Then (2026-11-12): C (queue and card UX) is built in the pull request "Queue and card UX (C)"
+(branch `feat/queue-card-ux-c`), except
+[Withdrawn cards in the hub](#withdrawn-cards-in-the-hub-0014), which needs D's `withdrawn`
+field and follows in a small pull request once D merges. D and E aren't built.
+
 ## Build plan
 
 Each row is one pull request (PR 2 may be split, see its section). The order is a suggestion;
@@ -47,7 +52,7 @@ Each row is one pull request (PR 2 may be split, see its section). The order is 
 | A2 | [Agent rules: how agents deliver new cards and rewrites](#a2-agent-rules-how-agents-deliver-new-cards-and-rewrites-20261111st0c) (agent-facing: the skill) | 20261111st0c | A (built) | **Built** in PR #17 |
 | B | [Sync](#b-sync-0001) | #0001, #0022, 2026111209dq, 20261112xp4s | nothing | **Built** in PR #12, together with [the two follow-up decisions](#decided-while-pr-12-was-open-2026111209dq-20261112xp4s): 09dq is what it already did, and xp4s is commit `b672fe1` |
 | B2 | [Sync: count a skipped project's answers apart](#b2-sync-count-a-skipped-projects-answers-apart-20261112l9vh) | 20261112l9vh | B (PR #12) merged | **Built** in the follow-up pull request (PR #18, branch `feat/sync-followups`) |
-| C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | Alongside B; before PR 2, which builds on #0010's Neither panel and #0011's notes on decided cards |
+| C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | **Built** in the pull request "Queue and card UX (C)" (branch `feat/queue-card-ux-c`), except the [Withdrawn section](#withdrawn-cards-in-the-hub-0014) (#0014's and 202611116ff6's hub part), a follow-up once D is merged |
 | D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part), 202611116ff6 (`pending` and `validate`) | PR #7 (it edits `card-format.md` and `SKILL.md`) | Before or with C and PR 2; `chat` must exist before PR 2 writes it |
 | E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s, 20261112dfik | C (#0010's panel, #0011's notes on decided cards), D (`chat` type) | After C and D |
 | F | [Rename the command to `preside`](#f-rename-the-command-to-preside-0016-20261111dmvt) (agent-facing: the CLI, the skill and every printed command) | #0016, 20261111dmvt | A2 (both edit `SKILL.md`). The npm placeholder is published by the human (an agent prepares it). No card orders it against F; suggested: publish it before F merges (after repeating the name check), so the name F writes everywhere can't be taken meanwhile | **Built** in the pull request "Rename the command to preside (F)" (PR #19, branch `feat/rename-preside`) |
@@ -519,6 +524,11 @@ Hub changes (`src/core/queue.ts`, `src/core/actions.ts`, `src/web/views/QueueVie
 `src/web/views/CardView.tsx`, `src/web/components/OptionCard.tsx`) that don't need the chat.
 They can ship together or one by one.
 
+Built in the pull request "Queue and card UX (C)", except
+[Withdrawn cards in the hub](#withdrawn-cards-in-the-hub-0014). That PR also added
+`defer_until` to `preside update`'s guarded fields, the skill and `docs/card-format.md` (the
+Snooze section allowed it in D).
+
 ### The recommendation is hidden until you ask (#0008)
 
 Card: [0008-recommendation-placement.md](../decisions/0008-recommendation-placement.md), option
@@ -663,6 +673,9 @@ Card: [0017-deferred-resurfacing.md](../decisions/0017-deferred-resurfacing.md),
 
 Card: [0014-withdrawn-status.md](../decisions/0014-withdrawn-status.md), option `field`. The
 format part is in D.
+
+Not built yet: it needs D's `withdrawn` field, so it follows C's pull request in a small one
+once D is merged.
 
 - The queue leaves out open cards that have a `withdrawn` field and lists them in a collapsed
   **Withdrawn by agents (n)** section. A withdrawn **deferred** card is listed under
@@ -1448,12 +1461,13 @@ only); the build PR named in brackets fixes each.
   replaced by #0013's dated ids [D].
 - `docs/card-format.md`, `session_id` "Reserved for the per-card chat": unused under #0021 [E].
 - `docs/card-format.md`, feedback types (`neither | note | defer | reopen | undo`): gains `chat`
-  (#0023) [D]; fields: gains `withdrawn` (#0014) [D] and `defer_until` (#0017) [C or D].
+  (#0023) [D]; fields: gains `withdrawn` (#0014) [D] and `defer_until` (#0017) [C or D; `defer_until` added
+  in C's pull request].
 - `docs/card-format.md` Lifecycle, notes only on open and deferred cards: #0011 allows them on
-  resolved cards [C].
-- README `d` row ("defer"): under #0017 `d` defers for a week [C].
+  resolved cards [C; fixed in C's pull request].
+- README `d` row ("defer"): under #0017 `d` defers for a week [C; fixed in C's pull request].
 - The card-format Lifecycle (`deferred ──reopen──▶ open` is the only way back): under #0017 a
-  deferred card also returns when `defer_until` passes [C].
+  deferred card also returns when `defer_until` passes [C; fixed in C's pull request].
 - README, the `n` row ("an agent writes new ones"): under #0007 the hub starts the card's
   session at once [E].
 - README and the skill, "Use `president`, not `npx president`": #0016 renames the command, to
@@ -1472,7 +1486,8 @@ only); the build PR named in brackets fixes each.
   pull request, and its review loop stops when nothing should-fix is left (20261111st0c) [A2,
   when the skill changes; fixed in PR #17].
 - The deferred card page, "Deferred. It stays out of the queue until reopened."
-  (`CardView.tsx`): a deferred card without a date comes back at once (202611112hzh) [C].
+  (`CardView.tsx`): a deferred card without a date comes back at once (202611112hzh) [C; fixed
+  in C's pull request].
 
 ## Needs a card
 

@@ -2,7 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CardAction } from "../../core/actions.ts";
 import type { BrokenCardDto, CardDetailDto, CardDto } from "../../core/api.ts";
 import { CUSTOM_CHOICE } from "../../core/model.ts";
-import { buildQueue, openDependencies, unknownDependencies } from "../../core/queue.ts";
+import {
+  buildQueue,
+  isBackFromDeferral,
+  openDependencies,
+  unknownDependencies,
+} from "../../core/queue.ts";
 import { api, RequestError } from "../api.ts";
 import { wroteHere } from "../app-writes.ts";
 import { describeChanges } from "../card-changes.ts";
@@ -22,6 +27,7 @@ import { fullDate, KIND_LABEL, optionLabel, PRIORITY_LABEL, timeAgo } from "../f
 import { useHub } from "../hub.tsx";
 import { type KeyMap, useKeyboard, useKeyLayer } from "../keyboard.ts";
 import { cardPath, Link, navigate } from "../router.tsx";
+import { dateInputValue, nextMonth, startOfDay, tomorrow } from "../snooze.ts";
 import { useDismissToasts, useToast } from "../toast.tsx";
 
 type Loaded =
@@ -31,6 +37,17 @@ type Loaded =
   | { state: "ok"; card: CardDetailDto };
 
 type Panel = DraftPanel | null;
+
+/** What an action says once it is sent, from the card it produced. */
+type Done = string | ((card: CardDetailDto) => string);
+
+interface ActOptions {
+  leave?: boolean;
+  done?: Done;
+  sent?: Partial<Draft>;
+  /** The panel to open again with the sent text if the action is undone. */
+  panel?: DraftPanel;
+}
 
 /**
  * Who changed the card since the human last read it: an agent (or someone editing the file),
@@ -66,6 +83,13 @@ export function CardView({ project, id }: { project: string; id: string }) {
   // `latest` is read inside async callbacks, where `draft` would be stale.
   const [draft, updateDraft, latest] = useDraft(project, id);
   const [panel, setPanel] = useState<Panel>(null);
+  /** The Defer menu (#0017): other dates than `d`'s week. */
+  const [deferMenu, setDeferMenu] = useState(false);
+  /**
+   * The agent's pick is shown (#0008, hidden until asked). Lasts until the human leaves the
+   * card (20261111nsaj, visit): the view is mounted per card, and nothing is stored.
+   */
+  const [revealed, setRevealed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [changedBy, setChangedBy] = useState<ChangedBy | null>(null);
   /** Set when a change on disk cleared the option the human had picked. */
@@ -221,10 +245,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
     return queue[position + 1] ?? queue[position - 1];
   };
 
-  const act = async (
-    action: CardAction,
-    options: { leave?: boolean; done?: string; sent?: Partial<Draft> } = {},
-  ) => {
+  const act = async (action: CardAction, options: ActOptions = {}) => {
     if (!card || !seen || busy) return false;
     setBusy(true);
     const next = afterThis();
@@ -246,9 +267,11 @@ export function CardView({ project, id }: { project: string; id: string }) {
       if (options.done) {
         const after = res.card.revision;
         // Every action can be undone (a note sent too early, a reopen by mistake), and an
-        // undone Neither or Note opens its panel again with the text.
+        // undone Neither or Note (or an answer decided from the Neither panel) opens its
+        // panel again with the text.
         const panelToRestore: DraftPanel | undefined =
-          action.type === "neither" || action.type === "note" ? action.type : undefined;
+          options.panel ??
+          (action.type === "neither" || action.type === "note" ? action.type : undefined);
         const undo = {
           label: "Undo",
           key: "u",
@@ -282,7 +305,8 @@ export function CardView({ project, id }: { project: string; id: string }) {
               });
           },
         };
-        toast(options.done, { action: undo, group: undoGroup });
+        const done = typeof options.done === "string" ? options.done : options.done(res.card);
+        toast(done, { action: undo, group: undoGroup });
       }
       if (options.leave) {
         if (next) goTo(next);
@@ -319,24 +343,42 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const options = fm?.options ?? [];
   const selected = draft.selected;
 
-  const decide = async (choice: string | undefined, note: string, sent: Partial<Draft>) => {
-    if (!card || !fm || !choice) return;
+  const decide = async (
+    choice: string | undefined,
+    note: string,
+    sent: Partial<Draft>,
+    panel?: DraftPanel,
+  ) => {
+    if (!card || !fm || !choice) return false;
     const option = fm.options.find((o) => o.id === choice);
     const label = option ? option.title : "your own answer";
-    await act(
+    return act(
       { type: "resolve", choice, note: note.trim() || undefined },
-      { leave: true, done: `Decided #${id}: ${label}.`, sent },
+      { leave: true, done: `Decided #${id}: ${label}.`, sent, ...(panel ? { panel } : {}) },
     );
   };
 
-  /** Defers the card, unless the human typed something for it that isn't sent. */
-  const defer = () => {
+  /** `d` and the Defer menu work on open cards and on cards back from deferral (#0017). */
+  const canDefer = card !== undefined && (fm?.status === "open" || isBackFromDeferral(card));
+
+  /**
+   * Defers the card until `until`, or for a week (the hub's default) without it, unless the
+   * human typed something for it that isn't sent.
+   */
+  const defer = (until?: Date) => {
     // Deferring would leave what they typed behind, unsent, on a card out of the queue.
     if (unsentText(latest.current)) {
       toast("You have typed something on this card that isn't sent. Send or clear it first.");
       return;
     }
-    void act({ type: "defer" }, { leave: true, done: `Deferred #${id}.` });
+    setDeferMenu(false);
+    void act(until ? { type: "defer", until: until.toISOString() } : { type: "defer" }, {
+      leave: true,
+      done: (after) => {
+        const back = after.frontmatter.defer_until;
+        return back ? `Deferred #${id} until ${fullDate(back)}.` : `Deferred #${id}.`;
+      },
+    });
   };
 
   const selectIndex = (index: number) => {
@@ -371,14 +413,24 @@ export function CardView({ project, id }: { project: string; id: string }) {
       openPanel("neither");
     },
     m: () => {
-      if (!isActive) return false;
+      // Notes work on decided cards too (#0011).
+      if (!fm) return false;
       openPanel("note");
     },
     d: () => {
-      if (fm?.status !== "open") return false;
+      if (!canDefer) return false;
       defer();
     },
+    r: () => {
+      if (!fm?.recommendation || revealed) return false;
+      setRevealed(true);
+    },
     escape: () => navigate("/"),
+  };
+  // Shift+d opens the Defer menu (#0017); `d` itself never waits for a second key.
+  keys.D = () => {
+    if (!canDefer) return false;
+    setDeferMenu(true);
   };
   for (let i = 0; i < 9; i++) keys[String(i + 1)] = () => selectIndex(i);
   if (fm?.kind === "ab") {
@@ -388,6 +440,8 @@ export function CardView({ project, id }: { project: string; id: string }) {
   useKeyboard(keys, loaded.state !== "loading");
   // While the Neither/Note panel is open, nothing else on the page reacts to keys.
   useKeyLayer({ escape: closePanel }, panel !== null);
+  // The same for the Defer menu (it holds no text, so Esc just closes it).
+  useKeyLayer({ escape: () => setDeferMenu(false) }, deferMenu && canDefer && panel === null);
 
   if (loaded.state === "loading") return <p className="muted">Loading…</p>;
   if (loaded.state === "error") {
@@ -539,7 +593,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
                 index={index}
                 kind={fm.kind}
                 details={sections.get(option.id)}
-                recommended={index === recommended}
+                recommended={revealed && index === recommended}
                 selected={selected === option.id}
                 chosen={chosen === option.id}
                 selectable={isActive}
@@ -550,18 +604,27 @@ export function CardView({ project, id }: { project: string; id: string }) {
         </section>
       )}
 
-      {fm.recommendation && recommended !== -1 && (
-        <aside className="recommendation" aria-label="Agent recommendation">
-          <h2 className="section-heading">The agent's take</h2>
-          <p>
-            <strong>
-              {optionLabel(recommended, fm.kind)}. {options[recommended]?.title}
-            </strong>
-            {" — "}
-            {fm.recommendation.why}
+      {fm.recommendation &&
+        recommended !== -1 &&
+        (revealed ? (
+          <aside className="recommendation" aria-label="Agent recommendation">
+            <h2 className="section-heading">The agent's take</h2>
+            <p>
+              <strong>
+                {optionLabel(recommended, fm.kind)}. {options[recommended]?.title}
+              </strong>
+              {" — "}
+              {fm.recommendation.why}
+            </p>
+          </aside>
+        ) : (
+          // #0008: hidden until asked, so the human forms a view of their own first.
+          <p className="recommendation-reveal">
+            <button type="button" className="button button-quiet" onClick={() => setRevealed(true)}>
+              Show the agent's pick <kbd>r</kbd>
+            </button>
           </p>
-        </aside>
-      )}
+        ))}
 
       <Markdown className="card-appendix">{card.sections.appendix}</Markdown>
 
@@ -585,7 +648,10 @@ export function CardView({ project, id }: { project: string; id: string }) {
         }}
         onDecide={decide}
         onAct={act}
+        canDefer={canDefer}
         onDefer={defer}
+        deferMenu={deferMenu}
+        onDeferMenu={setDeferMenu}
       />
     </div>
   );
@@ -626,8 +692,34 @@ function StatusNotice({ card }: { card: CardDetailDto }) {
     );
   }
   if (fm.status === "deferred") {
+    // #0017 snooze; a deferred card without a date counts as due (202611112hzh, back-now).
+    const until = fm.defer_until;
+    if (!isBackFromDeferral(card)) {
+      return (
+        <p className="notice notice-info">
+          Deferred until{" "}
+          <time dateTime={until} title={until && timeAgo(until)}>
+            {until && fullDate(until)}
+          </time>
+          . It comes back to the queue then.
+        </p>
+      );
+    }
     return (
-      <p className="notice notice-info">Deferred. It stays out of the queue until reopened.</p>
+      <p className="notice notice-info">
+        Back from deferral
+        {until ? (
+          <>
+            : you deferred it until{" "}
+            <time dateTime={until} title={timeAgo(until)}>
+              {fullDate(until)}
+            </time>
+          </>
+        ) : (
+          ": it was deferred with no return date"
+        )}
+        . Press <kbd>d</kbd> to defer it again for a week.
+      </p>
     );
   }
   return null;
@@ -641,19 +733,26 @@ function ActionBar(props: {
   panel: Panel;
   onPanel: (panel: Panel) => void;
   onDiscard: () => void;
-  onDecide: (choice: string | undefined, note: string, sent: Partial<Draft>) => void;
-  onAct: (
-    action: CardAction,
-    options?: { leave?: boolean; done?: string; sent?: Partial<Draft> },
+  onDecide: (
+    choice: string | undefined,
+    note: string,
+    sent: Partial<Draft>,
+    panel?: DraftPanel,
   ) => Promise<boolean>;
-  onDefer: () => void;
+  onAct: (action: CardAction, options?: ActOptions) => Promise<boolean>;
+  canDefer: boolean;
+  onDefer: (until?: Date) => void;
+  deferMenu: boolean;
+  onDeferMenu: (open: boolean) => void;
 }) {
   const { card, busy, draft, panel } = props;
   const { selected, answer } = draft;
   const fm = card.frontmatter;
   const neitherButton = useRef<HTMLButtonElement>(null);
   const noteButton = useRef<HTMLButtonElement>(null);
+  const deferMenuButton = useRef<HTMLButtonElement>(null);
   const lastPanel = useRef<Panel>(null);
+  const lastMenu = useRef(false);
 
   useEffect(() => {
     // When a panel closes, put focus back on the button that opens it.
@@ -661,31 +760,20 @@ function ActionBar(props: {
     else if (!panel && lastPanel.current === "note") noteButton.current?.focus();
     lastPanel.current = panel;
   }, [panel]);
-
-  if (fm.status === "resolved") {
-    return (
-      <div className="action-bar">
-        <div className="action-bar-inner">
-          <span className="muted">This decision is made.</span>
-          <button
-            type="button"
-            className="button"
-            disabled={busy}
-            onClick={() => void props.onAct({ type: "reopen" }, { done: `Reopened #${card.id}.` })}
-          >
-            Reopen
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const selectedIndex = fm.options.findIndex((o) => o.id === selected);
-  const selectedOption = fm.options[selectedIndex];
+  useEffect(() => {
+    if (!props.deferMenu && lastMenu.current) deferMenuButton.current?.focus();
+    lastMenu.current = props.deferMenu;
+  }, [props.deferMenu]);
 
   if (panel) {
     const neither = panel === "neither";
     const text = draft[panel];
+    /** #0010: settle the card with what was typed, as a custom answer. */
+    const decideAsAnswer = async () => {
+      if (!text.trim()) return;
+      const ok = await props.onDecide(CUSTOM_CHOICE, text, { neither: "" }, "neither");
+      if (ok) props.onPanel(null);
+    };
     const submit = async () => {
       if (!text.trim()) return;
       const sent = { [panel]: "" };
@@ -708,7 +796,7 @@ function ActionBar(props: {
         >
           <label htmlFor="panel-text" className="action-panel-label">
             {neither
-              ? "None of these. What's wrong with them, or what would you rather see?"
+              ? "None of these. What would you rather see, or what is your answer?"
               : "Add a note for the agent"}
           </label>
           <textarea
@@ -738,11 +826,62 @@ function ActionBar(props: {
             <button type="submit" className="button button-primary" disabled={busy || !text.trim()}>
               {neither ? "Ask for new options" : "Add note"} <kbd>Ctrl ⏎</kbd>
             </button>
+            {neither && (
+              <button
+                type="button"
+                className="button"
+                disabled={busy || !text.trim()}
+                onClick={() => void decideAsAnswer()}
+              >
+                Decide this as my answer
+              </button>
+            )}
           </div>
         </form>
       </div>
     );
   }
+
+  if (fm.status === "resolved") {
+    // #0011: a note on a decided card keeps the decision and whether it was applied.
+    return (
+      <div className="action-bar">
+        <div className="action-bar-inner">
+          <span className="muted">This decision is made.</span>
+          <span className="action-bar-secondary">
+            <button
+              ref={noteButton}
+              type="button"
+              className="button"
+              disabled={busy}
+              onClick={() => props.onPanel("note")}
+            >
+              Note… <kbd>m</kbd>
+            </button>
+            <button
+              type="button"
+              className="button"
+              disabled={busy}
+              onClick={() =>
+                void props.onAct({ type: "reopen" }, { done: `Reopened #${card.id}.` })
+              }
+            >
+              Reopen
+            </button>
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (props.deferMenu && props.canDefer) {
+    return (
+      <DeferMenu busy={busy} onDefer={props.onDefer} onClose={() => props.onDeferMenu(false)} />
+    );
+  }
+
+  const selectedIndex = fm.options.findIndex((o) => o.id === selected);
+  const selectedOption = fm.options[selectedIndex];
 
   const isOpenKind = fm.kind === "open";
   const customAnswer = isOpenKind && !selectedOption;
@@ -753,9 +892,9 @@ function ActionBar(props: {
         onSubmit={(event) => {
           event.preventDefault();
           if (customAnswer) {
-            props.onDecide(answer.trim() ? CUSTOM_CHOICE : undefined, answer, { answer: "" });
+            void props.onDecide(answer.trim() ? CUSTOM_CHOICE : undefined, answer, { answer: "" });
           } else {
-            props.onDecide(selected, draft.decisionNote, {
+            void props.onDecide(selected, draft.decisionNote, {
               selected: undefined,
               decisionNote: "",
             });
@@ -831,10 +970,26 @@ function ActionBar(props: {
           >
             Note… <kbd>m</kbd>
           </button>
-          {fm.status === "open" ? (
-            <button type="button" className="button" disabled={busy} onClick={props.onDefer}>
-              Defer <kbd>d</kbd>
-            </button>
+          {props.canDefer ? (
+            <>
+              <button
+                type="button"
+                className="button"
+                disabled={busy}
+                onClick={() => props.onDefer()}
+              >
+                Defer a week <kbd>d</kbd>
+              </button>
+              <button
+                ref={deferMenuButton}
+                type="button"
+                className="button"
+                disabled={busy}
+                onClick={() => props.onDeferMenu(true)}
+              >
+                Defer until… <kbd>D</kbd>
+              </button>
+            </>
           ) : (
             <button
               type="button"
@@ -851,6 +1006,82 @@ function ActionBar(props: {
             </button>
           )}
         </span>
+      </form>
+    </div>
+  );
+}
+
+/** #0017: "Defer until: [Next week] Tomorrow  Next month  Pick a date…" */
+function DeferMenu(props: { busy: boolean; onDefer: (until?: Date) => void; onClose: () => void }) {
+  const { busy } = props;
+  const [picking, setPicking] = useState(false);
+  const [picked, setPicked] = useState("");
+  const now = new Date();
+  const earliest = dateInputValue(tomorrow(now));
+  const pickedDay = startOfDay(picked);
+  const pickedOk = pickedDay !== undefined && picked >= earliest;
+  return (
+    <div className="action-bar action-bar-open">
+      <form
+        className="action-bar-inner defer-menu"
+        aria-labelledby="defer-menu-label"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (pickedOk) props.onDefer(pickedDay);
+        }}
+      >
+        <span className="action-panel-label" id="defer-menu-label">
+          Defer until:
+        </span>
+        <button
+          type="button"
+          className="button button-primary"
+          // biome-ignore lint/a11y/noAutofocus: the menu opens on purpose; Enter takes the default
+          autoFocus
+          disabled={busy}
+          onClick={() => props.onDefer()}
+        >
+          Next week <kbd>⏎</kbd>
+        </button>
+        <button
+          type="button"
+          className="button"
+          disabled={busy}
+          onClick={() => props.onDefer(tomorrow(new Date()))}
+        >
+          Tomorrow
+        </button>
+        <button
+          type="button"
+          className="button"
+          disabled={busy}
+          onClick={() => props.onDefer(nextMonth(new Date()))}
+        >
+          Next month
+        </button>
+        {picking ? (
+          <>
+            <input
+              type="date"
+              aria-label="Date to bring the card back"
+              // biome-ignore lint/a11y/noAutofocus: shown on purpose to pick a date
+              autoFocus
+              min={earliest}
+              value={picked}
+              onChange={(event) => setPicked(event.target.value)}
+            />
+            <button type="submit" className="button" disabled={busy || !pickedOk}>
+              Defer
+            </button>
+          </>
+        ) : (
+          <button type="button" className="button" disabled={busy} onClick={() => setPicking(true)}>
+            Pick a date…
+          </button>
+        )}
+        <button type="button" className="button button-quiet" onClick={props.onClose}>
+          Close <kbd>Esc</kbd>
+        </button>
       </form>
     </div>
   );

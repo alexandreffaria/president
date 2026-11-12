@@ -130,9 +130,11 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
    | Key | Action |
    |---|---|
    | `1`–`9` (`a`/`b` on A/B cards) | select an option, then `Enter` to decide (optionally type why first) |
-   | `n` | neither: reject all options with a note; an agent writes new ones |
-   | `m` | add a note without deciding |
-   | `d` | defer |
+   | `r` | show the agent's pick (hidden until you ask, and again each time you come back to the card) |
+   | `n` | neither: reject all options with a note; an agent writes new ones. The same panel can also decide the card with what you typed as your own answer |
+   | `m` | add a note without deciding; also works on a decided card (the decision stays) |
+   | `d` | defer for a week: the card leaves the queue and comes back, marked "back from deferral", when the week is over |
+   | `D` | defer until another date: tomorrow, next month or a day you pick (also the **Defer until…** button) |
    | `j` / `k` | next / previous card |
    | `u` | undo the last action on a card: a decision, deferral, "neither", note or reopen (while its notice is shown); an undone note or "neither" comes back in its panel |
    | `?` | all shortcuts |
@@ -141,7 +143,12 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
    focused button or link press that control instead. While the Neither or Note panel is open,
    only `Esc` works (it closes the panel). What you type on a card and haven't sent (a note, a
    "why", your own answer) is kept until you send it, even if you close the panel or leave the
-   card, and deferring (`d` or the Defer button) is refused while there is any.
+   card, and deferring (`d`, `D` or the Defer buttons) is refused while there is any.
+
+   The queue shows cards that are ready first, then the ones that depend on a card you haven't
+   decided yet; each group by priority, then oldest first. A deferred card stays under
+   **Deferred** until its date, then is back in the queue; a card deferred with no date (before
+   this existed, or by hand) is back at once.
 
    If an agent changes a card while you have it open, president shows what changed and refuses
    to send anything until you press **I've read it**, so you never decide on text you didn't see.

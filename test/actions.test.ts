@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyAction,
   type CardAction,
+  CardActionSchema,
   canApply,
   feedbackTimestamp,
   timestamp,
@@ -122,19 +123,65 @@ describe("note", () => {
   });
 });
 
+describe("note on a decided card (#0011)", () => {
+  it("appends the note and keeps the decision and applied_at", () => {
+    const { raw } = act(card(RESOLVED), { type: "note", note: "Also update the README." });
+    expect(raw).toMatchObject({
+      status: "resolved",
+      resolution: { choice: "a", note: "warm" },
+      applied_at: "2026-11-09T09:00:00Z",
+      feedback: [{ at: AT, type: "note", note: "Also update the README." }],
+    });
+  });
+});
+
 describe("defer", () => {
-  it("defers an open card, with an optional note", () => {
-    expect(act(card(), { type: "defer" }).raw).toMatchObject({ status: "deferred" });
+  it("defers an open card for a week, with an optional note (#0017)", () => {
+    expect(act(card(), { type: "defer" }).raw).toMatchObject({
+      status: "deferred",
+      defer_until: "2026-11-17T12:00:00Z",
+    });
     expect(act(card(), { type: "defer" }).raw).not.toHaveProperty("feedback");
     const { raw } = act(card(), { type: "defer", note: "after launch" });
     expect(raw.feedback).toEqual([{ at: AT, type: "defer", note: "after launch" }]);
   });
 
-  it("rejects deferring a deferred or resolved card", () => {
-    expect(rejects(card({ status: "deferred" }), { type: "defer" })).toMatch(
-      /cannot defer a card while/,
+  it("defers until a given time, written in UTC without milliseconds", () => {
+    const { raw } = act(card(), { type: "defer", until: "2026-12-01T09:30:00.250+01:00" });
+    expect(raw.defer_until).toBe("2026-12-01T08:30:00Z");
+  });
+
+  it("refuses a date that has passed, or isn't a date", () => {
+    expect(rejects(card(), { type: "defer", until: "2026-11-10T11:59:00Z" })).toMatch(/has passed/);
+    expect(CardActionSchema.safeParse({ type: "defer", until: "next week" }).success).toBe(false);
+  });
+
+  it("snoozes a deferred card again with a new date (a card back from deferral)", () => {
+    const back = card({ status: "deferred", defer_until: "2026-11-09T08:00:00Z" });
+    expect(act(back, { type: "defer" }).raw.defer_until).toBe("2026-11-17T12:00:00Z");
+    // 202611112hzh: a deferred card without a date gets a real one.
+    expect(act(card({ status: "deferred" }), { type: "defer" }).raw.defer_until).toBe(
+      "2026-11-17T12:00:00Z",
     );
+  });
+
+  it("rejects deferring a resolved card", () => {
     expect(rejects(card(RESOLVED), { type: "defer" })).toMatch(/cannot defer a card while/);
+  });
+
+  it("keeps the date through a note, and drops it on reopen, resolve and neither", () => {
+    const snoozed = card({ status: "deferred", defer_until: "2026-11-20T08:00:00Z" });
+    expect(act(snoozed, { type: "note", note: "still later" }).raw.defer_until).toBe(
+      "2026-11-20T08:00:00Z",
+    );
+    for (const action of [
+      { type: "reopen" },
+      { type: "resolve", choice: "a" },
+      { type: "neither", note: "neither" },
+    ] as const) {
+      const { raw } = act(snoozed, action);
+      expect(raw).not.toHaveProperty("defer_until");
+    }
   });
 });
 
@@ -307,8 +354,8 @@ describe("error reasons", () => {
 describe("transition table", () => {
   const table: Record<CardStatus, string[]> = {
     open: ["resolve", "neither", "note", "defer", "seen"],
-    deferred: ["resolve", "neither", "note", "reopen", "seen"],
-    resolved: ["reopen", "applied", "seen"],
+    deferred: ["resolve", "neither", "note", "defer", "reopen", "seen"],
+    resolved: ["note", "reopen", "applied", "seen"],
   };
   for (const status of CARD_STATUSES) {
     it(`allows exactly ${table[status].join(", ")} from ${status}`, () => {

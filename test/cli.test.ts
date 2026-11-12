@@ -513,7 +513,7 @@ describe("preside CLI", () => {
       await writeFile(mine, before.replace("status: open", "status: deferred"));
       expect((await cli("update", file, mine)).err).toBe(
         [
-          "preside: 0002-api-errors.md was not changed: what the human owns differs between the card and your version, so the card changed since you read it. Read the card again, make your changes to it as it is now (keep status, resolution, feedback, applied_at, seen_at exactly as they are), and run preside update again:",
+          "preside: 0002-api-errors.md was not changed: what the human owns differs between the card and your version, so the card changed since you read it. Read the card again, make your changes to it as it is now (keep status, resolution, feedback, applied_at, seen_at, defer_until exactly as they are), and run preside update again:",
           '  - status: the card has "open", your version "deferred"',
         ].join("\n"),
       );
@@ -577,7 +577,7 @@ describe("preside CLI", () => {
       const refused = await cli("update", file, mine);
       expect(refused.code).toBe(1);
       expect(refused.err).toMatch(
-        /^preside: 0002-api-errors\.md was not changed: what the human owns differs[\s\S]*Read the card again[\s\S]*\n {2}- status: the card has "deferred", your version "open"$/,
+        /^preside: 0002-api-errors\.md was not changed: what the human owns differs[\s\S]*Read the card again[\s\S]*\n {2}- status: the card has "deferred", your version "open"\n {2}- defer_until: the card has "[^"]+", your version none$/,
       );
       expect(await readFile(file, "utf8")).toBe(deferred);
       await writeFile(mine, rewrite(deferred));
