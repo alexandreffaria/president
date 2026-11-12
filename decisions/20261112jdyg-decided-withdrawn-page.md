@@ -40,6 +40,7 @@ options:
 resolution:
   choice: quiet-line
   resolved_at: 2026-11-12T19:54:45Z
+applied_at: 2026-11-12T20:12:40Z
 ---
 
 ## Context

@@ -53,6 +53,7 @@ options:
 resolution:
   choice: hidden
   resolved_at: 2026-11-12T19:55:27Z
+applied_at: 2026-11-12T20:12:41Z
 ---
 
 ## Context
