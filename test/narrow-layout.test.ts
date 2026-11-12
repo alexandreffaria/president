@@ -119,5 +119,6 @@ describe("withdrawn cards at narrow widths (#0014)", () => {
 
   it("styles a decided card's withdrawal line inside the notice, which wraps it (20261112jdyg)", () => {
     expect(rule(".notice .withdrawal-note")["margin-top"]).toBe("0.4rem");
+    expect(rule(".notice")["overflow-wrap"]).toBe("anywhere");
   });
 });

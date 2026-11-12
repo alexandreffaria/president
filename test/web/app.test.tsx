@@ -1143,6 +1143,7 @@ describe("withdrawn cards (#0014, 202611116ff6)", () => {
     const line = decided?.querySelector(".withdrawal-note");
     expect(line?.textContent).toBe("An agent had withdrawn this card: We dropped the API client.");
     expect(line?.classList.contains("muted")).toBe(true);
+    expect(line?.classList.contains("small")).toBe(true);
     expect(text()).not.toContain("Withdrawn by the agent:");
     await act(async () => button("Reopen")?.click());
     await until(() => text().includes("Reopened #0002"), "the reopen toast");

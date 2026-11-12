@@ -625,7 +625,6 @@ input:disabled {
    so it wraps a long path like any notice (.notice's overflow-wrap). */
 .notice .withdrawal-note {
   margin-top: 0.4rem;
-  font-size: 0.875rem;
 }
 
 /* Queue */

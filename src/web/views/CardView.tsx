@@ -723,7 +723,7 @@ function StatusNotice({ card }: { card: CardDetailDto }) {
         </p>
         {fm.resolution.note && <p className="resolution-note">{fm.resolution.note}</p>}
         {withdrawal && (
-          <p className="withdrawal-note muted">
+          <p className="withdrawal-note muted small">
             An agent had withdrawn this card: {withdrawal.reason}
           </p>
         )}
