@@ -1096,7 +1096,9 @@ it you want its view; the page then says "The agent's view is in the chat.""
   and discuss freely. So `r` means "now tell me what you think" on every card.
 - As with a revealed pick, the conversation keeps it (`revealed` in the session store holds
   `view-asked` instead of the pick's hash) until a New conversation; a pick the card gets later
-  is still hidden until `r`.
+  is still hidden until `r`. New options written after "neither" end it, like a revealed pick
+  (2026111272fu): the chat is neutral about them, without the "earlier pick" wording, since
+  there was none.
 - Cards with a pick are unchanged.
 - Accepted costs: `r` does something new on these cards; the view comes as a chat message, not
   as a written pick on the card.

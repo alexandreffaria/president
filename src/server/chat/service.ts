@@ -66,6 +66,7 @@ import {
   startOverNote,
   summaryFromCopy,
   summaryRequest,
+  VIEW_ASKED,
   withPickLine,
 } from "./prompts.ts";
 import {
@@ -727,11 +728,18 @@ export class ChatService {
         );
         // A run doesn't make the conversation "not summarized" (202611111gpm
         // `shown-no-reminder`), and a pick revealed before is not the new one (2026111272fu).
-        await this.store.updateEntry(key, (e) => ({
-          ...e,
-          ...(e?.revealed ? { revealed: "replaced" } : {}),
-          newOptions: { note, state: "written", options: hash },
-        }));
+        // A view asked for on the card without a pick (20261112irpn) reveals nothing about the
+        // new options either: the chat is neutral about them until r, with no word of an
+        // earlier pick, since there was none.
+        await this.store.updateEntry(key, (e) => {
+          const next: SessionEntry = {
+            ...e,
+            newOptions: { note, state: "written", options: hash },
+          };
+          if (e?.revealed === VIEW_ASKED) delete next.revealed;
+          else if (e?.revealed) next.revealed = "replaced";
+          return next;
+        });
         this.#bus.emit({ type: "cards", project: project.name });
       } else {
         await this.#newOptionsFailed(key, note, failure ?? "the run failed");

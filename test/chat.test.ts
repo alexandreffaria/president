@@ -1316,6 +1316,25 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
     expect((await t.conversation()).unsummarized).toBe(true);
   });
 
+  it("forgets a view asked for before: the new pick is neutral, with no word of an earlier one (20261112irpn)", async () => {
+    const t = await setup();
+    await t.send("Is IndexedDB available in the webview?");
+    // As if the card had no pick when the human pressed r in this conversation.
+    await t.chat.store.updateEntry({ project: "demo", id: "0002" }, (e) => ({
+      ...e,
+      revealed: "view-asked",
+    }));
+    const { at } = await neither(t);
+    await t.script([{ structured: ANSWER }]);
+    await start(t, at);
+    await settled(t);
+    expect((await t.sessions())["demo/0002"]?.revealed).toBeUndefined();
+    await t.send("Which one now?");
+    expect((await t.calls()).at(-1)?.stdin).toMatch(
+      /^\(president: The human has not revealed the card's pick\./,
+    );
+  });
+
   it("starts a session for a card without a conversation", async () => {
     const t = await setup();
     const { at } = await neither(t);
