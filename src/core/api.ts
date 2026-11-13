@@ -300,7 +300,7 @@ export interface ProjectSyncStatus {
   rebase?: { message: string; action: string };
   /**
    * Set when the fetch at hub start failed (offline, no remote). Not fatal. The hub retries
-   * it after 5 s, 15 s, 30 s, 1 min, 2 min and 5 min, until one works or a Sync runs (a
+   * it after 5 s, 15 s, 30 s, 1 min, 2 min and 5 min, until one works or a Sync fetches (a
    * Sync fetches too, and clears it).
    */
   fetchError?: string;

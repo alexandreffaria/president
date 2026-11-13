@@ -355,7 +355,7 @@ From review round 1 of the PR (each with a test in `test/sync.test.ts` that fail
   remote changed: `git diff --name-only HEAD...@{u} -- decisions/`, with three dots, so answers
   here that aren't pushed yet don't count). It never pulls, commits or pushes on its own.
   A fetch that fails (offline, no remote) is shown, not fatal, and retried after 5 s, 15 s,
-  30 s, 1 min, 2 min and 5 min, until one works or a Sync runs.
+  30 s, 1 min, 2 min and 5 min, until one works or a Sync fetches.
 - Each refusal or failure is a sentence that says why, for example "Not now: an agent in shop
   has commits it hasn't pushed", "Not synced: 0001 changed on both machines".
 
