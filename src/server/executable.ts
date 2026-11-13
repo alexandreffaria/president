@@ -19,8 +19,11 @@ const found = new Map<string, string>();
 /**
  * The absolute path of `name` in the PATH of `env` (the child's environment, as spawn uses
  * it), or undefined when no PATH folder has it. Only absolute PATH entries are looked in,
- * never the cwd. What is found is remembered for that PATH; what isn't is looked for again
- * next time (git installed while the hub runs).
+ * never the cwd. What is found is remembered for that PATH, and checked again each time: if
+ * it is gone (git uninstalled while the hub runs) PATH is searched again. What isn't found is
+ * looked for again next time (git installed while the hub runs). A file of that name that
+ * isn't executable is returned when nothing better is found, so that spawning it says EACCES
+ * rather than "not installed".
  */
 export function findExecutable(
   name: string,
@@ -31,7 +34,11 @@ export function findExecutable(
   const path = pathOf(env, windows) ?? (windows ? "" : "/usr/bin:/bin");
   const key = `${name}\0${path}`;
   const cached = found.get(key);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) {
+    if (isExecutableFile(cached, windows) === "yes") return cached;
+    found.delete(key);
+  }
+  let notExecutable: string | undefined;
   for (const raw of path.split(delimiter)) {
     // Windows allows a quoted entry ("C:\Program Files\Git\cmd").
     const dir = windows ? raw.replace(/^"(.*)"$/, "$1") : raw;
@@ -42,13 +49,15 @@ export function findExecutable(
       ? WINDOWS_EXTENSIONS.map((ext) => join(dir, name + ext))
       : [join(dir, name)];
     for (const candidate of candidates) {
-      if (isExecutableFile(candidate, windows)) {
+      const result = isExecutableFile(candidate, windows);
+      if (result === "yes") {
         found.set(key, candidate);
         return candidate;
       }
+      if (result === "not executable") notExecutable ??= candidate;
     }
   }
-  return undefined;
+  return notExecutable;
 }
 
 /** PATH in `env`; on Windows the name ignores case (it is often "Path"). */
@@ -58,12 +67,17 @@ function pathOf(env: NodeJS.ProcessEnv, windows: boolean): string | undefined {
   return key === undefined ? undefined : env[key];
 }
 
-function isExecutableFile(path: string, windows: boolean): boolean {
+function isExecutableFile(path: string, windows: boolean): "yes" | "no" | "not executable" {
   try {
-    if (!statSync(path).isFile()) return false;
-    if (!windows) accessSync(path, constants.X_OK);
-    return true;
+    if (!statSync(path).isFile()) return "no";
   } catch {
-    return false;
+    return "no";
+  }
+  if (windows) return "yes";
+  try {
+    accessSync(path, constants.X_OK);
+    return "yes";
+  } catch {
+    return "not executable";
   }
 }

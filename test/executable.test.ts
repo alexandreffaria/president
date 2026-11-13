@@ -3,7 +3,7 @@
  * looks in the child's cwd before PATH, and on Linux an empty or relative PATH entry means a
  * folder relative to the cwd.
  */
-import { copyFile, mkdir, symlink } from "node:fs/promises";
+import { chmod, copyFile, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { findExecutable } from "../src/server/executable.ts";
@@ -56,5 +56,31 @@ describe("finding git", () => {
     const result = await runGit(project, ["--version"], options);
     expect(result).toMatchObject({ code: 0, timedOut: false });
     expect(result.stdout).toMatch(/^git version /);
+  });
+
+  it("looks again when the git it found is gone", async () => {
+    const a = await tempDir();
+    const b = await tempDir();
+    const name = windows ? "git.exe" : "git";
+    for (const dir of [a, b]) {
+      if (windows) await copyFile(process.execPath, join(dir, name));
+      else await symlink(process.execPath, join(dir, name));
+    }
+    const env = windows ? { Path: [a, b].join(delimiter) } : { PATH: [a, b].join(delimiter) };
+    expect(findExecutable("git", env)).toBe(join(a, name));
+    await rm(join(a, name));
+    expect(findExecutable("git", env)).toBe(join(b, name));
+  });
+
+  // R2-2: a git that is there but not executable says so (EACCES), not "not installed".
+  it.skipIf(windows)("runs a git that isn't executable, so it says EACCES", async () => {
+    const dir = await tempDir();
+    await writeFile(join(dir, "git"), "#!/bin/sh\necho hi\n");
+    await chmod(join(dir, "git"), 0o644);
+    expect(findExecutable("git", { PATH: dir })).toBe(join(dir, "git"));
+    const result = await runGit(dir, ["--version"], { env: { PATH: dir } });
+    expect(result.code).toBeNull();
+    expect(result.stderr).toMatch(/EACCES/);
+    expect(result.stderr).not.toMatch(/not installed/);
   });
 });

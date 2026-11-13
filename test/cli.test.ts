@@ -252,17 +252,17 @@ describe("preside CLI", () => {
 
   // A path through a file or a loop of links is one line, not a stack trace (R10-1, R10-2),
   // and validate says the same, not "does not exist" (R11-3).
-  // Windows says a path through a file doesn't exist (ENOENT, not ENOTDIR), and has no
-  // error of its own for a loop of links: there the reason isn't checked, only that it is
-  // one line, not a stack trace.
+  // Windows says a path through a file doesn't exist (ENOENT, not ENOTDIR); a loop of links
+  // is ELOOP there too (libuv maps ERROR_CANT_RESOLVE_FILENAME to it), so it says the same.
   it("says a path goes through a file or a link loop, in one line", async () => {
     const windows = process.platform === "win32";
     const oneLine = (
       result: { code: number; out: string; err: string },
-      expected: { code: number; out: string; err: string },
+      expected: { code: number; out: string; err: string | RegExp },
     ) => {
-      if (!windows) return expect(result).toEqual(expected);
       expect(result).toMatchObject({ code: expected.code, out: expected.out });
+      if (typeof expected.err === "string") expect(result.err).toBe(expected.err);
+      else expect(result.err).toMatch(expected.err);
       expect(result.err).toMatch(/^preside: [^\n]+$/);
     };
     const scratch = await tempDir();
@@ -278,7 +278,7 @@ describe("preside CLI", () => {
       oneLine(await cli(command, throughFile), {
         code: 1,
         out: "",
-        err: notFolder(throughFile),
+        err: windows ? /does not exist/ : notFolder(throughFile),
       });
       oneLine(await cli(command, loop), { code: 1, out: "", err: looped(loop) });
     }
