@@ -370,6 +370,60 @@ describe("preside CLI", () => {
     expect(result.err).toContain("warning 0009-deps.md: depends_on lists itself (line 14)");
   });
 
+  // The keys 1 to 9 pick an option; a 10th still shows, so it's a warning (oew6).
+  it("warns about a card with more options than keys", async () => {
+    const options = (count: number) =>
+      Array.from(
+        { length: count },
+        (_, i) => `\n  - id: o${i + 1}\n    title: Option ${i + 1}`,
+      ).join("");
+    const demo = await copyDemoProject();
+    await writeFile(
+      join(demo, "decisions", "0009-many.md"),
+      cardText({ id: '"0009"', options: options(10) }),
+    );
+    await writeFile(
+      join(demo, "decisions", "0010-nine.md"),
+      cardText({ id: '"0010"', options: options(9) }),
+    );
+    const result = await cli("validate", demo);
+    expect(result.code).toBe(0);
+    expect(result.out).toMatch(/^ok {6}0009-many\.md$/m);
+    expect(result.err).toContain(
+      "warning 0009-many.md: options: 10 options, but the hub's keys 1-9 pick only the first 9; use 9 or fewer (line 9)",
+    );
+    expect(result.err).not.toContain("0010-nine.md");
+    // pending lists it too, as text and in --json.
+    const warning =
+      "options: 10 options, but the hub's keys 1-9 pick only the first 9; use 9 or fewer (line 9)";
+    expect((await cli("pending", demo)).out).toContain(`(warning) 0009-many.md: ${warning}`);
+    expect(JSON.parse((await cli("pending", demo, "--json")).out).warnings).toContainEqual({
+      file: "0009-many.md",
+      message: warning,
+    });
+    // A decided card can't be updated, so it isn't told to use fewer options.
+    await writeFile(
+      join(demo, "decisions", "0011-decided.md"),
+      cardText({
+        id: '"0011"',
+        status: "resolved",
+        options: options(10),
+        resolution: "\n  choice: o1\n  resolved_at: 2026-11-12T10:00:00Z",
+      }),
+    );
+    const again = await cli("validate", demo);
+    expect(again.code).toBe(0);
+    expect(again.out).toMatch(/^ok {6}0011-decided\.md$/m);
+    expect(again.err).not.toContain("0011-decided.md");
+    // A loose file, outside a decisions/ folder, is warned about too.
+    const loose = join(await tempDir(), "0001-loose.md");
+    await writeFile(loose, cardText({ options: options(10) }));
+    expect(await cli("validate", loose)).toMatchObject({
+      code: 0,
+      err: "warning 0001-loose.md: options: 10 options, but the hub's keys 1-9 pick only the first 9; use 9 or fewer (line 9)",
+    });
+  });
+
   describe("withdrawn cards (#0014, 202611116ff6)", () => {
     const withdrawn = '\n  at: 2026-11-14T10:00:00Z\n  reason: "We dropped the map\n    screen."';
     const writeMapCards = async (demo: string, extra: Record<string, string> = {}) => {
@@ -847,6 +901,25 @@ describe("preside CLI", () => {
       expect(result.code).toBe(0);
       expect(result.err).toBe(
         'warning 0002-api-errors.md: depends_on "0099" is not a card in this project (line 10)',
+      );
+    });
+
+    it("warns about more options than keys, as validate does (oew6)", async () => {
+      const demo = await copyDemoProject();
+      const file = join(demo, "decisions", "0001-offline-storage.md");
+      const mine = join(demo, "decisions", ".0001.new.md");
+      const extra = Array.from(
+        { length: 7 },
+        (_, i) => `  - id: extra${i}\n    title: Extra ${i}\n`,
+      ).join("");
+      await writeFile(
+        mine,
+        (await readFile(file, "utf8")).replace("options:\n", `options:\n${extra}`),
+      );
+      const result = await cli("update", file, mine);
+      expect(result.code).toBe(0);
+      expect(result.err).toBe(
+        "warning 0001-offline-storage.md: options: 10 options, but the hub's keys 1-9 pick only the first 9; use 9 or fewer (line 17)",
       );
     });
 

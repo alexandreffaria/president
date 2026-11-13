@@ -32,7 +32,14 @@ import {
   splitFrontmatter,
 } from "../core/card-file.ts";
 import { updateCardText } from "../core/card-writer.ts";
-import { CARD_ID_PATTERN, lineSuffix, type RawFrontmatter, sameCardId } from "../core/schema.ts";
+import {
+  CARD_ID_PATTERN,
+  cardWarnings,
+  formatWarning,
+  lineSuffix,
+  type RawFrontmatter,
+  sameCardId,
+} from "../core/schema.ts";
 import { UserError } from "./errors.ts";
 import { isNotFound, KeyedMutex, writeFileAtomic } from "./fs-utils.ts";
 import { decisionsDirOf, type Project } from "./registry.ts";
@@ -119,7 +126,17 @@ export async function loadProjectCards(project: Project): Promise<ProjectCards> 
   pruneCache(located.dir, names);
   const results = await Promise.all(names.map((name) => loadFile(project, name, true)));
   const { cards, broken } = collect(project, results);
-  return { cards, broken, warnings: dependencyWarnings(cards, broken), error: undefined };
+  const warnings = [...cards.flatMap(ownWarnings), ...dependencyWarnings(cards, broken)];
+  return { cards, broken, warnings, error: undefined };
+}
+
+/** The warnings a card gets on its own (schema.ts), such as more options than keys. */
+function ownWarnings(card: LoadedCard): CardWarning[] {
+  return cardWarnings(card.frontmatter).map((warning) => ({
+    fileName: card.fileName,
+    id: card.id,
+    message: formatWarning(warning, card.fieldLines),
+  }));
 }
 
 /** Separates cards from broken files; two files with the same id are both broken. */

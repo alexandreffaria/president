@@ -11,6 +11,8 @@ export const FEEDBACK_TYPES = ["neither", "note", "defer", "reopen", "undo", "ch
 
 /** The reserved resolution choice for an answer that isn't one of the options. */
 export const CUSTOM_CHOICE = "custom";
+/** The hub's keys `1` to `9` pick an option; a card may have more, with a warning (oew6). */
+export const KEYED_OPTIONS = 9;
 
 export type CardStatus = (typeof CARD_STATUSES)[number];
 export type CardKind = (typeof CARD_KINDS)[number];

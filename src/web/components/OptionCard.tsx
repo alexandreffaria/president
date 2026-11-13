@@ -1,4 +1,5 @@
-import type { CardKind, CardOption } from "../../core/schema.ts";
+import { type CardKind, KEYED_OPTIONS } from "../../core/model.ts";
+import type { CardOption } from "../../core/schema.ts";
 import { optionLabel } from "../format.ts";
 import { Markdown } from "./Markdown.tsx";
 
@@ -66,7 +67,8 @@ export function OptionCard(props: {
             onClick={props.onSelect}
           >
             {props.selected ? "Selected" : `Choose ${label}`}
-            <kbd>{kind === "ab" ? `${index + 1}` : label}</kbd>
+            {/* No key picks an option past the 9th (oew6), so it shows no key. */}
+            {index < KEYED_OPTIONS && <kbd>{kind === "ab" ? `${index + 1}` : label}</kbd>}
           </button>
         </footer>
       )}

@@ -17,7 +17,13 @@ import {
   unseenFeedback,
 } from "../core/pending.ts";
 import { continued, HUMAN_FIELDS, humanChanges } from "../core/rewrite.ts";
-import { CUSTOM_CHOICE, type Frontmatter, withdrawalOf } from "../core/schema.ts";
+import {
+  CUSTOM_CHOICE,
+  cardWarnings,
+  type Frontmatter,
+  formatWarning,
+  withdrawalOf,
+} from "../core/schema.ts";
 import {
   actOnCard,
   findCard,
@@ -209,8 +215,17 @@ async function validateFile(file: string, out: Output): Promise<number> {
   } else {
     const result = parseCard(await readFile(file, "utf8"), fileName);
     ok = result.ok;
-    if (result.ok) out.log(okLine(fileName, result.card.frontmatter));
-    else printProblems([result.problem], [], out);
+    if (result.ok) {
+      const { frontmatter, fieldLines } = result.card;
+      out.log(okLine(fileName, frontmatter));
+      const warnings = cardWarnings(frontmatter).map((w) => ({
+        fileName,
+        message: formatWarning(w, fieldLines),
+      }));
+      printProblems([], warnings, out);
+    } else {
+      printProblems([result.problem], [], out);
+    }
   }
   out.log(`\nFormat: ${CARD_FORMAT_DOC}`);
   return ok ? 0 : 1;

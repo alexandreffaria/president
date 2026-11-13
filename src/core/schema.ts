@@ -14,6 +14,7 @@ import {
   CUSTOM_CHOICE,
   FEEDBACK_TYPES,
   isIsoDateOrDateTime,
+  KEYED_OPTIONS,
   OPTION_ID_PATTERN,
   PRIORITIES,
 } from "./model.ts";
@@ -220,6 +221,37 @@ export const FrontmatterSchema = z
       }
     }
   });
+
+/** Something allowed in a card that an agent should look at; `field` is a frontmatter key. */
+export interface CardWarningIssue {
+  field: string;
+  message: string;
+}
+
+/**
+ * The checks that only warn. Options past the 9th have no key in the hub (oew6), but they
+ * still show, so a card with 10 or more is not broken. A decided card can't be updated, so
+ * it isn't told to use fewer.
+ */
+export function cardWarnings(card: Frontmatter): CardWarningIssue[] {
+  const count = card.options.length;
+  return count > KEYED_OPTIONS && card.status !== "resolved"
+    ? [
+        {
+          field: "options",
+          message: `${count} options, but the hub's keys 1-${KEYED_OPTIONS} pick only the first ${KEYED_OPTIONS}; use ${KEYED_OPTIONS} or fewer`,
+        },
+      ]
+    : [];
+}
+
+/** A warning as a `field: message` line, with ` (line N)` when the field's line is known. */
+export function formatWarning(
+  warning: CardWarningIssue,
+  fieldLines: Record<string, number> = {},
+): string {
+  return `${warning.field}: ${warning.message}${lineSuffix(fieldLines[warning.field])}`;
+}
 
 function listOrNone(ids: string[]): string {
   return ids.length ? ids.map((id) => `"${id}"`).join(", ") : "there are no options";
