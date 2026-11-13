@@ -57,14 +57,18 @@ Usage:
   preside serve
       Start the hub web app (needs \`npm run build\` first for the UI).
   preside tray install [--no-autostart] [--no-start]
-      Windows only: build president's notification-area icon on this machine (with the C#
+      Windows: build president's notification-area icon on this machine (with the C#
       compiler that comes with Windows) and start it. It runs the hub in the background,
       starts it again if it crashes, shows how many cards are waiting, and starts with
       Windows unless --no-autostart. Run it again after an update that changed the helper.
+      Linux: install systemd user units that run the hub and its tray icon
+      (StatusNotifierItem) from the checkout this preside.js is in (not the current folder),
+      start them, and start them at login unless --no-autostart. Run another checkout's
+      bin/preside.js to serve that build instead (it must be built, with npm ci done).
   preside tray uninstall
-      Windows only: stop the icon and its hub, stop starting with Windows, remove its files.
+      Stop the icon and its hub, stop starting them at login, remove their files.
   preside tray status
-      Windows only: whether the icon is installed and running, and where its log is.
+      Whether the icon is installed and running, the build served (Linux), and the log.
 
 Environment:
   PRESIDENT_PORT     port for \`serve\` (default 4747)

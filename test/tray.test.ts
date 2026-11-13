@@ -81,7 +81,7 @@ async function fakeWindows(options: { csc?: boolean; env?: NodeJS.ProcessEnv } =
       launched.push([file, ...args]);
       cwds.push(cwd);
     },
-    hubAnswers: async () => false,
+    healthPid: async () => undefined,
     sleep: async () => {},
   };
   const dir = join(localAppData, "president");
@@ -102,21 +102,25 @@ async function fakeWindows(options: { csc?: boolean; env?: NodeJS.ProcessEnv } =
 
 describe("preside tray", () => {
   it.each(["install", "uninstall", "status"])(
-    "refuses `%s` outside Windows, saying it is Windows only",
+    "refuses `%s` outside Windows and Linux, saying where it works",
     async (sub) => {
       const { deps, calls } = await fakeWindows();
       const { io, err } = output();
-      expect(await tray([sub], io, { ...deps, platform: "linux" })).toBe(1);
-      expect(err.join("\n")).toMatch(/Windows only/);
+      expect(await tray([sub], io, { ...deps, platform: "darwin" })).toBe(1);
+      expect(err.join("\n")).toMatch(/for Windows and Linux only/);
       expect(calls).toEqual([]);
     },
   );
 
-  it.skipIf(process.platform === "win32")("refuses on this system from the real CLI", async () => {
-    const { io, err } = output();
-    expect(await run(["tray", "install"], io)).toBe(1);
-    expect(err.join("\n")).toMatch(/Windows only/);
-  });
+  // Only where it refuses: on Windows and Linux the real CLI would install for real.
+  it.runIf(process.platform !== "win32" && process.platform !== "linux")(
+    "refuses on this system from the real CLI",
+    async () => {
+      const { io, err } = output();
+      expect(await run(["tray", "install"], io)).toBe(1);
+      expect(err.join("\n")).toMatch(/for Windows and Linux only/);
+    },
+  );
 
   it("explains its usage for a missing or unknown subcommand", async () => {
     const { deps } = await fakeWindows();
@@ -253,13 +257,21 @@ describe("preside tray", () => {
 
     await tray(["install"], output().io, deps);
     const { io, out } = output();
-    expect(await tray(["status"], io, { ...deps, hubAnswers: async () => true })).toBe(0);
+    expect(await tray(["status"], io, { ...deps, healthPid: async () => 1234 })).toBe(0);
     const text = out.join("\n");
     expect(text).toMatch(/^running: no$/m);
     expect(text).toMatch(/^autostart: on$/m);
     expect(text).toMatch(/hub: answering at http:\/\/127\.0\.0\.1:4747/);
     expect(text).toContain(join(dir, "hub.log"));
     expect(text).not.toMatch(/source changed/);
+
+    // Something answers /api/health without a pid: not president.
+    const other = output();
+    await tray(["status"], other.io, { ...deps, healthPid: async () => null });
+    expect(other.out).toContain("hub: another program answers on port 4747");
+    const none = output();
+    await tray(["status"], none.io, deps);
+    expect(none.out).toContain("hub: not answering at http://127.0.0.1:4747");
 
     const config = parseConfig(await readFile(join(dir, CONFIG_NAME), "utf8"));
     await writeFile(

@@ -1,5 +1,6 @@
 /**
- * `preside tray`: the Windows notification-area helper (20261112vzn8, option `count`).
+ * `preside tray`: the Windows notification-area helper (20261112vzn8, option `count`). On
+ * Linux the same command installs systemd user units instead (tray-linux.ts).
  *
  * The helper is tray/windows/PresideTray.cs, compiled here, on the user's machine, by the C#
  * compiler that ships with Windows (.NET Framework 4's csc.exe), into
@@ -56,14 +57,18 @@ export interface TrayDeps {
   /** The president checkout the hub runs from. */
   repoRoot: string;
   /**
-   * Runs a program, by its absolute path, to the end, in `cwd` (the helper's folder, never
-   * the caller's: on Windows a program looks for what it starts in its cwd first).
+   * Runs a program to the end, in `cwd`. On Windows, by its absolute path, in the helper's
+   * folder, never the caller's: a program there looks for what it starts in its cwd first.
+   * On Linux, systemctl and git by name (from PATH), in the checkout.
    */
   run(file: string, args: string[], cwd: string): Promise<RunResult>;
   /** Starts a program that outlives this one, in `cwd` (as for `run`). */
   launch(file: string, args: string[], cwd: string): void;
-  /** Whether a hub answers /api/health on that port. */
-  hubAnswers(port: number): Promise<boolean>;
+  /**
+   * The pid a hub on that port gives in /api/health; null if something else answers there,
+   * undefined if nothing does.
+   */
+  healthPid(port: number): Promise<number | null | undefined>;
   /** Waits between tries (a file still locked by an exe that is exiting). */
   sleep(ms: number): Promise<void>;
 }
@@ -89,15 +94,19 @@ export function systemDeps(): TrayDeps {
     launch: (file, args, cwd) => {
       spawn(file, args, { cwd, detached: true, stdio: "ignore", windowsHide: true }).unref();
     },
-    hubAnswers: async (port) => {
+    healthPid: async (port) => {
+      let response: Response;
       try {
-        const response = await fetch(`http://127.0.0.1:${port}/api/health`, {
+        response = await fetch(`http://127.0.0.1:${port}/api/health`, {
           signal: AbortSignal.timeout(2000),
         });
-        return response.ok;
       } catch {
-        return false;
+        return undefined;
       }
+      // Something answers: president's hub if it gives its pid, another program otherwise.
+      const body = await response.json().catch(() => undefined);
+      const pid = (body as { pid?: unknown } | undefined)?.pid;
+      return response.ok && typeof pid === "number" ? pid : null;
     },
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   };
@@ -115,9 +124,12 @@ export async function tray(
     out.error(`preside: ${sub === undefined ? "" : `unknown tray command "${sub}"; `}${USAGE}`);
     return 2;
   }
+  if (deps.platform === "linux") {
+    return (await import("./tray-linux.ts")).linuxTray(sub, rest, out, deps);
+  }
   if (deps.platform !== "win32") {
     out.error(
-      "preside: `preside tray` is Windows only: it puts president in the Windows notification area. Elsewhere, run the hub with `preside serve` (or your system's service manager).",
+      "preside: `preside tray` is for Windows and Linux only: it puts president in the Windows notification area, or in a Linux tray with systemd. Elsewhere, run the hub with `preside serve` (or your system's service manager).",
     );
     return 1;
   }
@@ -324,8 +336,11 @@ async function status(out: Output, deps: TrayDeps): Promise<number> {
   const asked = await deps.run(exe, ["--status"], dir);
   for (const line of asked.stdout.split(/\r?\n/)) if (line.trim()) out.log(line.trim());
   const port = config.port ?? 4747;
+  const pid = await deps.healthPid(port);
   out.log(
-    `hub: ${(await deps.hubAnswers(port)) ? "answering" : "not answering"} at http://127.0.0.1:${port}`,
+    pid === null
+      ? `hub: another program answers on port ${port}`
+      : `hub: ${pid !== undefined ? "answering" : "not answering"} at http://127.0.0.1:${port}`,
   );
   out.log(`log: ${join(dir, "hub.log")}`);
   const repo = config.repo ?? deps.repoRoot;

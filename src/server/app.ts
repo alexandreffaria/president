@@ -7,7 +7,7 @@
  *   DELETE /api/projects/:name
  *   GET    /api/cards?project=&status=&tag=  cards, broken files and projects (with counts)
  *   GET    /api/queue-count                  { count }: the cards in the Queue, all projects
- *                                            (the Windows tray's number, 20261112vzn8)
+ *                                            (the tray icon's number, 20261112vzn8)
  *   GET    /api/cards/:project/:id?since=    since = a revision the client read (see
  *                                            CardDetailDto.writtenByPresident)
  *   POST   /api/cards/:project/:id/actions   { type, ..., revision, closeChat? }  (see
@@ -216,8 +216,8 @@ export function createApp(options: AppOptions): Hono {
     return c.json(response);
   });
 
-  // The number on the Windows tray icon: the Queue's "All" count, worked out by the same
-  // buildQueue the page uses, so the two can't disagree.
+  // The number on the tray icon (Windows and Linux): the Queue's "All" count, worked out by
+  // the same buildQueue the page uses, so the two can't disagree.
   api.get("/queue-count", async (c) => {
     const registered = await registry.list();
     forgetUnregisteredCards(registered);
