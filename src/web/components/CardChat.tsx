@@ -314,8 +314,10 @@ export function CardChat(props: {
   };
 
   /**
-   * New conversation (20261112lvbu): off while anything is asked or waits to be, and when
-   * there is nothing to end (no messages yet, or nothing since the last divider).
+   * New conversation (20261112lvbu): off while anything is asked or waits to be, while a
+   * summary is written, edited or waits as a draft (it covers the messages before the
+   * divider; save it or close without it first), and when there is nothing to end (no
+   * messages yet, or nothing since the last divider).
    */
   const last = shown.at(-1);
   const canStartNew =
@@ -325,6 +327,11 @@ export function CardChat(props: {
     !deciding &&
     pending === undefined &&
     held === undefined &&
+    !writing &&
+    !saving &&
+    !closing &&
+    !boxOpen &&
+    !hasSummaryDraft &&
     !startingNew;
   const startNew = async () => {
     if (!canStartNew) return;
@@ -365,7 +372,11 @@ export function CardChat(props: {
               type="button"
               className="button button-quiet"
               disabled={!canStartNew}
-              title="Ends this session; your next message starts a new one from the card and its summaries"
+              title={
+                boxOpen || hasSummaryDraft
+                  ? "Save the summary, or close without it, first"
+                  : "Ends this session; your next message starts a new one from the card and its summaries"
+              }
               onClick={() => void startNew()}
             >
               New conversation

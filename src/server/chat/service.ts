@@ -55,18 +55,19 @@ import type { EventBus } from "../watcher.ts";
 import {
   ASK_LABEL,
   askRequest,
+  isViewAsked,
   lastNeither,
   newOptionsRequest,
   newOptionsSchema,
   optionCount,
   optionsHash,
+  pickHash,
   pickLine,
   revealOf,
   sessionInstructions,
   startOverNote,
   summaryFromCopy,
   summaryRequest,
-  VIEW_ASKED,
   withPickLine,
 } from "./prompts.ts";
 import {
@@ -465,13 +466,24 @@ export class ChatService {
 
     let revealed = resume ? (turn.revealedNow ?? entry?.revealed) : turn.revealedNow;
     let entryWrite: Promise<unknown> = Promise.resolve();
+    /**
+     * The view asked for on a card without a pick (20261112irpn), while no answer has given it
+     * yet: stored only once a run has, so a failed run leaves the next one asked for it too.
+     */
+    let viewAsked: string | undefined;
     const attempt = async (): Promise<RunResult> => {
       const session = resume && entry?.session ? entry.session : randomUUID();
       if (resume) this.#starting.delete(keyName(key));
       else this.#starting.add(keyName(key));
-      // The first message since the human asked for the agent's view on a card without a
-      // pick gives it (20261112irpn).
-      const asksNow = revealed !== undefined && (!resume || entry?.revealed !== revealed);
+      // The first answer since the human asked for the agent's view on a card without a pick
+      // gives it (20261112irpn).
+      const asksNow =
+        pickHash(card) === undefined &&
+        isViewAsked(revealed) &&
+        (!resume || entry?.revealed !== revealed);
+      viewAsked = asksNow ? revealed : undefined;
+      // What this machine's entry holds until then: the reveal, unless it is that view.
+      const stored = asksNow ? (resume ? entry?.revealed : undefined) : revealed;
       const message = withPickLine(
         pickLine(card, revealed, asksNow),
         startOver ? `${startOverNote(card, fresh)}\n\n${turn.text}` : turn.text,
@@ -480,7 +492,7 @@ export class ChatService {
         await this.store.updateEntry(key, (e) => ({
           ...e,
           session,
-          ...(revealed ? { revealed } : {}),
+          ...(stored ? { revealed: stored } : {}),
         }));
       }
       return this.#run(
@@ -500,7 +512,7 @@ export class ChatService {
               .updateEntry(key, (e) => {
                 const next: SessionEntry = { ...e, session };
                 delete next.fresh;
-                if (revealed) next.revealed = revealed;
+                if (stored) next.revealed = stored;
                 else delete next.revealed;
                 return next;
               })
@@ -523,6 +535,11 @@ export class ChatService {
     }
     // The new session's entry is written before the run is reported done.
     await entryWrite;
+    // The view was given: later messages are free, not asked for it again.
+    const given = viewAsked;
+    if (result.ok && given) {
+      await this.store.updateEntry(key, (e) => ({ ...e, revealed: given }));
+    }
     return result;
   }
 
@@ -736,7 +753,7 @@ export class ChatService {
             ...e,
             newOptions: { note, state: "written", options: hash },
           };
-          if (e?.revealed === VIEW_ASKED) delete next.revealed;
+          if (isViewAsked(e?.revealed)) delete next.revealed;
           else if (e?.revealed) next.revealed = "replaced";
           return next;
         });
@@ -893,10 +910,7 @@ export class ChatService {
     const key = { project: project.name, id: card.id };
     // A decision is already written: a reply still coming in is left to mark itself.
     if (options.decision === undefined && this.#running.has(keyName(key))) {
-      throw new UserError("the agent is still answering on this card; wait for it to finish", {
-        status: 409,
-        code: "chat_busy",
-      });
+      throw this.#busy(key);
     }
     let before: SessionEntry | undefined;
     await this.store.updateEntry(key, async (entry) => {
@@ -950,8 +964,9 @@ export class ChatService {
       const through = offered ?? messages.length;
       const covered = Math.min(through, messages.length);
       const next: SessionEntry = { ...entry, summarized: covered };
-      // A message sent while the summary was being edited is still not summarized.
-      if (covered >= messages.length) delete next.unsummarized;
+      // A message sent while the summary was being edited is still not summarized; hub lines
+      // (a New conversation's divider, 20261112lvbu) are nothing to summarize.
+      if (messages.slice(covered).every((m) => m.from === "hub")) delete next.unsummarized;
       return next;
     });
     this.#remember(revision, key, before, false);
@@ -1027,13 +1042,17 @@ export class ChatService {
   }
 
   #reserve(key: CardKey, run: ChatRun | "summary" | "new"): void {
-    if (this.#running.has(keyName(key))) {
-      throw new UserError("the agent is still answering on this card; wait for it to finish", {
-        status: 409,
-        code: "chat_busy",
-      });
-    }
+    if (this.#running.has(keyName(key))) throw this.#busy(key);
     this.#running.set(keyName(key), run);
+  }
+
+  /** Why the card refuses another run: what holds it. */
+  #busy(key: CardKey): UserError {
+    const message =
+      this.#running.get(keyName(key)) === "new"
+        ? "a new conversation is being started on this card; try again in a moment"
+        : "the agent is still answering on this card; wait for it to finish";
+    return new UserError(message, { status: 409, code: "chat_busy" });
   }
 
   /** The card's run (a reply, a summary) ended: the next one may start. */

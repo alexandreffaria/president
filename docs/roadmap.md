@@ -1095,10 +1095,14 @@ it you want its view; the page then says "The agent's view is in the chat.""
   r to ask for your own view: give it in this answer". Later messages say it may give its view
   and discuss freely. So `r` means "now tell me what you think" on every card.
 - As with a revealed pick, the conversation keeps it (`revealed` in the session store holds
-  `view-asked` instead of the pick's hash) until a New conversation; a pick the card gets later
-  is still hidden until `r`. New options written after "neither" end it, like a revealed pick
-  (2026111272fu): the chat is neutral about them, without the "earlier pick" wording, since
-  there was none.
+  `view-asked:` and the options' hash instead of the pick's) until a New conversation; a pick
+  the card gets later is still hidden until `r`. The view is asked for on the card's options
+  as they are: new options, written by the hub after "neither" or by an agent, end it like a
+  revealed pick (2026111272fu), on the page and in the chat, without the "earlier pick"
+  wording, since there was none. It counts as given only once an answer gave it, so after a
+  failed run the next message still asks for it.
+- `r` asks for the view only once the conversation has loaded; without one, the page offers
+  nothing.
 - Cards with a pick are unchanged.
 - Accepted costs: `r` does something new on these cards; the view comes as a chat message, not
   as a written pick on the card.
@@ -1185,8 +1189,9 @@ its saved summaries."
 
 - **By default your next message resumes the same session**, also after a saved summary or a
   Close without summary, so the agent keeps the files it read for follow-ups.
-- **New conversation**, in the panel's header (offered once there are messages, off while a
-  run goes on), ends the session on this machine: the hub forgets its id (the entry is marked
+- **New conversation**, in the panel's header (offered once there are messages; off while a
+  run goes on, a "Neither" message or a held one waits, or a summary is being written, edited
+  or waits as a draft, which covers the messages before it), ends the session on this machine: the hub forgets its id (the entry is marked
   `fresh`), and the next message starts a new one the way it does when `--resume` can't find
   the session, with a new id chosen up front (#0021's "counter"), seeded with the card and its
   saved summaries ("The human started a new conversation about this card; it starts from the

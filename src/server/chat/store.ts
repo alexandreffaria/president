@@ -51,8 +51,9 @@ export interface SessionEntry {
   /**
    * Which recommendation the human revealed in this conversation (a hash of it, see
    * pickHash): the chat is free about that pick, and neutral again about a new one
-   * (2026111272fu). On a card without a pick, VIEW_ASKED: the human pressed r to ask for the
-   * agent's view (20261112irpn). A new conversation starts without it (20261112lvbu).
+   * (2026111272fu). On a card without a pick, `view-asked:` and the options' hash (revealOf):
+   * the human pressed r to ask for the agent's view on these options, and an answer gave it
+   * (20261112irpn). A new conversation starts without it (20261112lvbu).
    */
   revealed?: string;
   /**

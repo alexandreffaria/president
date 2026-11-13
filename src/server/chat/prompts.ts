@@ -46,16 +46,24 @@ const NEUTRAL =
 
 /**
  * What a conversation records when the human presses r on a card without a pick: they asked
- * for the agent's own view (20261112irpn `r-asks`). Kept where a revealed pick's hash goes.
+ * for the agent's own view (20261112irpn `r-asks`), on these options (`view-asked:` and their
+ * optionsHash). Kept where a revealed pick's hash goes. New options end it, as they end a
+ * revealed pick (2026111272fu).
  */
 export const VIEW_ASKED = "view-asked";
 
+/** Whether `revealed` is a view asked for (VIEW_ASKED), on whichever options. */
+export function isViewAsked(revealed: string | undefined): boolean {
+  return revealed?.startsWith(`${VIEW_ASKED}:`) === true;
+}
+
 /**
  * What the page's r reveals in the conversation (`revealed` in the session store): the card's
- * pick (pickHash), or on a card without one, that the human asked for the agent's view.
+ * pick (pickHash), or on a card without one, that the human asked for the agent's view on
+ * its current options.
  */
 export function revealOf(card: Pick<LoadedCard, "frontmatter">): string {
-  return pickHash(card) ?? VIEW_ASKED;
+  return pickHash(card) ?? `${VIEW_ASKED}:${optionsHash(card.frontmatter)}`;
 }
 
 /**
@@ -77,8 +85,8 @@ export const VIEW_GIVEN =
 /**
  * The line about the pick for a conversation in which `revealed` (revealOf) was revealed:
  * - the card has no pick: neutral, saying so, until the human asks for the agent's view with
- *   r; then the view in the next answer (`asksNow`: this message is the first since), and
- *   free after it;
+ *   r on its current options; then the view in the next answer (`asksNow`: no answer has
+ *   given it yet), and free after it;
  * - never revealed: neutral;
  * - the card's current pick was revealed: free;
  * - an earlier pick was revealed and new options replaced it: neutral about the new one. A
@@ -91,13 +99,13 @@ export function pickLine(
 ): string {
   const current = pickHash(card);
   if (current === undefined) {
-    if (revealed !== VIEW_ASKED) return NO_PICK;
+    if (revealed !== revealOf(card)) return NO_PICK;
     return asksNow ? VIEW_NOW : VIEW_GIVEN;
   }
   if (revealed !== undefined && revealed === current) {
     return "The human has revealed the card's pick; you may discuss it freely and give your own view.";
   }
-  if (revealed !== undefined && revealed !== VIEW_ASKED) {
+  if (revealed !== undefined && !isViewAsked(revealed)) {
     return `The human revealed an earlier pick on this card, which the new options replaced; they have not revealed the new one. ${NEUTRAL}`;
   }
   return `The human has not revealed the card's pick. ${NEUTRAL}`;
