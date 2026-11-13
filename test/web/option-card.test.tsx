@@ -42,8 +42,8 @@ function chooseButton(index: number, kind: "choice" | "ab" = "choice"): HTMLButt
 }
 
 describe("OptionCard key hint", () => {
-  it.each([0, 8])("shows the key for option %i + 1", (index) => {
-    expect(chooseButton(index).querySelector("kbd")?.textContent).toBe(String(index + 1));
+  it.each(["1", "9"])("shows key %s", (key) => {
+    expect(chooseButton(Number(key) - 1).querySelector("kbd")?.textContent).toBe(key);
   });
 
   it("shows no key for the 10th option, which no key picks", () => {

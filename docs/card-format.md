@@ -101,7 +101,8 @@ it was.
 - **`choice`**: pick one of 2 or more options (2 to 4 is best). The keyboard picks only the first 9, so 10 or more is reported as a warning; the hub still shows every option. Options are shown stacked.
 - **`ab`**: exactly 2 options shown side by side, for comparing two concrete examples.
 - **`open`**: a free-form answer. `options` may be left out; if present they are suggestions the
-  human can pick, but they can always answer in their own words (`choice: custom`).
+  human can pick, but they can always answer in their own words (`choice: custom`). As with
+  `choice`, 10 or more suggestions get a warning.
 
 ### Options
 

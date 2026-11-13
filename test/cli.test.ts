@@ -393,6 +393,28 @@ describe("preside CLI", () => {
       "warning 0009-many.md: options: 10 options, but the hub's keys 1-9 pick only the first 9; use 9 or fewer (line 9)",
     );
     expect(result.err).not.toContain("0010-nine.md");
+    // pending lists it too, as text and in --json.
+    const warning =
+      "options: 10 options, but the hub's keys 1-9 pick only the first 9; use 9 or fewer (line 9)";
+    expect((await cli("pending", demo)).out).toContain(`(warning) 0009-many.md: ${warning}`);
+    expect(JSON.parse((await cli("pending", demo, "--json")).out).warnings).toContainEqual({
+      file: "0009-many.md",
+      message: warning,
+    });
+    // A decided card can't be updated, so it isn't told to use fewer options.
+    await writeFile(
+      join(demo, "decisions", "0011-decided.md"),
+      cardText({
+        id: '"0011"',
+        status: "resolved",
+        options: options(10),
+        resolution: "\n  choice: o1\n  resolved_at: 2026-11-12T10:00:00Z",
+      }),
+    );
+    const again = await cli("validate", demo);
+    expect(again.code).toBe(0);
+    expect(again.out).toMatch(/^ok {6}0011-decided\.md$/m);
+    expect(again.err).not.toContain("0011-decided.md");
     // A loose file, outside a decisions/ folder, is warned about too.
     const loose = join(await tempDir(), "0001-loose.md");
     await writeFile(loose, cardText({ options: options(10) }));

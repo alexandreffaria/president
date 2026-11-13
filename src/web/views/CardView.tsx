@@ -1416,7 +1416,8 @@ function ActionBar(props: {
                 </>
               ) : (
                 <span className="muted">
-                  Pick an option <kbd>1</kbd>–<kbd>{Math.min(fm.options.length, 9)}</kbd>
+                  Pick an option <kbd>1</kbd>–
+                  <kbd>{Math.min(fm.options.length, KEYED_OPTIONS)}</kbd>
                 </span>
               )}
             </span>

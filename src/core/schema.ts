@@ -230,11 +230,12 @@ export interface CardWarningIssue {
 
 /**
  * The checks that only warn. Options past the 9th have no key in the hub (oew6), but they
- * still show, so a card with 10 or more is not broken.
+ * still show, so a card with 10 or more is not broken. A decided card can't be updated, so
+ * it isn't told to use fewer.
  */
 export function cardWarnings(card: Frontmatter): CardWarningIssue[] {
   const count = card.options.length;
-  return count > KEYED_OPTIONS
+  return count > KEYED_OPTIONS && card.status !== "resolved"
     ? [
         {
           field: "options",
