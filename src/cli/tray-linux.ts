@@ -22,6 +22,7 @@ import { isAbsolute, join } from "node:path";
 import { parseArgs } from "node:util";
 import { UserError } from "../server/errors.ts";
 import { writeFileAtomic } from "../server/fs-utils.ts";
+import { DEFAULT_NETWORK_TIMEOUT_MS, DEFAULT_TIMEOUT_MS } from "../server/git.ts";
 import { portFromEnv } from "../server/server.ts";
 import type { Output } from "./main.ts";
 import type { TrayDeps } from "./tray.ts";
@@ -35,10 +36,11 @@ const UI_SOURCES = [join("src", "web"), join("src", "core"), "vite.config.ts"];
 /** How long `install` waits for the hub it (re)started to answer. */
 const ANSWER_TRIES = 20;
 /**
- * How long systemd lets the hub stop. The hub waits for a Sync in progress to finish (its
- * fetch and push have a 60 s network timeout each), so a stop doesn't leave a rebase halfway.
+ * How long systemd lets the hub stop. The hub waits for a Sync in progress to finish, so a
+ * stop doesn't leave a rebase halfway: its fetch, pull --rebase and push (each with git's
+ * network timeout), two local steps (the local timeout) and a minute to spare: 300 s.
  */
-const STOP_TIMEOUT_SEC = 150;
+const STOP_TIMEOUT_SEC = (3 * DEFAULT_NETWORK_TIMEOUT_MS + 2 * DEFAULT_TIMEOUT_MS + 60_000) / 1000;
 const LOGS = `journalctl --user -u ${HUB_UNIT} -u ${ICON_UNIT}`;
 
 export async function linuxTray(
@@ -87,8 +89,8 @@ function quote(value: string, argument = false): string {
 }
 
 function execStart(config: UnitConfig, source: string): string {
-  // systemd unescapes arguments but not the program itself, so the node path goes in as it
-  // is (checkUnitValues refuses the characters that would need escaping).
+  // The node path goes in as it is, only quoted: checkUnitValues refuses the characters that
+  // would need escaping (quotes, backslashes, $), which is simpler than escaping them right.
   return `ExecStart="${config.node.replace(/%/g, "%%")}" ${quote(join(config.repo, source), true)}`;
 }
 
@@ -268,14 +270,18 @@ async function unitState(deps: TrayDeps, unit: string): Promise<string> {
   return (await systemctl(deps, ["is-active", unit])).text || "unknown";
 }
 
-/** Who answers on the port: president.service's hub, nobody, or another program (its pid). */
-type HubAnswer = "ours" | "none" | number;
+/**
+ * Who answers on the port: president.service's hub, nobody, or another program (`other`
+ * says which: another hub's pid, or that it isn't president).
+ */
+type HubAnswer = "ours" | "none" | { other: string };
 
 async function whoAnswers(deps: TrayDeps, port: number): Promise<HubAnswer> {
   const pid = await deps.healthPid(port);
   if (pid === undefined) return "none";
+  if (pid === null) return { other: "not president" };
   const main = await systemctl(deps, ["show", "--property=MainPID", "--value", HUB_UNIT]);
-  return main.ok && Number(main.text) !== pid ? pid : "ours";
+  return main.ok && Number(main.text) !== pid ? { other: `pid ${pid}` } : "ours";
 }
 
 async function install(args: string[], out: Output, deps: TrayDeps): Promise<number> {
@@ -336,7 +342,7 @@ async function install(args: string[], out: Output, deps: TrayDeps): Promise<num
       out.log(`Started, but the hub doesn't answer at ${url} yet: see \`${LOGS}\`.`);
     } else {
       out.log(
-        `Started, but another program answers at ${url} (pid ${hub}), so this build isn't the one you'd see there: stop it (an \`npm start\`?) and ${HUB_UNIT} starts again on its own.`,
+        `Started, but another program answers at ${url} (${hub.other}), so this build isn't the one you'd see there: stop it (an \`npm start\`?) and ${HUB_UNIT} starts again on its own.`,
       );
     }
     // The icon fails in its first moments if it fails at all (no bus, a broken checkout).
@@ -407,15 +413,17 @@ async function status(out: Output, deps: TrayDeps): Promise<number> {
       ? `hub: answering at ${url}`
       : hub === "none"
         ? `hub: not answering at ${url}`
-        : `hub: another program answers at ${url} (pid ${hub}), not ${HUB_UNIT}`,
+        : `hub: another program answers at ${url} (${hub.other}), not ${HUB_UNIT}`,
   );
   out.log(`log: ${LOGS}`);
   // git over ssh (Sync) needs the agent, which the service only has if the session gave it.
+  // This reads systemd's environment, not the running hub's: a hub started before the import
+  // still lacks it until restarted, which the message says.
   if (deps.env.SSH_AUTH_SOCK) {
     const manager = await systemctl(deps, ["show-environment"]);
     if (manager.ok && !/^SSH_AUTH_SOCK=/m.test(manager.text)) {
       out.log(
-        "Your shell has an ssh agent (SSH_AUTH_SOCK) but systemd doesn't, so Sync can't use it for git over ssh: run `dbus-update-activation-environment --systemd SSH_AUTH_SOCK` in your session (see the README), then `systemctl --user restart president`.",
+        "Your shell has an ssh agent (SSH_AUTH_SOCK) but systemd doesn't, so Sync can't use it for git over ssh: run `dbus-update-activation-environment --systemd SSH_AUTH_SOCK` in your session (see the README), then restart the hub after importing it (`systemctl --user restart president`): a hub started before the import doesn't have it.",
       );
     }
   }

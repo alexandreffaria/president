@@ -153,7 +153,9 @@ with the AppIndicator extension (any StatusNotifierItem tray). The icon shows th
 on Windows, and its tooltip names the build being served ("Serving main @ 1a2b3c4"). Click it to
 open president in your browser; its menu has **Open president** and **Quit** (which stops the
 hub and the icon; they start again at the next login only if start at login is on, which
-`install` turns on unless `--no-autostart`). Without a tray the hub runs all the same.
+`install` turns on unless `--no-autostart`; `--no-autostart` doesn't turn off a start at login
+that is already on: `preside tray uninstall` first does, or `systemctl --user disable
+president`). Without a tray the hub runs all the same.
 
 From the president checkout, after `npm ci` and `npm run build`:
 
@@ -170,7 +172,9 @@ It writes two systemd user units into `~/.config/systemd/user/` (`$XDG_CONFIG_HO
 and `CLAUDE_CONFIG_DIR` you ran `install` with, so it finds `claude` and `git`), and
 `president-tray.service` runs the icon. The hub's unit starts the icon, but a hub that crashes
 and restarts leaves the icon running (grey meanwhile); `install` restarts both, and Quit and
-`uninstall` stop both. Stopping the hub waits for a Sync in progress to finish. Don't also run
+`uninstall` stop both. Stopping the hub waits for a Sync in progress to finish (systemd gives it
+up to 5 minutes, room for a Sync whose fetch, pull and push each run to git's 60-second network
+timeout). Don't also run
 `npm start`: both want port 4747 (the icon then turns grey and says "port 4747 in use by another
 program").
 
@@ -196,6 +200,9 @@ program").
   ```
 
   (or run `systemctl --user import-environment SSH_AUTH_SOCK` from a shell that has the agent).
+  Nothing else from your shell reaches the service: credentials set only there, such as
+  `ANTHROPIC_API_KEY` for `claude`, aren't passed on; export them to systemd the same way, or
+  use credentials `claude` keeps itself (`claude login`).
 - **Update:** `git pull && npm ci && npm run build`, then `preside tray install` again (it
   restarts the hub and the icon).
 - **Remove:** `preside tray uninstall` stops both, takes them out of login and deletes the units.

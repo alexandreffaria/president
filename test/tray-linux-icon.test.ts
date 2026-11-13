@@ -146,18 +146,23 @@ describe("the Linux tray icon's parts", () => {
   });
 
   it.skipIf(process.platform === "win32")(
-    "runs systemctl from PATH, and opens the browser in a scope of its own, the display filled in",
+    "runs systemctl from PATH, and opens the browser as a service of its own, the display filled in",
     async () => {
       const fake = await fakeBin({ systemdRun: 0 });
       expect([fake.deps.port, fake.deps.build]).toEqual([4800, "main @ 1a2b3c4"]);
       expect(await fake.deps.hubPid()).toBe(4242);
       fake.deps.open("http://127.0.0.1:4800");
       fake.deps.quit();
-      expect(await fake.lines(3)).toEqual([
+      const [show, stop, opened] = await fake.lines(3);
+      expect([show, stop]).toEqual([
         "systemctl --user show --property=MainPID --value president.service WAYLAND_DISPLAY=",
         "systemctl --user stop --no-block president.service president-tray.service WAYLAND_DISPLAY=",
-        "systemd-run --user --scope --collect --quiet xdg-open http://127.0.0.1:4800 WAYLAND_DISPLAY=wayland-1",
       ]);
+      // Not a --scope, and the service is given the display it needs (DISPLAY too when this
+      // machine has an X11 socket); xdg-open itself never ran here.
+      expect(opened).toMatch(/^systemd-run --user --collect --quiet -E WAYLAND_DISPLAY=wayland-1 /);
+      expect(opened).toContain(` -E XDG_RUNTIME_DIR=${fake.runtime} -E PATH=${fake.bin} `);
+      expect(opened).toMatch(/ xdg-open http:\/\/127\.0\.0\.1:4800 WAYLAND_DISPLAY=wayland-1$/);
     },
   );
 
@@ -203,6 +208,8 @@ async function fakeBin(options: { systemdRun?: number }) {
   });
   return {
     deps,
+    bin,
+    runtime,
     /** The log's lines, sorted, once there are `count` of them (and a moment for more). */
     async lines(count: number): Promise<string[]> {
       let text = "";

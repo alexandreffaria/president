@@ -265,6 +265,14 @@ describe("preside tray", () => {
     expect(text).toContain(join(dir, "hub.log"));
     expect(text).not.toMatch(/source changed/);
 
+    // Something answers /api/health without a pid: not president.
+    const other = output();
+    await tray(["status"], other.io, { ...deps, healthPid: async () => null });
+    expect(other.out).toContain("hub: another program answers on port 4747");
+    const none = output();
+    await tray(["status"], none.io, deps);
+    expect(none.out).toContain("hub: not answering at http://127.0.0.1:4747");
+
     const config = parseConfig(await readFile(join(dir, CONFIG_NAME), "utf8"));
     await writeFile(
       join(dir, CONFIG_NAME),

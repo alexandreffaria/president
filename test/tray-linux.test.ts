@@ -68,7 +68,7 @@ async function fakeLinux(options: { env?: NodeJS.ProcessEnv; systemd?: boolean }
     enabled: false,
     /** president.service's pid, and the pid /api/health gives (undefined: nobody answers). */
     mainPid: 4242,
-    answering: 4242 as number | undefined,
+    answering: 4242 as number | null | undefined,
     /** What git says about each checkout. */
     heads: new Map<string, { branch?: string; sha: string; time: number }>([
       [main, { branch: "main", sha: "1a2b3c4", time: Math.floor(Date.now() / 1000) - 7200 }],
@@ -152,7 +152,7 @@ describe.skipIf(process.platform === "win32")("preside tray on Linux", () => {
     expect(hub).toContain("Type=exec");
     // Sync's git gets to finish: SIGTERM to the hub alone, and time for it to stop.
     expect(hub).toContain("KillMode=mixed");
-    expect(hub).toContain("TimeoutStopSec=150");
+    expect(hub).toContain("TimeoutStopSec=300");
     expect(hub).toContain("WantedBy=default.target");
     expect(hub).toContain('Environment="PATH=/usr/bin:/bin"');
     expect(hub).toContain('Environment="PRESIDENT_PORT=4747"');
@@ -293,6 +293,14 @@ describe.skipIf(process.platform === "win32")("preside tray on Linux", () => {
     await tray(["status"], status.io, deps);
     expect(status.out).toContain(
       `hub: another program answers at http://127.0.0.1:4747 (pid 777), not ${HUB_UNIT}`,
+    );
+
+    // Something that answers /api/health without a pid isn't president at all.
+    state.answering = null;
+    const notOurs = output();
+    await tray(["status"], notOurs.io, deps);
+    expect(notOurs.out).toContain(
+      `hub: another program answers at http://127.0.0.1:4747 (not president), not ${HUB_UNIT}`,
     );
   });
 
@@ -451,7 +459,7 @@ describe.skipIf(process.platform === "win32")("preside tray on Linux", () => {
     const missing = output();
     await tray(["status"], missing.io, deps);
     expect(missing.out.join("\n")).toMatch(
-      /systemd doesn't, so Sync can't use it.*dbus-update-activation-environment --systemd SSH_AUTH_SOCK/,
+      /systemd doesn't, so Sync can't use it.*dbus-update-activation-environment --systemd SSH_AUTH_SOCK.*restart the hub after importing it/,
     );
     state.manager += "SSH_AUTH_SOCK=/run/agent\n";
     const given = output();

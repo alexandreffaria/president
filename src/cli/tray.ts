@@ -64,8 +64,11 @@ export interface TrayDeps {
   run(file: string, args: string[], cwd: string): Promise<RunResult>;
   /** Starts a program that outlives this one, in `cwd` (as for `run`). */
   launch(file: string, args: string[], cwd: string): void;
-  /** The pid a hub on that port gives in /api/health, or undefined if none answers. */
-  healthPid(port: number): Promise<number | undefined>;
+  /**
+   * The pid a hub on that port gives in /api/health; null if something else answers there,
+   * undefined if nothing does.
+   */
+  healthPid(port: number): Promise<number | null | undefined>;
   /** Waits between tries (a file still locked by an exe that is exiting). */
   sleep(ms: number): Promise<void>;
 }
@@ -92,15 +95,18 @@ export function systemDeps(): TrayDeps {
       spawn(file, args, { cwd, detached: true, stdio: "ignore", windowsHide: true }).unref();
     },
     healthPid: async (port) => {
+      let response: Response;
       try {
-        const response = await fetch(`http://127.0.0.1:${port}/api/health`, {
+        response = await fetch(`http://127.0.0.1:${port}/api/health`, {
           signal: AbortSignal.timeout(2000),
         });
-        const pid = response.ok ? ((await response.json()) as { pid?: unknown }).pid : undefined;
-        return typeof pid === "number" ? pid : undefined;
       } catch {
         return undefined;
       }
+      // Something answers: president's hub if it gives its pid, another program otherwise.
+      const body = await response.json().catch(() => undefined);
+      const pid = (body as { pid?: unknown } | undefined)?.pid;
+      return response.ok && typeof pid === "number" ? pid : null;
     },
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   };
@@ -330,8 +336,11 @@ async function status(out: Output, deps: TrayDeps): Promise<number> {
   const asked = await deps.run(exe, ["--status"], dir);
   for (const line of asked.stdout.split(/\r?\n/)) if (line.trim()) out.log(line.trim());
   const port = config.port ?? 4747;
+  const pid = await deps.healthPid(port);
   out.log(
-    `hub: ${(await deps.healthPid(port)) !== undefined ? "answering" : "not answering"} at http://127.0.0.1:${port}`,
+    pid === null
+      ? `hub: another program answers on port ${port}`
+      : `hub: ${pid !== undefined ? "answering" : "not answering"} at http://127.0.0.1:${port}`,
   );
   out.log(`log: ${join(dir, "hub.log")}`);
   const repo = config.repo ?? deps.repoRoot;
