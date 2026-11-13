@@ -439,7 +439,8 @@ what the human added since, without any sign. Instead:
    ```
 
    It checks your version like `preside validate`, and replaces the card only if what the
-   human owns is still what you read. It never replaces a decided card (`status: resolved`):
+   human owns is still what you read. If it then prints a `warning` line, fix that with
+   another `preside update`. It never replaces a decided card (`status: resolved`):
    the decision is about the card as the human saw it, so don't rewrite it; apply the decision
    (see **Applying resolved cards**). Go by the words of the refusal. If it says "the card
    changed since you read it", it lists what changed (a note, a deferral, a reopen, or a

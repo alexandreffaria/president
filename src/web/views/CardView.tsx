@@ -1,7 +1,7 @@
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import type { CardAction } from "../../core/actions.ts";
 import type { BrokenCardDto, CardDetailDto, CardDto, NewOptionsRunDto } from "../../core/api.ts";
-import { CUSTOM_CHOICE, withdrawalOf } from "../../core/model.ts";
+import { CUSTOM_CHOICE, KEYED_OPTIONS, withdrawalOf } from "../../core/model.ts";
 import {
   activeWithdrawal,
   buildQueue,
@@ -795,7 +795,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
     if (!canDefer) return false;
     setDeferMenu(true);
   };
-  for (let i = 0; i < 9; i++) keys[String(i + 1)] = () => selectIndex(i);
+  for (let i = 0; i < KEYED_OPTIONS; i++) keys[String(i + 1)] = () => selectIndex(i);
   if (fm?.kind === "ab") {
     keys.a = () => selectIndex(0);
     keys.b = () => selectIndex(1);

@@ -16,7 +16,7 @@
  */
 import { createHash } from "node:crypto";
 import type { ChatAsk, ChatMessageDto } from "../../core/api.ts";
-import { CUSTOM_CHOICE, OPTION_ID_PATTERN } from "../../core/model.ts";
+import { CUSTOM_CHOICE, KEYED_OPTIONS, OPTION_ID_PATTERN } from "../../core/model.ts";
 import { unseenFeedback } from "../../core/pending.ts";
 import type { FeedbackEntry, Frontmatter } from "../../core/schema.ts";
 import type { LoadedCard } from "../cards.ts";
@@ -139,15 +139,18 @@ export function optionsHash(frontmatter: Pick<Frontmatter, "options" | "recommen
     .slice(0, 16);
 }
 
-/** How many options a card of this kind takes (the card checks, schema.ts; keys 1 to 9). */
+/**
+ * How many options a run may write for a card of this kind: what the card checks allow
+ * (schema.ts), and no more than the keys 1 to 9 pick (KEYED_OPTIONS, oew6).
+ */
 export function optionCount(card: Pick<LoadedCard, "frontmatter">): { min: number; max: number } {
   switch (card.frontmatter.kind) {
     case "ab":
       return { min: 2, max: 2 };
     case "choice":
-      return { min: 2, max: 9 };
+      return { min: 2, max: KEYED_OPTIONS };
     default:
-      return { min: 1, max: 9 };
+      return { min: 1, max: KEYED_OPTIONS };
   }
 }
 
