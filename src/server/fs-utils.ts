@@ -91,12 +91,12 @@ export async function createFileExclusive(path: string, content: string): Promis
     } finally {
       await handle.close();
     }
-    await link(temp, path);
+    await retryTransientWindows(() => link(temp, path));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
     throw error;
   } finally {
-    await unlink(temp).catch(() => {});
+    await retryTransientWindows(() => unlink(temp)).catch(() => {});
   }
   await syncDirectory(dirname(path));
   return true;
@@ -118,4 +118,31 @@ export async function removeStaleTempFiles(dir: string): Promise<void> {
 
 export function isNotFound(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
+}
+
+const TRANSIENT_WINDOWS_CODES = new Set(["EPERM", "EBUSY", "EACCES"]);
+
+/**
+ * Runs a file operation, retrying it briefly on Windows when it fails with EPERM, EBUSY or
+ * EACCES. There a file another process has open, or one another process just deleted (it
+ * stays "delete pending" until every handle on it is closed), refuses to be deleted, renamed,
+ * linked or read for a moment: two `preside add`s of one folder at once hit this when one
+ * deletes the entry the other is reading or deleting. graceful-fs and rimraf retry the same
+ * way. Elsewhere, and after about a second and a half, the error is thrown as it is.
+ */
+export async function retryTransientWindows<T>(
+  operation: () => Promise<T>,
+  platform: NodeJS.Platform = process.platform,
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      if (platform !== "win32" || !code || !TRANSIENT_WINDOWS_CODES.has(code) || attempt >= 10) {
+        throw error;
+      }
+      await new Promise((done) => setTimeout(done, Math.min(10 * 2 ** attempt, 200)));
+    }
+  }
 }
