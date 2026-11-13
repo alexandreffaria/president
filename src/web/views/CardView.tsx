@@ -402,7 +402,9 @@ export function CardView({ project, id }: { project: string; id: string }) {
       // A decision's Undo window (see saveSummary) ends with any later action.
       if (action.type !== "resolve") forgetDecision(project, id);
       setLoaded({ state: "ok", card: res.card });
-      acknowledge(res.card);
+      // A view that has gone doesn't mark the card read in the stored draft: the view the
+      // human is on now (if any) decides what they have read.
+      if (generation === viewGeneration.current) acknowledge(res.card);
       // Through the store, field by field: this view may have gone (the human left the card
       // and came back), and what was typed or picked since, here or there, stays.
       if (options.sent) patchDraftIf(project, id, wasSent, options.sent);
@@ -463,6 +465,9 @@ export function CardView({ project, id }: { project: string; id: string }) {
       return true;
     } catch (error) {
       if (error instanceof RequestError && error.code === "conflict") {
+        // A view that has gone neither reloads nor asks the human to try again: nothing was
+        // sent, and the view they are on now shows the card as it is.
+        if (generation !== viewGeneration.current) return false;
         const from = document.activeElement;
         const mustRead = await load();
         if (mustRead) {

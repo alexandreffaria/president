@@ -1338,8 +1338,14 @@ describe("a request that ends after its view of the card has gone changes only w
     );
     await pause();
     await pause();
-    // A card without a conversation shows the panel closed: open it again.
-    if (messageBox() === null) await press("c");
+    // A card without a conversation shows the panel closed: open it again. `c` does nothing
+    // until the conversation has loaded, so press it again until the panel opens.
+    // (Not settled(): a request held back by the test is still out.)
+    const deadline = Date.now() + WAIT_MS;
+    while (messageBox() === null && Date.now() < deadline) {
+      await press("c");
+      await pause();
+    }
     await until(() => messageBox() !== null, "the conversation again");
   }
 
