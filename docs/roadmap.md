@@ -1189,13 +1189,14 @@ its saved summaries."
 
 - **By default your next message resumes the same session**, also after a saved summary or a
   Close without summary, so the agent keeps the files it read for follow-ups.
-- **New conversation**, in the panel's header (offered once there are messages; off while a
-  run goes on, a "Neither" message or a held one waits, or a summary is being written, edited
-  or waits as a draft, which covers the messages before it), ends the session on this machine: the hub forgets its id (the entry is marked
-  `fresh`), and the next message starts a new one the way it does when `--resume` can't find
-  the session, with a new id chosen up front (#0021's "counter"), seeded with the card and its
-  saved summaries ("The human started a new conversation about this card; it starts from the
-  card and its summaries."). There is no "isn't available on this machine" notice for it.
+- **New conversation**, in the panel's header (offered once there are messages; off while a run
+  goes on, a "Neither" message or a held one waits, or a summary is being written, edited or
+  waits as a draft, which covers the messages before it), ends the session on this machine: the
+  hub forgets its id (the entry is marked `fresh`), and the next message starts a new one the
+  way it does when `--resume` can't find the session, with a new id chosen up front (#0021's
+  "counter"), seeded with the card and its saved summaries ("The human started a new
+  conversation about this card; it starts from the card and its summaries."). There is no "isn't
+  available on this machine" notice for it.
 - The panel keeps the earlier messages, followed by a divider: "── New conversation. It starts
   from the card and its summaries. ──" (a "hub" line in the copy).
 - **The reveal resets with the session**: the stored `revealed` goes, and the page hides the

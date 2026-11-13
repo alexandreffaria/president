@@ -54,7 +54,7 @@ export const VIEW_ASKED = "view-asked";
 
 /** Whether `revealed` is a view asked for (VIEW_ASKED), on whichever options. */
 export function isViewAsked(revealed: string | undefined): boolean {
-  return revealed?.startsWith(`${VIEW_ASKED}:`) === true;
+  return revealed === VIEW_ASKED || revealed?.startsWith(`${VIEW_ASKED}:`) === true;
 }
 
 /**

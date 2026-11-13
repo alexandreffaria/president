@@ -476,8 +476,9 @@ export class ChatService {
       if (resume) this.#starting.delete(keyName(key));
       else this.#starting.add(keyName(key));
       // The first answer since the human asked for the agent's view on a card without a pick
-      // gives it (20261112irpn).
+      // gives it (20261112irpn); a structured answer (new options) can't, so it waits.
       const asksNow =
+        turn.jsonSchema === undefined &&
         pickHash(card) === undefined &&
         isViewAsked(revealed) &&
         (!resume || entry?.revealed !== revealed);
