@@ -331,7 +331,7 @@ describe("the hub at start", () => {
     await sync.fetchAll();
     expect(await shop()).toMatchObject({ fetchError: expect.stringMatching(/gone\.git/) });
     const reachable = () => s.git(s.laptop, "remote", "set-url", "origin", "../remote.git");
-    return { laptop: s.laptop, registry, sync, events, shop, reachable };
+    return { s, registry, sync, events, shop, reachable };
   }
 
   /** Long enough for several retries 100 ms apart (each a fetch from a missing folder). */
@@ -377,22 +377,57 @@ describe("the hub at start", () => {
     }
   });
 
+  it("keeps retrying after a Sync that stopped before it fetched", async () => {
+    const { s, sync, shop, reachable } = await unreachable(Array(50).fill(100));
+    try {
+      s.git(s.laptop, "checkout", "--quiet", "--detach");
+      await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+      const { results } = await sync.sync();
+      expect(results[0]).toMatchObject({ outcome: "not-now" });
+      expect(results[0]?.message).toMatch(/detached HEAD/);
+      // Nothing was fetched: the warning stays, and so do the retries.
+      expect(await shop()).toMatchObject({
+        fetchError: expect.stringMatching(/gone\.git/),
+        fetchRetrying: true,
+      });
+      reachable();
+      await until(async () => (await shop())?.fetchError === undefined, "a retry to fetch");
+    } finally {
+      await sync.close();
+    }
+  });
+
   it("stops retrying for a project that was removed", async () => {
-    const { laptop, registry, sync, events, shop, reachable } = await unreachable([
-      100, 100, 100, 100, 100,
-    ]);
+    const { s, registry, sync, events, shop, reachable } = await unreachable(Array(50).fill(100));
+    // Counts the registry reads that started once the project was gone.
+    const list = registry.list.bind(registry);
+    let removed = false;
+    let readsSinceRemoved = 0;
+    vi.spyOn(registry, "list").mockImplementation(async () => {
+      const after = removed;
+      const projects = await list();
+      if (after) readsSinceRemoved++;
+      return projects;
+    });
     try {
       await registry.remove("shop");
+      removed = true;
+      // A retry that read the registry before the removal finishes first (the lock), then
+      // the next one reads it and stops.
+      await until(async () => readsSinceRemoved > 0, "a retry to read the registry");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      events.length = 0;
       // Were it still retried, this fetch would work and say so.
       reachable();
-      events.length = 0;
       await severalRetries();
       expect(events).toEqual([]);
-      // Added again, it starts with no error and no retry.
-      await registry.add({ path: laptop, name: "shop" });
+      // The retry noticed the removal and dropped the project: added again, it starts with
+      // no error and no retry.
+      await registry.add({ path: s.laptop, name: "shop" });
       expect(await shop()).toMatchObject({ fetchRetrying: false });
       expect((await shop())?.fetchError).toBeUndefined();
     } finally {
+      vi.restoreAllMocks();
       await sync.close();
     }
   });

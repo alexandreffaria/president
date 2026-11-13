@@ -223,12 +223,13 @@ describe("the Sync control", () => {
     expect(host.querySelector(".sync-report")).toBeNull();
   });
 
-  it("shows a fetch that failed when the hub started", async () => {
+  it("shows a fetch that failed since the hub started", async () => {
     projects = [
       project({ fetchError: "fatal: unable to access 'https://example/': Could not resolve host" }),
     ];
     await render();
     await until(() => text().includes("Couldn't fetch from the remote of shop"), "the notice");
+    expect(text()).toContain("Couldn't fetch from the remote of shop since the hub started");
     expect(text()).toContain("Press Sync to fetch again.");
     expect(text()).toContain("Could not resolve host");
   });
@@ -238,7 +239,7 @@ describe("the Sync control", () => {
     await render();
     await until(() => text().includes("Couldn't fetch from the remote of shop"), "the notice");
     expect(text()).toContain(
-      "The hub tries again on its own for a few more minutes; press Sync to fetch now.",
+      "The hub keeps trying on its own for a while; press Sync to fetch now.",
     );
     expect(text()).not.toContain("Press Sync to fetch again.");
   });

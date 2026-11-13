@@ -468,29 +468,36 @@ export async function syncRepo(
   return (await syncRepoDetailed(dir, name, options)).result;
 }
 
-/**
- * {@link syncRepo}, plus the card files whose content the pull changed in the checkout, at
- * the revisions read right after the pull, for "Sync just brought in a newer version of
- * this card".
- */
+/** What a Sync did beyond its result. */
+interface SequenceReport {
+  /**
+   * The card files whose content the pull changed in the checkout, at the revisions read
+   * right after the pull, for "Sync just brought in a newer version of this card".
+   */
+  broughtIn: CardRevision[];
+  /** Sync ran `git fetch` (whether or not it worked); a "Not now" before it didn't. */
+  fetched: boolean;
+}
+
+/** {@link syncRepo}, plus what it brought in and whether it fetched. */
 export async function syncRepoDetailed(
   dir: string,
   name: string,
   options: SyncOptions = {},
-): Promise<{ result: RepoSyncResult; broughtIn: CardRevision[] }> {
-  const pulled = { broughtIn: [] as CardRevision[] };
-  return { result: await guardedSequence(dir, name, options, pulled), broughtIn: pulled.broughtIn };
+): Promise<{ result: RepoSyncResult } & SequenceReport> {
+  const report: SequenceReport = { broughtIn: [], fetched: false };
+  return { result: await guardedSequence(dir, name, options, report), ...report };
 }
 
 async function guardedSequence(
   dir: string,
   name: string,
   options: SyncOptions,
-  pulled: { broughtIn: CardRevision[] },
+  report: SequenceReport,
 ): Promise<RepoSyncResult> {
   const repo = new Repo(dir, options);
   try {
-    return await runSequence(repo, name, options.hostname ?? machineName(), pulled);
+    return await runSequence(repo, name, options.hostname ?? machineName(), report);
   } catch (error) {
     if (error instanceof GitFailed) {
       return result("not-synced", `Not synced: git failed in ${name}`, {
@@ -526,7 +533,7 @@ async function runSequence(
   repo: Repo,
   name: string,
   machine: string,
-  report: { broughtIn: CardRevision[] },
+  report: SequenceReport,
 ): Promise<RepoSyncResult> {
   const dir = repo.dir;
   const unavailable = await repo.unavailable();
@@ -555,6 +562,7 @@ async function runSequence(
         });
   }
 
+  report.fetched = true;
   const fetched = await repo.run(["fetch"]);
   if (fetched.code !== 0) {
     return result("not-synced", `Not synced: couldn't fetch from the remote of ${name}`, {
@@ -1134,11 +1142,9 @@ export class SyncService {
     const projects = await this.#registry.list();
     const results: SyncResultDto[] = [];
     for (const project of projects) {
-      const outcome = await this.#lock.run(project.path, () => {
-        // This Sync fetches: no more retries of the start-up fetch here.
-        this.#synced.add(project.path);
-        this.#stopRetrying(project.path);
-        return this.#gate.exclusive(project.path, async () => {
+      let fetched = false;
+      const outcome = await this.#lock.run(project.path, () =>
+        this.#gate.exclusive(project.path, async () => {
           this.#running.add(project.path);
           this.#bus.emit({ type: "sync" });
           try {
@@ -1146,6 +1152,13 @@ export class SyncService {
             // Recorded before the `cards` event below, so a card view that reloaded while
             // the pull ran (and took the change for an agent's) gets it right on that event.
             this.#recordBroughtIn(project, run.broughtIn);
+            if (run.fetched) {
+              // This Sync fetched: no more retries of the start-up fetch here. One that
+              // stopped before (a rebase in progress, say) leaves them going.
+              fetched = true;
+              this.#synced.add(project.path);
+              this.#stopRetrying(project.path);
+            }
             return run.result;
           } catch (error) {
             console.error(error);
@@ -1155,8 +1168,8 @@ export class SyncService {
           } finally {
             this.#running.delete(project.path);
           }
-        });
-      });
+        }),
+      );
       const done: SyncResultDto = {
         project: project.name,
         ...outcome,
@@ -1165,7 +1178,7 @@ export class SyncService {
       const state = this.#stateOf(project);
       state.last = done;
       // This Sync fetched (or said why it couldn't): the start-up fetch's error is old news.
-      delete state.fetchError;
+      if (fetched) delete state.fetchError;
       results.push(done);
       // A pull (or an abort) may have rewritten card files: open card views reload. The
       // watcher notices too, a moment later.
@@ -1243,6 +1256,7 @@ export class SyncService {
           if (!projects.some((p) => p.path === path)) {
             this.#stopRetrying(path);
             this.#state.delete(path);
+            this.#synced.delete(path);
             return;
           }
           const changed = await this.#fetch(project);
