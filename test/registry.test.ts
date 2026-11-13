@@ -36,11 +36,11 @@ async function registry() {
 
 describe("defaultConfigDir", () => {
   it("uses XDG_CONFIG_HOME when it is absolute", () => {
-    expect(defaultConfigDir({ XDG_CONFIG_HOME: "/x/config" })).toBe("/x/config/president");
+    expect(defaultConfigDir({ XDG_CONFIG_HOME: "/x/config" })).toBe(join("/x/config", "president"));
   });
   it("falls back to ~/.config", () => {
-    expect(defaultConfigDir({})).toMatch(/\.config\/president$/);
-    expect(defaultConfigDir({ XDG_CONFIG_HOME: "relative" })).toMatch(/\.config\/president$/);
+    expect(defaultConfigDir({})).toMatch(/\.config[\\/]president$/);
+    expect(defaultConfigDir({ XDG_CONFIG_HOME: "relative" })).toMatch(/\.config[\\/]president$/);
   });
 });
 

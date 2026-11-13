@@ -111,6 +111,40 @@ symlinks also needs Developer Mode or admin rights).
 
 Because these are symlinks, pulling this repo updates the skill everywhere it's linked.
 
+### On Windows: keep the hub running, with an icon
+
+On Windows, president can run in the background from the notification area (the tray, at the
+right of the taskbar), start with Windows, and start the hub again if it crashes. Its icon shows
+how many cards are in your Queue (`9+` above nine; the tooltip says "president: 3 cards
+waiting" or "nothing waiting"), and turns grey while the hub isn't running. Right-click it for
+**Open president** (double-click does the same), **Restart hub**, **Start with Windows** and
+**Quit**. It never pops up notifications.
+
+From the president checkout, after `npm install` and `npm run build`:
+
+```powershell
+node bin/preside.js tray install     # or `preside tray install` if preside is on your PATH
+```
+
+This compiles a small helper on your machine with the C# compiler that comes with Windows
+(.NET Framework 4, nothing is downloaded) into `%LOCALAPPDATA%\president\`, remembers which
+`node.exe` and which checkout run the hub, adds it to Start with Windows and starts it. Don't
+also run `npm start`: both would want port 4747 (when another program has it, the icon is grey
+and the tooltip says "port 4747 in use by another program"). If a Node upgrade moves
+`node.exe`, or you move the checkout, the tooltip and `preside tray status` say so: run
+`preside tray install` again.
+
+- **Show the icon (once, Windows 11).** New tray icons hide behind the `^` arrow. To see the
+  number: Settings > Personalization > Taskbar > Other system tray icons > president: On (or
+  drag the icon out from behind the arrow). Windows doesn't let the helper do it for you.
+- **Logs:** the hub's output is in `%LOCALAPPDATA%\president\hub.log` (at most 1 MB, then it
+  moves to `hub.log.1`).
+- **Update:** `git pull && npm install && npm run build`, then **Restart hub** from the icon's
+  menu. `preside tray status` says if the update changed the helper itself; then run
+  `preside tray install` again.
+- **Remove:** `preside tray uninstall` stops it and its hub, takes it out of Start with Windows
+  and deletes its files.
+
 ## Usage
 
 1. Register a project (or let an agent do it):
@@ -280,6 +314,11 @@ preside update <card-file> <new-version-file>   replace an undecided card with a
                                                 read it
 preside demo [path] [--name <name>]             copy the sample project and register the copy
 preside serve                                   start the hub (same as npm start)
+preside tray install [--no-autostart] [--no-start]
+                                                Windows: build and start the tray icon that runs
+                                                the hub (see "On Windows" above)
+preside tray uninstall                          Windows: stop and remove it
+preside tray status                             Windows: is it installed and running, where's the log
 ```
 
 A project is named after its folder unless `--name` says otherwise; when that name is taken, `add`

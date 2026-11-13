@@ -6,6 +6,8 @@
  *   POST   /api/projects                     { path, name?, createDecisions? }
  *   DELETE /api/projects/:name
  *   GET    /api/cards?project=&status=&tag=  cards, broken files and projects (with counts)
+ *   GET    /api/queue-count                  { count }: the cards in the Queue, all projects
+ *                                            (the Windows tray's number, 20261112vzn8)
  *   GET    /api/cards/:project/:id?since=    since = a revision the client read (see
  *                                            CardDetailDto.writtenByPresident)
  *   POST   /api/cards/:project/:id/actions   { type, ..., revision, closeChat? }  (see
@@ -55,7 +57,9 @@ import {
   CHAT_ASKS,
   type ChatStreamEvent,
   type LiveMessage,
+  type QueueCountResponse,
 } from "../core/api.ts";
+import { buildQueue } from "../core/queue.ts";
 import { CARD_ID_PATTERN, CARD_STATUSES, formatIssues } from "../core/schema.ts";
 import {
   actOnCard,
@@ -160,7 +164,8 @@ export function createApp(options: AppOptions): Hono {
 
   const api = new Hono();
 
-  api.get("/health", (c) => c.json({ ok: true }));
+  // The pid lets the tray helper tell the hub it started from another program on the port.
+  api.get("/health", (c) => c.json({ ok: true, pid: process.pid }));
 
   api.get("/projects", async (c) => {
     const projects = await registry.list();
@@ -209,6 +214,16 @@ export function createApp(options: AppOptions): Hono {
       }
     });
     return c.json(response);
+  });
+
+  // The number on the Windows tray icon: the Queue's "All" count, worked out by the same
+  // buildQueue the page uses, so the two can't disagree.
+  api.get("/queue-count", async (c) => {
+    const registered = await registry.list();
+    forgetUnregisteredCards(registered);
+    const loaded = await Promise.all(registered.map(loadProjectCards));
+    const cards = loaded.flatMap((result) => result.cards.map(toCardDto));
+    return c.json({ count: buildQueue(cards).length } satisfies QueueCountResponse);
   });
 
   api.get("/cards/:project/:id", async (c) => {

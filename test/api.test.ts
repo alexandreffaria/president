@@ -19,6 +19,7 @@ import type {
   ProjectDto,
 } from "../src/core/api.ts";
 import { agentToken, unseenFeedback } from "../src/core/pending.ts";
+import { buildQueue } from "../src/core/queue.ts";
 import { createApp } from "../src/server/app.ts";
 import { cachedCardPaths } from "../src/server/cards.ts";
 import { Registry } from "../src/server/registry.ts";
@@ -105,6 +106,8 @@ describe("projects API", () => {
   });
 
   // A typo through a file, or a link loop, is the user's to fix: a 422 that says so (R10-2).
+  // Windows says a path through a file doesn't exist (ENOENT, not ENOTDIR): a 400. A loop of
+  // links is ELOOP there too (libuv maps ERROR_CANT_RESOLVE_FILENAME to it): the same 422.
   it("answers a path through a file or a link loop with what is wrong, not a 500", async () => {
     const { post } = await setup();
     const scratch = await tempDir();
@@ -113,15 +116,21 @@ describe("projects API", () => {
     const project = join(scratch, "project");
     await mkdir(project);
     await symlink("decisions", join(project, "decisions"));
+    const windows = process.platform === "win32";
     const cases: [object, string][] = [
-      [{ path: join(scratch, "file.txt", "x") }, "a part of the path is a file, not a folder"],
+      [
+        { path: join(scratch, "file.txt", "x") },
+        windows ? "does not exist" : "a part of the path is a file, not a folder",
+      ],
       [{ path: join(scratch, "loop") }, "the path goes through a loop of links"],
       [{ path: project, createDecisions: true }, "the path goes through a loop of links"],
     ];
     for (const [body, reason] of cases) {
       const res = await post("/api/projects", body);
-      expect(res.status).toBe(422);
-      expect((await json(res)).error).toMatch(`: ${reason}`);
+      const { error } = await json(res);
+      expect(res.status, error).toBe(reason === "does not exist" ? 400 : 422);
+      expect(error).toMatch(reason === "does not exist" ? reason : `: ${reason}`);
+      expect(error).toMatch(/^[^\n]+$/);
     }
   });
 
@@ -360,6 +369,46 @@ describe("cards API", () => {
   });
 });
 
+describe("queue count API (the Windows tray, 20261112vzn8)", () => {
+  const count = async (request: (path: string) => Promise<Response>) =>
+    (await json<{ count: number }>(request("/api/queue-count"))).count;
+
+  it("counts what the Queue lists under All: open and back-from-deferral cards", async () => {
+    const { request } = await setup();
+    const { cards } = await json<CardListResponse>(request("/api/cards"));
+    // 0001 (open, sunk under its undecided dependency), 0002 (open), 0003 (deferred, no date).
+    expect(await count(request)).toBe(3);
+    expect(buildQueue(cards)).toHaveLength(3);
+  });
+
+  it("leaves out snoozed, withdrawn and waiting-on-agent cards, and counts every project", async () => {
+    const { request, act, registry } = await setup();
+    expect((await act("0002", { type: "defer" })).status).toBe(200);
+    expect(await count(request)).toBe(2);
+    expect((await act("0001", { type: "neither", note: "None of these." })).status).toBe(200);
+    expect(await count(request)).toBe(1);
+    const other = await copyDemoProject("other");
+    const file = join(other, "decisions", "0002-api-errors.md");
+    const text = await readFile(file, "utf8");
+    await writeFile(
+      file,
+      text.replace(
+        "status: open\n",
+        'status: open\nwithdrawn:\n  at: 2026-11-11T10:00:00Z\n  reason: "Moot."\n',
+      ),
+    );
+    await registry.add({ path: other, name: "other" });
+    // other: 0001 and 0003 count, 0002 is withdrawn, 0004 is resolved.
+    expect(await count(request)).toBe(3);
+  });
+
+  it("is a plain GET: no Origin needed", async () => {
+    const { app } = await setup();
+    const response = await app.request("http://127.0.0.1:4747/api/queue-count");
+    expect(response.status).toBe(200);
+  });
+});
+
 describe("card actions API", () => {
   async function card(request: (p: string) => Promise<Response>, id: string) {
     const res = await json<CardResponse>(request(`/api/cards/demo/${id}`));
@@ -509,7 +558,8 @@ describe("card actions API", () => {
     await writeFile(file, (await readFile(file, "utf8")).replaceAll("\n", "\r\n"));
     await chmod(file, 0o600);
     expect((await act("0002", { type: "note", note: "Private." })).status).toBe(200);
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    // Windows has no POSIX file modes (chmod there only sets read-only).
+    if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600);
     const text = await readFile(file, "utf8");
     expect(text.replaceAll("\r\n", "")).not.toContain("\n");
     expect(text).toContain("note: Private.\r\n");
