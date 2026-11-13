@@ -8,10 +8,14 @@
  *   $CLAUDE_CONFIG_DIR/projects/<folder>/<session>.jsonl (empty: only its existence counts),
  *   and refuses `--resume` of a session without one ("No conversation found ...");
  * - answers with the next entry of $FAKE_CLAUDE_DIR/script.json when there is one
- *   ({ lines?: object[], text?: string, stderr?: string, exit?: number, delayMs?: number,
- *   pauseMs?: number, lateTranscript?: boolean }), otherwise with "Echo: " and the last line
- *   of its standard input. `pauseMs` waits after the first stream line; `lateTranscript`
- *   writes a new session's transcript only at the end of the run, as Claude Code may.
+ *   ({ lines?: object[], text?: string, structured?: object, stderr?: string, exit?: number,
+ *   delayMs?: number, pauseMs?: number, gate?: string, lateTranscript?: boolean }), otherwise
+ *   with "Echo: "
+ *   and the last line of its standard input. `structured` is the `--json-schema` answer,
+ *   given as the result's `structured_output` the way Claude Code reports structured output;
+ *   `pauseMs` waits after the first stream line; `gate` waits, before answering, until a file of
+ *   that name exists in $FAKE_CLAUDE_DIR (the test creates it); `lateTranscript` writes a new session's
+ *   transcript only at the end of the run, as Claude Code may.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -63,6 +67,9 @@ if (!step.lateTranscript) writeTranscript();
 
 const out = (line) => process.stdout.write(`${JSON.stringify(line)}\n`);
 if (step.delayMs) await new Promise((resolve) => setTimeout(resolve, step.delayMs));
+if (step.gate) {
+  while (!existsSync(join(dir, step.gate))) await new Promise((resolve) => setTimeout(resolve, 10));
+}
 if (step.stderr) process.stderr.write(step.stderr);
 const lastLine = stdin.trim().split("\n").at(-1);
 const text = step.text ?? `Echo: ${lastLine}`;
@@ -77,7 +84,14 @@ const lines = step.lines ?? [
     },
   },
   { type: "assistant", message: { content: [{ type: "text", text }] } },
-  { type: "result", subtype: "success", is_error: false, result: text, session_id: session },
+  {
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    result: text,
+    session_id: session,
+    ...(step.structured !== undefined ? { structured_output: step.structured } : {}),
+  },
 ];
 for (const [i, line] of lines.entries()) {
   out(line);

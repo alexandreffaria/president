@@ -31,9 +31,9 @@ export interface BodySections {
 const H2 = /^ {0,3}##(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
 const OPTION_HEADING = /^option\s+`?([^\s`:]+)`?\s*(?:[:—–-]\s*(.*))?$/i;
 /** An opening fence; a backtick fence's info string can't contain backticks. */
-const FENCE_OPEN = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/;
+export const FENCE_OPEN = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/;
 /** A closing fence: only the fence characters, then optional spaces. */
-const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
+export const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
 
 export function splitSections(body: string): BodySections {
   const lines = body.split(/\r?\n/);
@@ -99,4 +99,89 @@ export function splitSections(body: string): BodySections {
 
 function trimBlankLines(text: string): string {
   return text.replace(/^(?:[ \t]*\r?\n)+/, "").replace(/\s+$/, "");
+}
+
+/** An option's section to write: `## Option <id>: <title>`, then its markdown. */
+export interface NewOptionSection {
+  id: string;
+  title: string;
+  markdown: string;
+}
+
+/**
+ * The body with its `## Option` sections replaced by `sections` (new options after
+ * "neither", #0007): the context before them and the appendix after them (sources, notes)
+ * stay as they are. A body without option sections gets the new ones at its end.
+ */
+export function replaceOptionSections(body: string, sections: NewOptionSection[]): string {
+  const newline = body.includes("\r\n") ? "\r\n" : "\n";
+  const lines = body.split(/\r?\n/);
+  const { options } = splitSections(body);
+  const written = sections
+    .map((s) => [`## Option ${s.id}: ${s.title}`, "", s.markdown.trim()].join("\n").trim())
+    .join("\n\n")
+    .split("\n");
+  const first = options[0];
+  const last = options.at(-1);
+  if (!first || !last) {
+    const kept = [...lines];
+    while (kept.length > 0 && kept.at(-1)?.trim() === "") kept.pop();
+    return [...kept, ...(kept.length > 0 ? [""] : []), ...written, ""].join(newline);
+  }
+  // The appendix starts at the first level-2 heading after the last option section that
+  // isn't one (splitSections ends a section there); fences are skipped the same way.
+  const appendixAt = sectionEnd(lines, last.line - 1);
+  const before = lines.slice(0, first.line - 1);
+  const after = lines.slice(appendixAt);
+  while (before.length > 0 && before.at(-1)?.trim() === "") before.pop();
+  return [
+    ...before,
+    ...(before.length > 0 ? [""] : []),
+    ...written,
+    ...(after.length > 0 ? ["", ...after] : [""]),
+  ].join(newline);
+}
+
+/** The index of the line after the section whose heading is at `headingIndex`. */
+function sectionEnd(lines: string[], headingIndex: number): number {
+  let fence: string | null = null;
+  for (let i = headingIndex + 1; i < lines.length; i++) {
+    const line = lines[i] as string;
+    if (fence === null) {
+      const open = FENCE_OPEN.exec(line)?.[1];
+      if (open) {
+        fence = open;
+        continue;
+      }
+      if (H2.test(line)) return i;
+    } else {
+      const close = FENCE_CLOSE.exec(line)?.[1];
+      if (close && close[0] === fence[0] && close.length >= fence.length) fence = null;
+    }
+  }
+  return lines.length;
+}
+
+/**
+ * `markdown` with its level-2 headings outside code fences made level 3, so that, written as
+ * an option's section, it can't end that section (a new-options run's `details`, #0007).
+ */
+export function demoteSectionHeadings(markdown: string): string {
+  let fence: string | null = null;
+  return markdown
+    .split(/\r?\n/)
+    .map((line) => {
+      if (fence === null) {
+        const open = FENCE_OPEN.exec(line)?.[1];
+        if (open) {
+          fence = open;
+          return line;
+        }
+        return H2.test(line) ? line.replace(/^( {0,3})##/, "$1###") : line;
+      }
+      const close = FENCE_CLOSE.exec(line)?.[1];
+      if (close && close[0] === fence[0] && close.length >= fence.length) fence = null;
+      return line;
+    })
+    .join("\n");
 }

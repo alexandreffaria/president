@@ -85,3 +85,53 @@ describe("toasts", () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 });
+
+function ShowWithClose({ onClose, run }: { onClose: () => void; run: () => void }) {
+  const toast = useToast();
+  useEffect(() => {
+    toast("Asked for new options on #0001.", {
+      action: { label: "Undo", key: "u", run },
+      onClose,
+    });
+  }, [toast, onClose, run]);
+  return null;
+}
+
+describe("a toast's onClose (20261112160s)", () => {
+  const renderWithClose = (onClose: () => void, run: () => void = () => {}) =>
+    act(() =>
+      root.render(
+        <ToastProvider>
+          <ShowWithClose onClose={onClose} run={run} />
+        </ToastProvider>,
+      ),
+    );
+
+  it("runs once when the time is up, not before", () => {
+    const onClose = vi.fn();
+    renderWithClose(onClose);
+    act(() => vi.advanceTimersByTime(9_000));
+    expect(onClose).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs when the toast is dismissed", () => {
+    const onClose = vi.fn();
+    renderWithClose(onClose);
+    act(() => (host.querySelector(".toast-close") as HTMLButtonElement).click());
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("doesn't run when the action is used", () => {
+    const onClose = vi.fn();
+    const run = vi.fn();
+    renderWithClose(onClose, run);
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "u", cancelable: true }));
+    });
+    act(() => vi.advanceTimersByTime(20_000));
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});

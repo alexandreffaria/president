@@ -15,6 +15,7 @@ import type {
   ChatDto,
   ChatStreamEvent,
   ChatSummaryResponse,
+  StartNewOptionsResponse,
   SyncRunResponse,
   SyncStatusResponse,
 } from "../core/api.ts";
@@ -180,6 +181,20 @@ export const api = {
     call<ChatSummaryResponse>(`/api/chats/${segment(project)}/${segment(id)}/summary`, {
       method: "POST",
       body: JSON.stringify(context),
+    }),
+  /**
+   * Starts the run that writes new options from the "neither" note recorded at `note`
+   * (#0007): when this page's Undo notice closes (`from: "undo-closed"`: only a run still "to
+   * start", never a retry), Start now, Try again.
+   */
+  startNewOptions: (
+    project: string,
+    id: string,
+    body: { note: string; from?: "undo-closed" } & Partial<ChatContext>,
+  ) =>
+    call<StartNewOptionsResponse>(`/api/chats/${segment(project)}/${segment(id)}/new-options`, {
+      method: "POST",
+      body: JSON.stringify(body),
     }),
   /** Ends the conversation without a summary; the card isn't written (202611111ky9). */
   closeChat: (project: string, id: string) =>

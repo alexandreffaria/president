@@ -143,8 +143,42 @@ export interface ChatDto {
    * starts from the summaries." (#0018). True otherwise, also when there is no conversation.
    */
   remembers: boolean;
-  /** The run of the card's session going on now: a reply, a summary, or none (false). */
-  running: false | "reply" | "summary";
+  /**
+   * The run of the card's session going on now: a reply, a summary, new options (#0007; also
+   * while that run waits for a reply to end), or none (false).
+   */
+  running: false | "reply" | "summary" | "options";
+  /**
+   * The run that writes new options from the card's latest "neither" note (#0007,
+   * 20261112160s, 20261112dfik), while it concerns the card as it is: absent when there is
+   * none, or once the card no longer waits on that note (undone, decided, rewritten by an
+   * agent) or no longer has the options it wrote.
+   */
+  newOptions?: NewOptionsRunDto;
+}
+
+/**
+ * The hub's record of a new-options run, kept per machine next to the session id:
+ *
+ * - "to-start": the note is recorded; the page holding its Undo notice starts the run when
+ *   the notice closes (20261112160s `wait-out`), any other page offers Start now
+ *   (20261112dfik `refuse-undo`);
+ * - "started": the run started (an Undo of the note is then refused, `run_started`);
+ * - "failed": nothing was written, `error` says why; Try again starts it again;
+ * - "written": the hub wrote the new options on the card.
+ */
+export interface NewOptionsRunDto {
+  /** The "neither" note's time (its `feedback` entry's `at`), which names the note. */
+  note: string;
+  state: "to-start" | "started" | "failed" | "written";
+  /** Why the run failed, in words for the page ("failed" only). */
+  error?: string;
+}
+
+/** `POST /api/chats/:project/:id/new-options`: start (or try again) the run for `note`. */
+export interface StartNewOptionsResponse {
+  /** False when it had already started from another page, or the note is gone (undone). */
+  started: boolean;
 }
 
 /** `POST /api/chats/:project/:id/close`: the conversation now, and what undoes the close. */

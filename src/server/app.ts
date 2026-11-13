@@ -24,6 +24,10 @@
  *   POST   /api/chats/:project/:id/summary   { revealed?, revision? }  the session's summary,
  *                                            for the human to edit; saving it is the "chat"
  *                                            card action (or "resolve" with `summary`)
+ *   POST   /api/chats/:project/:id/new-options  { note, revealed?, revision? }  starts the run
+ *                                            that writes new options from the "neither" note
+ *                                            recorded at `note` (#0007): when the page's Undo
+ *                                            notice closes, Start now, or Try again
  *   POST   /api/chats/:project/:id/close     {}  ends the conversation without a summary: the
  *                                            "not summarized" reminder goes; the card isn't
  *                                            written (202611111ky9). Answers { chat, closed }
@@ -58,6 +62,7 @@ import {
   type ChatStreamEvent,
   type LiveMessage,
   type QueueCountResponse,
+  type StartNewOptionsResponse,
 } from "../core/api.ts";
 import { buildQueue } from "../core/queue.ts";
 import { CARD_ID_PATTERN, CARD_STATUSES, formatIssues } from "../core/schema.ts";
@@ -128,6 +133,12 @@ const ActionExtrasSchema = z.object({ closeChat: z.boolean().optional() });
 
 const ReopenSchema = z.object({ closed: z.string().min(1).max(200) });
 
+const NewOptionsSchema = ChatSummarySchema.extend({
+  note: z.string().min(1),
+  // The page's Undo notice closed: start only a run still "to start", never a retry.
+  from: z.literal("undo-closed").optional(),
+});
+
 const ListQuerySchema = z.object({
   project: z.string().optional(),
   status: z.enum(CARD_STATUSES).optional(),
@@ -139,6 +150,8 @@ export function createApp(options: AppOptions): Hono {
   const sync = options.sync ?? new SyncService(registry, bus);
   const chat = options.chat ?? new ChatService(registry, bus);
   const writes = new PresidentWrites();
+  // The new-options run writes the card like any write: never while Sync runs there.
+  chat.setCardWriter((project, write) => sync.writeCard(project, write));
   const app = new Hono();
 
   app.use("*", localOnly());
@@ -273,6 +286,20 @@ export function createApp(options: AppOptions): Hono {
         .closeWithoutSummary(project, card.id, { decision: card.revision })
         .catch((error: unknown) => console.error("[chat] closing the conversation:", error));
     }
+    // Ask for new options (#0007): the run is "to start" until the page's Undo notice closes.
+    if (action.type === "neither") {
+      try {
+        await chat.newOptionsAsked(project, card);
+      } catch (error) {
+        // The note is written: say so, rather than a bare 500 the page would read as unsaved.
+        console.error("[chat] recording a new-options run:", error);
+        bus.emit({ type: "cards", project: project.name });
+        throw new UserError(
+          "your note is saved and the card waits for the project's agent, but president couldn't ask for new options right away (see the server log)",
+          { status: 500, code: "new_options_unrecorded" },
+        );
+      }
+    }
     // What the conversation is now, so the page knows whether its reminder is still due.
     const unsummarized =
       savesSummary || closeChat
@@ -293,8 +320,9 @@ export function createApp(options: AppOptions): Hono {
   api.post("/cards/:project/:id/undo", async (c) => {
     const project = await requireProject(registry, c.req.param("project"));
     const { revision } = parseBody(RevisionSchema, await readJson(c.req.raw));
-    const card = await sync.writeCard(project, () =>
-      undoLastAction(project, c.req.param("id"), revision),
+    const id = c.req.param("id");
+    const card = await chat.undoing(project, id, (check) =>
+      sync.writeCard(project, () => undoLastAction(project, id, revision, check)),
     );
     writes.record(card.path, revision, card.revision);
     // Bookkeeping, as for summarySaved: the undo itself is done.
@@ -352,6 +380,17 @@ export function createApp(options: AppOptions): Hono {
     const project = await requireProject(registry, c.req.param("project"));
     const input = parseBody(ChatSummarySchema, await readJson(c.req.raw));
     return c.json(await chat.summarize(project, cardId(c.req.param("id")), input));
+  });
+
+  api.post("/chats/:project/:id/new-options", async (c) => {
+    const project = await requireProject(registry, c.req.param("project"));
+    const input = parseBody(NewOptionsSchema, await readJson(c.req.raw));
+    const body: StartNewOptionsResponse = await chat.startNewOptions(
+      project,
+      cardId(c.req.param("id")),
+      input,
+    );
+    return c.json(body);
   });
 
   api.post("/chats/:project/:id/close", async (c) => {

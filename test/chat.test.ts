@@ -104,6 +104,16 @@ async function setup() {
   };
   const script = (steps: object[]) =>
     writeFile(join(fakeDir, "script.json"), JSON.stringify(steps));
+  /** Lets a fake step with this `gate` answer. */
+  const openGate = (gate: string) => writeFile(join(fakeDir, gate), "");
+  /** Waits until the fake was called `count` times in all. */
+  const called = async (count: number) => {
+    for (let i = 0; i < 500; i++) {
+      if ((await calls()).length >= count) return;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error("the fake was never called");
+  };
   const sessions = async () =>
     JSON.parse(await readFile(join(root, "state", "sessions.json"), "utf8")) as Record<
       string,
@@ -126,6 +136,8 @@ async function setup() {
     conversation,
     calls,
     script,
+    openGate,
+    called,
     sessions,
     deleteTranscripts,
     setNow,
@@ -994,5 +1006,498 @@ describe("the state folder", () => {
     const names = await readdir(join(t.root, "state"));
     expect(names.some((n) => n.startsWith("sessions.json.broken-"))).toBe(true);
     expect((await t.sessions())["demo/0002"]?.session).toMatch(UUID);
+  });
+});
+
+describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20261112160s, 20261112dfik)", () => {
+  type T = Awaited<ReturnType<typeof setup>>;
+  const NOTE = "Both assume a server. Compare on-device storage only.";
+  const ANSWER = {
+    message: "Here are two on-device options: IndexedDB and plain files.",
+    options: [
+      {
+        id: "indexeddb",
+        title: "IndexedDB",
+        summary: "Keep errors in the browser's database.",
+        pros: ["No setup"],
+        cons: ["The browser can clear it"],
+        details: "```ts\nawait db.put(error);\n```",
+      },
+      {
+        id: "files",
+        title: "Plain files",
+        summary: "One file per error.",
+        pros: ["Easy to back up"],
+        cons: ["No search"],
+        details: "Each error is written to `errors/<time>.json`.",
+      },
+    ],
+    recommendation: { option: "files", why: "Simplest to back up." },
+  };
+  const cardPath = (t: T) => join(t.demo, "decisions", "0002-api-errors.md");
+
+  async function neither(t: T, note = NOTE) {
+    const { revision } = await t.card();
+    const response = await t.post("/api/cards/demo/0002/actions", {
+      type: "neither",
+      note,
+      revision,
+    });
+    expect(response.status).toBe(200);
+    const card = ((await response.json()) as CardResponse & { ok: true }).card;
+    const at = card.frontmatter.feedback.at(-1)?.at as string;
+    return { card, at };
+  }
+  const start = (t: T, note: string, extra: object = {}) =>
+    t.post("/api/chats/demo/0002/new-options", { note, ...extra });
+  /** Waits for the run to end. */
+  async function settled(t: T): Promise<ChatDto> {
+    for (let i = 0; i < 250; i++) {
+      const chat = await t.conversation();
+      if (!chat.running && chat.newOptions?.state !== "started") return chat;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error("the run never ended");
+  }
+
+  it("records the run as to start and sends nothing until a page starts it", async () => {
+    const t = await setup();
+    const { at } = await neither(t);
+    expect(await t.calls()).toEqual([]);
+    const chat = await t.conversation();
+    expect(chat.newOptions).toEqual({ note: at, state: "to-start" });
+    expect(chat.messages).toEqual([]);
+    expect(t.events).toContainEqual({ type: "chat", project: "demo", id: "0002" });
+  });
+
+  it("writes the options with update's checks, as a turn in the conversation", async () => {
+    const t = await setup();
+    await t.send("Is IndexedDB available in the webview?");
+    // The human had looked at the old pick in this conversation.
+    await t.send("Why that one?", { revealed: true, revision: (await t.card()).revision });
+    const before = await t.card();
+    const { at } = await neither(t);
+    // Summarized since: the run doesn't make it "not summarized" again (shown-no-reminder).
+    await t.chat.store.updateEntry({ project: "demo", id: "0002" }, (e) => ({
+      ...e,
+      unsummarized: false,
+    }));
+    await t.script([{ structured: ANSWER }]);
+    const response = await start(t, at);
+    expect(await response.json()).toEqual({ started: true });
+    const chat = await settled(t);
+
+    const call = (await t.calls()).at(-1) as Call;
+    const session = (await t.sessions())["demo/0002"]?.session as string;
+    expect(call.args.slice(4, 6)).toEqual(["--resume", session]);
+    expect(call.args).toEqual(expect.arrayContaining(READONLY_FLAGS));
+    const schema = JSON.parse(call.args[call.args.indexOf("--json-schema") + 1] as string);
+    expect(schema.required).toEqual(["message", "options", "recommendation"]);
+    expect(schema.properties.options).toMatchObject({ minItems: 2, maxItems: 2 });
+    // The run gets the pick line: this conversation had revealed the pick it replaces.
+    expect(call.stdin).toMatch(/^\(president: The human has revealed the card's pick;/);
+    expect(call.stdin).toContain(NOTE);
+    expect(call.stdin).toContain("don't say which you recommend");
+
+    const card = await t.card();
+    expect(card.frontmatter.options.map((o) => o.id)).toEqual(["indexeddb", "files"]);
+    expect(card.frontmatter.recommendation).toEqual(ANSWER.recommendation);
+    expect(card.frontmatter.needs_new_options).toBeUndefined();
+    expect(card.frontmatter.feedback.map((f) => f.type)).toEqual(["neither"]);
+    // The hub doesn't run `preside seen`: the working agent still finds the note unread.
+    expect(card.frontmatter.seen_at).toBeUndefined();
+    expect(card.sections.options.map((s) => [s.id, s.heading, s.markdown])).toEqual([
+      ["indexeddb", "IndexedDB", ANSWER.options[0]?.details],
+      ["files", "Plain files", ANSWER.options[1]?.details],
+    ]);
+    expect(card.sections.context).toBe(before.sections.context);
+    expect(card.sections.appendix).toBe(before.sections.appendix);
+    expect(card.frontmatter.title).toBe(before.frontmatter.title);
+
+    expect(chat.messages.slice(-2).map((m) => [m.from, m.text])).toEqual([
+      ["you", `Neither: ${NOTE}`],
+      ["agent", `${ANSWER.message}\n\n(The options are now on the card.)`],
+    ]);
+    expect(chat.unsummarized).toBe(false);
+    expect(chat.newOptions).toEqual({ note: at, state: "written" });
+    expect(t.events).toContainEqual({ type: "cards", project: "demo" });
+
+    // The new pick is hidden again in the conversation, until r on the new options.
+    await t.send("Which one now?");
+    expect((await t.calls()).at(-1)?.stdin).toMatch(
+      /^\(president: The human revealed an earlier pick on this card, which the new options replaced;/,
+    );
+    expect((await t.conversation()).unsummarized).toBe(true);
+  });
+
+  it("starts a session for a card without a conversation", async () => {
+    const t = await setup();
+    const { at } = await neither(t);
+    await t.script([{ structured: ANSWER }]);
+    await start(t, at);
+    await settled(t);
+    const [call] = await t.calls();
+    expect(call?.args[call.args.indexOf("--session-id") + 1]).toMatch(UUID);
+    expect(call?.args).toContain("--append-system-prompt");
+    expect(call?.stdin).toMatch(/^\(president: The human has not revealed the card's pick\./);
+    expect((await t.sessions())["demo/0002"]?.session).toMatch(UUID);
+  });
+
+  it("starts at most one run for a note", async () => {
+    const t = await setup();
+    const { at } = await neither(t);
+    await t.script([{ structured: ANSWER, delayMs: 200 }]);
+    const responses = await Promise.all([start(t, at), start(t, at)]);
+    const started = await Promise.all(
+      responses.map(async (r) => ((await r.json()) as { started: boolean }).started),
+    );
+    expect(started.sort()).toEqual([false, true]);
+    expect((await t.conversation()).running).toBe("options");
+    await settled(t);
+    // The first tab's notice closing after the run started never starts a second one.
+    expect(await (await start(t, at)).json()).toEqual({ started: false });
+    expect(await t.calls()).toHaveLength(1);
+  });
+
+  it("an Undo before the run starts leaves nothing, and no run starts for that note", async () => {
+    const t = await setup();
+    await t.send("Is IndexedDB available?");
+    const { card, at } = await neither(t);
+    const undo = await t.post("/api/cards/demo/0002/undo", { revision: card.revision });
+    expect(undo.status).toBe(200);
+    expect((await t.conversation()).newOptions).toBeUndefined();
+    expect(await (await start(t, at)).json()).toEqual({ started: false });
+    expect(await t.calls()).toHaveLength(1);
+    expect((await t.conversation()).messages).toHaveLength(2);
+  });
+
+  it("refuses the Undo once the run started from another tab (refuse-undo)", async () => {
+    const t = await setup();
+    const { card, at } = await neither(t);
+    await t.script([{ structured: ANSWER, delayMs: 300 }]);
+    await start(t, at);
+    const undo = await t.post("/api/cards/demo/0002/undo", { revision: card.revision });
+    expect(undo.status).toBe(409);
+    expect(await undo.json()).toMatchObject({
+      code: "run_started",
+      error: "the run for this note already started from another tab",
+    });
+    expect((await t.card()).frontmatter.needs_new_options).toBe(true);
+    await settled(t);
+  });
+
+  it("the Undo notice closing starts only a run still to start, never a retry", async () => {
+    const t = await setup();
+    const { at } = await neither(t);
+    await t.script([
+      { lines: [{ type: "result", subtype: "error_max_budget_usd", is_error: true }] },
+      { structured: ANSWER },
+    ]);
+    // Start now in another tab, and the run fails.
+    await start(t, at);
+    expect((await settled(t)).newOptions?.state).toBe("failed");
+    // The first tab's notice times out (or its Undo is refused): no second run.
+    expect(await (await start(t, at, { from: "undo-closed" })).json()).toEqual({ started: false });
+    expect(await t.calls()).toHaveLength(1);
+    expect((await t.conversation()).newOptions?.state).toBe("failed");
+    // Try again is the human's: it runs again.
+    expect(await (await start(t, at)).json()).toEqual({ started: true });
+    expect((await settled(t)).newOptions?.state).toBe("written");
+  });
+
+  it("the Undo notice closing starts a run still to start", async () => {
+    const t = await setup();
+    const { at } = await neither(t);
+    await t.script([{ structured: ANSWER }]);
+    expect(await (await start(t, at, { from: "undo-closed" })).json()).toEqual({ started: true });
+    expect((await settled(t)).newOptions?.state).toBe("written");
+  });
+
+  it("an Undo is refused only by the run for the note it undoes", async () => {
+    const t = await setup();
+    const { card, at } = await neither(t);
+    // A record left for an earlier note (stale): it doesn't make this Undo "already started".
+    const key = { project: "demo", id: "0002" };
+    await t.chat.store.updateEntry(key, (e) => ({
+      ...e,
+      newOptions: { note: "2026-11-01T10:00:00Z", state: "failed", error: "x" },
+    }));
+    expect(at).not.toBe("2026-11-01T10:00:00Z");
+    const undo = await t.post("/api/cards/demo/0002/undo", { revision: card.revision });
+    expect(undo.status).toBe(200);
+    expect((await t.card()).frontmatter.needs_new_options).toBeUndefined();
+  });
+
+  it("says so clearly when the note is written but the run can't be recorded", async () => {
+    const t = await setup();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(t.chat, "newOptionsAsked").mockRejectedValueOnce(new Error("disk full"));
+    const { revision } = await t.card();
+    const response = await t.post("/api/cards/demo/0002/actions", {
+      type: "neither",
+      note: NOTE,
+      revision,
+    });
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({
+      code: "new_options_unrecorded",
+      error: expect.stringMatching(
+        /^your note is saved and the card waits for the project's agent/,
+      ),
+    });
+    expect((await t.card()).frontmatter.needs_new_options).toBe(true);
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it("writes nothing when the options don't pass the card checks, and Try again runs again", async () => {
+    const t = await setup();
+    const { at } = await neither(t);
+    const broken = {
+      ...ANSWER,
+      options: [ANSWER.options[0], { ...ANSWER.options[1], title: " " }],
+    };
+    await t.script([{ structured: broken }, { structured: ANSWER }]);
+    await start(t, at);
+    const failed = await settled(t);
+    expect(failed.newOptions).toMatchObject({ note: at, state: "failed" });
+    expect(failed.newOptions?.error).toMatch(/^the agent's options didn't pass the card checks \(/);
+    expect(failed.messages.at(-1)?.from).toBe("hub");
+    expect(failed.messages.at(-1)?.text).toMatch(
+      /^Couldn't write new options: the agent's options didn't pass the card checks .*The card waits for the project's agent, as before\.$/s,
+    );
+    const waiting = await t.card();
+    expect(waiting.frontmatter.needs_new_options).toBe(true);
+    expect(waiting.frontmatter.options.map((o) => o.id)).toEqual(["throw", "result"]);
+
+    // Try again: the same note, and the session hears why the last answer was refused.
+    expect(await (await start(t, at)).json()).toEqual({ started: true });
+    const done = await settled(t);
+    expect((await t.calls())[1]?.stdin).toContain("Your previous answer couldn't be written");
+    expect(done.newOptions?.state).toBe("written");
+    expect(done.messages.map((m) => m.from)).toEqual(["you", "hub", "hub", "agent"]);
+  });
+
+  it("says why when the run fails or answers without options", async () => {
+    const t = await setup();
+    const { at } = await neither(t);
+    await t.script([
+      { lines: [{ type: "result", subtype: "error_max_budget_usd", is_error: true }] },
+      {},
+    ]);
+    await start(t, at);
+    expect((await settled(t)).newOptions?.error).toBe("the run stopped at its spending cap ($1)");
+    await start(t, at);
+    expect((await settled(t)).newOptions?.error).toBe("the agent answered without the options");
+  });
+
+  it("refuses to write over a note added while the run was writing", async () => {
+    const t = await setup();
+    const { at } = await neither(t);
+    await t.script([{ structured: ANSWER, gate: "answer" }]);
+    await start(t, at);
+    // The run has read the card once the fake is called; it answers only after the note.
+    await t.called(1);
+    const { revision } = await t.card();
+    const noted = await t.post("/api/cards/demo/0002/actions", {
+      type: "note",
+      note: "Also: Android.",
+      revision,
+    });
+    expect(noted.status).toBe(200);
+    await t.openGate("answer");
+    const chat = await settled(t);
+    // The note is now the card's latest feedback; the run is still about the same "neither".
+    expect((await t.chat.store.entry({ project: "demo", id: "0002" }))?.newOptions).toMatchObject({
+      state: "failed",
+      error: "the card changed while the agent was writing them",
+    });
+    expect(chat.newOptions?.state).toBe("failed");
+    expect((await t.card()).frontmatter.needs_new_options).toBe(true);
+  });
+
+  it("refuses to write over an agent's edit made during the run (update's revision check)", async () => {
+    const t = await setup();
+    const { at } = await neither(t);
+    await t.script([{ structured: ANSWER, gate: "answer" }]);
+    await start(t, at);
+    await t.called(1);
+    // An agent (or Sync) fixes the context and keeps the options: nothing the human owns.
+    const text = await readFile(cardPath(t), "utf8");
+    const edited = text.replace("The app talks to", "The mobile app talks to");
+    expect(edited).not.toBe(text);
+    await writeFile(cardPath(t), edited);
+    await t.openGate("answer");
+    const chat = await settled(t);
+    expect(chat.newOptions).toMatchObject({
+      state: "failed",
+      error: "the card changed while the agent was writing them",
+    });
+    expect(chat.messages.at(-1)?.text).toMatch(/^Couldn't write new options: the card changed/);
+    expect(await readFile(cardPath(t), "utf8")).toBe(edited);
+  });
+
+  describe("keeps the answer inside its option sections", () => {
+    async function refused(t: T, options: object[], why: RegExp) {
+      const before = await readFile(cardPath(t), "utf8");
+      const { at } = await neither(t);
+      const noted = await readFile(cardPath(t), "utf8");
+      expect(noted).not.toBe(before);
+      await t.script([{ structured: { ...ANSWER, options } }]);
+      await start(t, at);
+      const chat = await settled(t);
+      expect(chat.newOptions?.state).toBe("failed");
+      expect(chat.newOptions?.error).toMatch(/^the agent's options didn't pass the card checks \(/);
+      expect(chat.newOptions?.error).toMatch(why);
+      expect(await readFile(cardPath(t), "utf8")).toBe(noted);
+    }
+    const [first, second] = ANSWER.options as [
+      (typeof ANSWER.options)[0],
+      (typeof ANSWER.options)[0],
+    ];
+
+    it("refuses an unclosed code fence in details", async () => {
+      const t = await setup();
+      await refused(
+        t,
+        [{ ...first, details: "```js\nconst a = 1;" }, second],
+        /runs outside its section/,
+      );
+    });
+
+    it("refuses an unclosed HTML comment in details", async () => {
+      const t = await setup();
+      await refused(
+        t,
+        [{ ...first, details: "Text.\n\n<!-- hides the rest" }, second],
+        /HTML comment/,
+      );
+    });
+
+    it("refuses an HTML comment after a line the splitter doesn't take as a fence", async () => {
+      const t = await setup();
+      await refused(
+        t,
+        [{ ...first, details: "```a`b\n<!-- hides the rest" }, second],
+        /HTML comment/,
+      );
+    });
+
+    it("keeps a fence open past a line with text after its backticks, and inline-code <!--", async () => {
+      for (const details of ["```\n``` x\n<!-- not a comment\n```", "Type `<!--` to open one."]) {
+        const t = await setup();
+        const { at } = await neither(t);
+        await t.script([{ structured: { ...ANSWER, options: [{ ...first, details }, second] } }]);
+        await start(t, at);
+        expect((await settled(t)).newOptions?.state).toBe("written");
+      }
+    });
+
+    it("refuses a fence opened after a lone carriage return", async () => {
+      const t = await setup();
+      await refused(t, [{ ...first, details: "text\r```" }, second], /runs outside its section/);
+    });
+
+    it("keeps a heading after a lone carriage return or U+2028 inside its option", async () => {
+      for (const details of ["text\r## Option z: evil", "text\u2028## Option z: evil"]) {
+        const t = await setup();
+        const { at } = await neither(t);
+        await t.script([
+          {
+            structured: { ...ANSWER, options: [{ ...first, details }, second] },
+          },
+        ]);
+        await start(t, at);
+        expect((await settled(t)).newOptions?.state).toBe("written");
+        const card = await t.card();
+        expect(card.sections.options.map((o) => o.id)).toEqual(["indexeddb", "files"]);
+        expect(card.sections.options[0]?.markdown).toBe("text\n### Option z: evil");
+      }
+    });
+
+    it("refuses a line break in a title, a summary or an id", async () => {
+      const t = await setup();
+      await refused(t, [{ ...first, title: "IndexedDB\n## Sources\nfake" }, second], /line break/);
+      const u = await setup();
+      await refused(u, [first, { ...second, summary: "One\nfile." }], /line break/);
+      const v = await setup();
+      await refused(v, [{ ...first, id: "indexeddb\n" }, second], /line break/);
+    });
+
+    it("refuses a count the card's kind doesn't take", async () => {
+      const t = await setup();
+      await refused(t, [first, second, { ...second, id: "third" }], /3 options; this card takes 2/);
+    });
+
+    it("keeps a level-2 heading in details inside its option, as a level-3 one", async () => {
+      const t = await setup();
+      const before = await t.card();
+      const { at } = await neither(t);
+      const details = "Some text.\n\n## How it works\n\nMore text.\n\n```md\n## Not a heading\n```";
+      await t.script([{ structured: { ...ANSWER, options: [{ ...first, details }, second] } }]);
+      await start(t, at);
+      expect((await settled(t)).newOptions?.state).toBe("written");
+      const card = await t.card();
+      expect(card.sections.options.map((o) => o.id)).toEqual(["indexeddb", "files"]);
+      expect(card.sections.options[0]?.markdown).toBe(
+        "Some text.\n\n### How it works\n\nMore text.\n\n```md\n## Not a heading\n```",
+      );
+      expect(card.sections.appendix).toBe(before.sections.appendix);
+      expect(card.sections.appendix).toMatch(/^## Sources/);
+    });
+  });
+
+  it("holds a message sent during the run until the run is over", async () => {
+    const t = await setup();
+    const { at } = await neither(t);
+    await t.script([{ structured: ANSWER, delayMs: 300 }]);
+    await start(t, at);
+    const events = await t.send("Why drop the server?");
+    expect(events.at(-1)?.type).toBe("done");
+    const chat = await t.conversation();
+    expect(chat.messages.map((m) => m.from)).toEqual(["you", "agent", "you", "agent"]);
+    expect(chat.messages[2]?.text).toBe("Why drop the server?");
+  });
+
+  it("offers Try again for a run president was shut down during", async () => {
+    const t = await setup();
+    const { at } = await neither(t);
+    await t.chat.store.updateEntry({ project: "demo", id: "0002" }, (e) => ({
+      ...e,
+      newOptions: { note: at, state: "started" },
+    }));
+    expect((await t.conversation()).newOptions).toEqual({
+      note: at,
+      state: "failed",
+      error: "the run stopped when president was shut down",
+    });
+    await t.script([{ structured: ANSWER }]);
+    expect(await (await start(t, at)).json()).toEqual({ started: true });
+    expect((await settled(t)).newOptions?.state).toBe("written");
+  });
+
+  it("starts no run for a neither made on another machine (20261112ah6a wait)", async () => {
+    const t = await setup();
+    const { at } = await neither(t);
+    // Synced from another machine: the card waits on the note, with no record on this one.
+    await t.chat.store.updateEntry({ project: "demo", id: "0002" }, (e) => {
+      if (!e) return e;
+      const { newOptions: _, ...rest } = e;
+      return Object.keys(rest).length > 0 ? rest : undefined;
+    });
+    expect((await t.card()).frontmatter.needs_new_options).toBe(true);
+    expect((await t.conversation()).newOptions).toBeUndefined();
+    expect(await (await start(t, at)).json()).toEqual({ started: false });
+    expect(await t.calls()).toEqual([]);
+  });
+
+  it("no longer shows the record once the card moved on", async () => {
+    const t = await setup();
+    const { at } = await neither(t);
+    // An agent rewrote the options itself before any run started.
+    const text = await readFile(cardPath(t), "utf8");
+    await writeFile(cardPath(t), text.replace("needs_new_options: true\n", ""));
+    expect((await t.conversation()).newOptions).toBeUndefined();
+    expect(await (await start(t, at)).json()).toEqual({ started: false });
   });
 });

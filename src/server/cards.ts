@@ -29,9 +29,10 @@ import {
   type ParsedCard,
   parseCard,
   parseCardFileName,
+  splitFrontmatter,
 } from "../core/card-file.ts";
 import { updateCardText } from "../core/card-writer.ts";
-import { CARD_ID_PATTERN, lineSuffix, sameCardId } from "../core/schema.ts";
+import { CARD_ID_PATTERN, lineSuffix, type RawFrontmatter, sameCardId } from "../core/schema.ts";
 import { UserError } from "./errors.ts";
 import { isNotFound, KeyedMutex, writeFileAtomic } from "./fs-utils.ts";
 import { decisionsDirOf, type Project } from "./registry.ts";
@@ -411,6 +412,13 @@ export async function undoLastAction(
   project: Project,
   id: string,
   revision: string,
+  /**
+   * Called with the action about to be undone; throwing refuses the undo. A "neither" whose
+   * new-options run already started is refused this way (20261112dfik `refuse-undo`): starting
+   * the run writes nothing to the card, so the journal alone can't tell. `card` is the card
+   * as the action left it.
+   */
+  check?: (action: CardActionType, card: LoadedCard) => void,
 ): Promise<LoadedCard> {
   return writeLock.run(`${project.path}\0${id}`, async () => {
     const card = await lockedCard(project, id);
@@ -425,10 +433,61 @@ export async function undoLastAction(
         { status: 409, code: "undo_unavailable" },
       );
     }
+    check?.(ours.action, card);
     const text = ours.action === "resolve" ? withUndoEntry(card, ours.before) : ours.before;
     const written = await writeChecked(project, card, text);
     undoJournal.delete(card.path);
     return written;
+  });
+}
+
+/**
+ * Writes new options the hub's new-options run returned (#0007) with `preside update`'s
+ * checks: never on a decided card, only while the card is exactly as the run read it
+ * (`read`: any write since refuses it, like update's revision check, so an agent's or Sync's
+ * edit made during the run is never reverted), and only if the result passes the card checks.
+ * `raw` is the new frontmatter and `body` the new body. A refusal is a UserError whose message
+ * says why, in words for the human.
+ */
+export async function rewriteCard(
+  project: Project,
+  id: string,
+  read: LoadedCard,
+  next: { raw: RawFrontmatter; body: string },
+): Promise<LoadedCard> {
+  return writeLock.run(`${project.path}\0${id}`, async () => {
+    const card = await lockedCard(project, id);
+    if (card.frontmatter.status === "resolved") {
+      throw conflict("you decided the card meanwhile");
+    }
+    // Any write since the run read the card: a note, an undo, an agent's update, Sync.
+    if (card.revision !== read.revision) {
+      throw conflict("the card changed while the agent was writing them");
+    }
+    const original = await readFile(card.path, "utf8");
+    if (revisionOf(original) !== card.revision) {
+      throw conflict("the card changed while saving");
+    }
+    let text: string;
+    try {
+      text = updateCardText(original, next.raw);
+    } catch (error) {
+      throw new UserError(
+        `president can't update ${card.fileName} safely: ${(error as Error).message}`,
+        { status: 422, code: "unsupported_layout" },
+      );
+    }
+    const split = splitFrontmatter(text);
+    if (!split) throw new Error("the card lost its frontmatter");
+    text = text.slice(0, text.length - split.body.length) + next.body;
+    const parsed = parseCard(text, card.fileName);
+    if (!parsed.ok) {
+      throw new UserError(
+        `the agent's options didn't pass the card checks (${parsed.problem.errors.join("; ")})`,
+        { status: 422, code: "invalid_card" },
+      );
+    }
+    return writeChecked(project, card, text);
   });
 }
 

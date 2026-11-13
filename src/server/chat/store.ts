@@ -6,8 +6,9 @@
  *
  *   sessions.json             { "<project>/<id>": SessionEntry }: the card's Claude Code
  *                             session id (#0021), whether the conversation has messages no
- *                             saved summary covers (#0024), and which pick the human revealed
- *                             in it (2026111272fu)
+ *                             saved summary covers (#0024), which pick the human revealed
+ *                             in it (2026111272fu), and the new-options run's record (#0007,
+ *                             20261112160s)
  *   chats/<project>/<id>.jsonl  the hub's copy of the messages it showed (#0018), one
  *                             ChatMessageDto per line
  *   missing.json              { "<project>/<id>": when the card or its project was first found
@@ -46,6 +47,22 @@ export interface SessionEntry {
    * (2026111272fu).
    */
   revealed?: string;
+  /**
+   * The run that writes new options from the card's latest "neither" note (#0007): "to
+   * start" when the note is recorded, "started" once the run starts, then "written" or
+   * "failed" (20261112160s, 20261112dfik). Kept on disk, so a page opened after a reload or
+   * a restart can still offer Start now or Try again.
+   */
+  newOptions?: NewOptionsRecord;
+}
+
+export interface NewOptionsRecord {
+  /** The note's `feedback` time. */
+  note: string;
+  state: "to-start" | "started" | "failed" | "written";
+  error?: string;
+  /** "written": a hash of the options and pick the hub wrote (see optionsHash). */
+  options?: string;
 }
 
 export interface CardKey {

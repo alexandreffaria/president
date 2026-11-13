@@ -1136,6 +1136,15 @@ ul.broken {
   color: var(--text-muted);
 }
 
+/* Your "Neither" message before its run starts, or a message held until the run is over. */
+.chat-pending .chat-text {
+  opacity: 0.75;
+}
+
+.chat-pending-note {
+  margin: 0.2rem 0 0;
+}
+
 .chat-empty,
 .chat-status,
 .chat-note {

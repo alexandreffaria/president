@@ -1,6 +1,6 @@
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import type { CardAction } from "../../core/actions.ts";
-import type { BrokenCardDto, CardDetailDto, CardDto } from "../../core/api.ts";
+import type { BrokenCardDto, CardDetailDto, CardDto, NewOptionsRunDto } from "../../core/api.ts";
 import { CUSTOM_CHOICE, withdrawalOf } from "../../core/model.ts";
 import {
   activeWithdrawal,
@@ -33,9 +33,17 @@ import {
   unsentText,
   useDraft,
 } from "../drafts.ts";
-import { fullDate, KIND_LABEL, optionLabel, PRIORITY_LABEL, timeAgo } from "../format.ts";
+import {
+  clockTime,
+  fullDate,
+  KIND_LABEL,
+  optionLabel,
+  PRIORITY_LABEL,
+  timeAgo,
+} from "../format.ts";
 import { useHub } from "../hub.tsx";
 import { type KeyMap, useKeyboard, useKeyLayer } from "../keyboard.ts";
+import { holdUndo, releaseUndo, startWhenUndoCloses } from "../new-options.ts";
 import { cardPath, Link, navigate } from "../router.tsx";
 import { dateInputValue, nextMonth, startOfDay, tomorrow } from "../snooze.ts";
 import { useDismissToasts, useToast, useToastShown } from "../toast.tsx";
@@ -163,7 +171,12 @@ export function CardView({ project, id }: { project: string; id: string }) {
    */
   const [chatOpen, setChatOpen] = useState<boolean>();
   const chatLoaded = cardChat.chat !== undefined;
-  const hasConversation = (cardChat.chat?.messages.length ?? 0) > 0;
+  /** The new-options run of the card's latest "neither" (#0007), while it concerns the card. */
+  const newOptions = cardChat.chat?.newOptions;
+  // A "neither" always leaves a conversation, its message pending at first (202611111gpm).
+  const hasConversation =
+    (cardChat.chat?.messages.length ?? 0) > 0 ||
+    (newOptions !== undefined && newOptions.state !== "written");
   useEffect(() => {
     if (chatLoaded) setChatOpen((open) => open ?? hasConversation);
   }, [chatLoaded, hasConversation]);
@@ -321,6 +334,15 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const card = loaded.state === "ok" ? loaded.card : undefined;
   const fm = card?.frontmatter;
   const seen = draft.seen;
+
+  // A new pick (new options after "neither") is hidden again, even if the old one was shown
+  // during this visit (2026111272fu `reset`).
+  const pick = fm?.recommendation ? JSON.stringify(fm.recommendation) : undefined;
+  const shownPick = useRef(pick);
+  useEffect(() => {
+    if (shownPick.current !== pick) setRevealed(false);
+    shownPick.current = pick;
+  }, [pick]);
   /**
    * The panel shown. A card decided elsewhere (another tab, Sync) while the Neither panel is
    * open can't take its actions any more, so it isn't shown; the text stays as a draft.
@@ -417,6 +439,14 @@ export function CardView({ project, id }: { project: string; id: string }) {
         const panelToRestore: DraftPanel | undefined =
           options.panel ??
           (action.type === "neither" || action.type === "note" ? action.type : undefined);
+        // Ask for new options: the run starts only once this Undo notice is gone, so an Undo
+        // before then leaves nothing anywhere (20261112160s `wait-out`).
+        const note =
+          action.type === "neither"
+            ? res.card.frontmatter.feedback.findLast((f) => f.type === "neither")?.at
+            : undefined;
+        if (note) holdUndo(project, id, note);
+        const onClose = note ? () => startWhenUndoCloses(project, id, note) : undefined;
         const undo = {
           label: "Undo",
           key: "u",
@@ -428,6 +458,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
                 return hub.refresh();
               })
               .then(() => {
+                if (note) releaseUndo(project, id, note);
                 forgetDecision(project, id);
                 restoreDraft(project, id, wasSent, panelToRestore);
                 navigate(cardPath(project, id));
@@ -444,15 +475,22 @@ export function CardView({ project, id }: { project: string; id: string }) {
                     tone: "error",
                     action: undo,
                     group: undoGroup,
+                    ...(onClose ? { onClose } : {}),
                   });
                   return;
                 }
-                toast(`Couldn't undo: ${error.message}`, { tone: "error" });
+                // 20261112dfik `refuse-undo`: another tab started the run for this note.
+                const runStarted = error instanceof RequestError && error.code === "run_started";
+                toast(`Couldn't undo: ${error.message}${runStarted ? "." : ""}`, {
+                  tone: "error",
+                });
+                // The note stays sent, so its run starts (if it hasn't already).
+                onClose?.();
               });
           },
         };
         const done = typeof options.done === "string" ? options.done : options.done(res.card);
-        toast(done, { action: undo, group: undoGroup });
+        toast(done, { action: undo, group: undoGroup, ...(onClose ? { onClose } : {}) });
       }
       // A view that has gone doesn't move the human on: they are wherever they went since.
       if (options.leave && generation === viewGeneration.current) {
@@ -867,7 +905,10 @@ export function CardView({ project, id }: { project: string; id: string }) {
         >
           <div className="notice-body">
             <p>
-              {CHANGED_BY_TEXT[changedBy]}{" "}
+              {changedBy === "agent" && newOptions?.state === "written"
+                ? // The hub wrote them, from the card's session (#0007).
+                  `New options, written from your note at ${clockTime(newOptions.note)}.`
+                : CHANGED_BY_TEXT[changedBy]}{" "}
               {choiceCleared
                 ? "Your choice was cleared. Read it again before deciding."
                 : changedBy === "sync"
@@ -888,7 +929,10 @@ export function CardView({ project, id }: { project: string; id: string }) {
           </button>
         </div>
       )}
-      <StatusNotice card={card} />
+      <StatusNotice
+        card={card}
+        newOptions={changedBy && newOptions?.state === "written" ? undefined : newOptions}
+      />
       {blockers.length > 0 && isActive && (
         <p className="notice notice-warn">
           This depends on {describeDependencies(card, blockers, hub.cards)}, which{" "}
@@ -1050,8 +1094,25 @@ export function CardView({ project, id }: { project: string; id: string }) {
   );
 }
 
-function StatusNotice({ card }: { card: CardDetailDto }) {
+function StatusNotice({
+  card,
+  newOptions,
+}: {
+  card: CardDetailDto;
+  /** The new-options run (#0007), unless the "changed" notice already speaks of it. */
+  newOptions: NewOptionsRunDto | undefined;
+}) {
   const fm = card.frontmatter;
+  if (fm.status === "open" && newOptions?.state === "written") {
+    return (
+      <p className="notice notice-info">
+        New options, written from your note at {clockTime(newOptions.note)}.
+      </p>
+    );
+  }
+  if (isWaitingOnAgent(card) && newOptions?.state === "started") {
+    return <p className="notice notice-info">Writing new options…</p>;
+  }
   if (fm.status === "resolved" && fm.resolution) {
     const option = fm.options.find((o) => o.id === fm.resolution?.choice);
     // 20261112jdyg (quiet-line): a decision keeps `withdrawn` (#0014 D), and the withdrawal is
