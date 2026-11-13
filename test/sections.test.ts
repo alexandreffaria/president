@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { replaceOptionSections, splitSections } from "../src/core/sections.ts";
+import {
+  demoteSectionHeadings,
+  replaceOptionSections,
+  splitSections,
+} from "../src/core/sections.ts";
 
 describe("splitSections", () => {
   it("splits context, option sections and appendix", () => {
@@ -124,5 +128,15 @@ describe("replaceOptionSections (#0007's new options)", () => {
     const next = replaceOptionSections("## Context\r\n\r\nWhy.\r\n", sections);
     expect(next).toMatch(/^## Context\r\n\r\nWhy\.\r\n\r\n## Option x: Ex\r\n/);
     expect(splitSections(next).options.map((o) => o.id)).toEqual(["x", "y"]);
+  });
+});
+
+describe("demoteSectionHeadings", () => {
+  it("makes level-2 headings outside fences level 3, and leaves the rest", () => {
+    const text =
+      "## A\nText ## not a heading\n  ## B ##\n### C\n```\n## code\n```\n~~~\n## tilde\n~~~";
+    expect(demoteSectionHeadings(text)).toBe(
+      "### A\nText ## not a heading\n  ### B ##\n### C\n```\n## code\n```\n~~~\n## tilde\n~~~",
+    );
   });
 });

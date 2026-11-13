@@ -133,7 +133,11 @@ const ActionExtrasSchema = z.object({ closeChat: z.boolean().optional() });
 
 const ReopenSchema = z.object({ closed: z.string().min(1).max(200) });
 
-const NewOptionsSchema = ChatSummarySchema.extend({ note: z.string().min(1) });
+const NewOptionsSchema = ChatSummarySchema.extend({
+  note: z.string().min(1),
+  // The page's Undo notice closed: start only a run still "to start", never a retry.
+  from: z.literal("undo-closed").optional(),
+});
 
 const ListQuerySchema = z.object({
   project: z.string().optional(),
@@ -283,7 +287,19 @@ export function createApp(options: AppOptions): Hono {
         .catch((error: unknown) => console.error("[chat] closing the conversation:", error));
     }
     // Ask for new options (#0007): the run is "to start" until the page's Undo notice closes.
-    if (action.type === "neither") await chat.newOptionsAsked(project, card);
+    if (action.type === "neither") {
+      try {
+        await chat.newOptionsAsked(project, card);
+      } catch (error) {
+        // The note is written: say so, rather than a bare 500 the page would read as unsaved.
+        console.error("[chat] recording a new-options run:", error);
+        bus.emit({ type: "cards", project: project.name });
+        throw new UserError(
+          "your note is saved and the card waits for the project's agent, but president couldn't ask for new options right away (see the server log)",
+          { status: 500, code: "new_options_unrecorded" },
+        );
+      }
+    }
     // What the conversation is now, so the page knows whether its reminder is still due.
     const unsummarized =
       savesSummary || closeChat

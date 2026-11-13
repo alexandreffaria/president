@@ -32,8 +32,6 @@ import {
   splitFrontmatter,
 } from "../core/card-file.ts";
 import { updateCardText } from "../core/card-writer.ts";
-import { deepEqual } from "../core/equal.ts";
-import { humanChanges } from "../core/rewrite.ts";
 import { CARD_ID_PATTERN, lineSuffix, type RawFrontmatter, sameCardId } from "../core/schema.ts";
 import { UserError } from "./errors.ts";
 import { isNotFound, KeyedMutex, writeFileAtomic } from "./fs-utils.ts";
@@ -417,9 +415,10 @@ export async function undoLastAction(
   /**
    * Called with the action about to be undone; throwing refuses the undo. A "neither" whose
    * new-options run already started is refused this way (20261112dfik `refuse-undo`): starting
-   * the run writes nothing to the card, so the journal alone can't tell.
+   * the run writes nothing to the card, so the journal alone can't tell. `card` is the card
+   * as the action left it.
    */
-  check?: (action: CardActionType) => void,
+  check?: (action: CardActionType, card: LoadedCard) => void,
 ): Promise<LoadedCard> {
   return writeLock.run(`${project.path}\0${id}`, async () => {
     const card = await lockedCard(project, id);
@@ -434,7 +433,7 @@ export async function undoLastAction(
         { status: 409, code: "undo_unavailable" },
       );
     }
-    check?.(ours.action);
+    check?.(ours.action, card);
     const text = ours.action === "resolve" ? withUndoEntry(card, ours.before) : ours.before;
     const written = await writeChecked(project, card, text);
     undoJournal.delete(card.path);
@@ -444,11 +443,11 @@ export async function undoLastAction(
 
 /**
  * Writes new options the hub's new-options run returned (#0007) with `preside update`'s
- * checks: never on a decided card, only while what the human owns is as the run read it
- * (`read`: a note added since, an undo, a decision refuses it, update's feedback guard), only
- * while the card still waits for new options with the options the run saw, and only if the
- * result passes the card checks. `raw` is the new frontmatter and `body` the new body. A
- * refusal is a UserError whose message says why, in words for the human.
+ * checks: never on a decided card, only while the card is exactly as the run read it
+ * (`read`: any write since refuses it, like update's revision check, so an agent's or Sync's
+ * edit made during the run is never reverted), and only if the result passes the card checks.
+ * `raw` is the new frontmatter and `body` the new body. A refusal is a UserError whose message
+ * says why, in words for the human.
  */
 export async function rewriteCard(
   project: Project,
@@ -461,11 +460,8 @@ export async function rewriteCard(
     if (card.frontmatter.status === "resolved") {
       throw conflict("you decided the card meanwhile");
     }
-    if (
-      humanChanges(card.frontmatter, read.frontmatter).length > 0 ||
-      card.frontmatter.needs_new_options !== true ||
-      !deepEqual(card.frontmatter.options, read.frontmatter.options)
-    ) {
+    // Any write since the run read the card: a note, an undo, an agent's update, Sync.
+    if (card.revision !== read.revision) {
       throw conflict("the card changed while the agent was writing them");
     }
     const original = await readFile(card.path, "utf8");

@@ -228,8 +228,8 @@ and the tooltip says "port 4747 in use by another program"). If a Node upgrade m
    marked "Sending when Undo closes" until then, so an Undo takes it back before the agent
    ever sees it. The agent reads the project, researches, and answers with new options, which
    president writes to the card with the same checks as `preside update` (nothing is written
-   if you changed the card meanwhile or the options don't pass the checks; the page says why
-   and offers **Try again**). The card then says "New options, written from your note at
+   if the card changed meanwhile, by you, an agent or Sync, or the options don't pass the
+   checks; the page says why and offers **Try again**). The card then says "New options, written from your note at
    21:00", with the new pick hidden like any other until you press `r`, also in the
    conversation. The card stays in `preside pending` for the project's working agent, who
    reads your note and options it didn't write. The same card open in another tab while the

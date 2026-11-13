@@ -34,7 +34,11 @@ import type {
 import { parseCardFileName } from "../../core/card-file.ts";
 import { newOptionsFailure } from "../../core/new-options.ts";
 import type { RawFrontmatter } from "../../core/schema.ts";
-import { replaceOptionSections } from "../../core/sections.ts";
+import {
+  demoteSectionHeadings,
+  replaceOptionSections,
+  splitSections,
+} from "../../core/sections.ts";
 import { findCard, isIgnoredFile, type LoadedCard, rewriteCard } from "../cards.ts";
 import { UserError } from "../errors.ts";
 import { isNotFound, KeyedMutex } from "../fs-utils.ts";
@@ -46,6 +50,7 @@ import {
   lastNeither,
   newOptionsRequest,
   newOptionsSchema,
+  optionCount,
   optionsHash,
   pickHash,
   pickLine,
@@ -526,20 +531,21 @@ export class ChatService {
    * Undoes a card action (`undo`, given the check to pass to undoLastAction) one after the
    * other with starting runs: a "neither" whose run already started is refused (20261112dfik
    * `refuse-undo`), and one undone in time loses its "to start" record, so no run ever starts
-   * for it.
+   * for it. Only the record for the note being undone counts: one left for another note
+   * (a stale one, or an earlier note's when recording this one failed) never refuses it.
    */
   async undoing<T>(
     project: Project,
     id: string,
-    undo: (check: (action: CardActionType) => void) => Promise<T>,
+    undo: (check: (action: CardActionType, card: LoadedCard) => void) => Promise<T>,
   ): Promise<T> {
     const key = { project: project.name, id };
     return this.#runLock.run(keyName(key), async () => {
-      const record = (await this.store.entry(key))?.newOptions;
-      let neither = false;
-      const result = await undo((action) => {
+      const stored = (await this.store.entry(key))?.newOptions;
+      let record: NewOptionsRecord | undefined;
+      const result = await undo((action, card) => {
         if (action !== "neither") return;
-        neither = true;
+        record = stored && stored.note === lastNeither(card)?.at ? stored : undefined;
         if (record && record.state !== "to-start") {
           throw new UserError("the run for this note already started from another tab", {
             status: 409,
@@ -547,12 +553,8 @@ export class ChatService {
           });
         }
       });
-      if (neither && record) {
-        await this.store.updateEntry(key, (e) => {
-          if (!e) return e;
-          const { newOptions: _, ...rest } = e;
-          return rest;
-        });
+      if (record) {
+        await this.#clearRecord(key, record.note);
         this.#changed(key);
       }
       return result;
@@ -561,15 +563,21 @@ export class ChatService {
 
   /**
    * Starts the run that writes new options from the note recorded at `input.note`: when the
-   * page's Undo notice closes, on Start now in another page (20261112dfik), or on Try again
-   * after a failed run (202611111gpm). Starts at most one run per note, and none for a note
-   * undone or no longer the one the card waits on; `started: false` then. The run itself goes
-   * on after this returns.
+   * page's Undo notice closes (`from: "undo-closed"`), on Start now in another page
+   * (20261112dfik), or on Try again after a failed run (202611111gpm). Starts at most one run
+   * per note, and none for a note undone or no longer the one the card waits on; `started:
+   * false` then. The notice closing starts only a run still "to start", never a retry: there
+   * is no automatic retry. The run itself goes on after this returns.
    */
   async startNewOptions(
     project: Project,
     id: string,
-    input: { note: string; revealed?: boolean | undefined; revision?: string | undefined },
+    input: {
+      note: string;
+      from?: "undo-closed" | undefined;
+      revealed?: boolean | undefined;
+      revision?: string | undefined;
+    },
   ): Promise<StartNewOptionsResponse> {
     const card = await this.#card(project, id);
     const key = { project: project.name, id: card.id };
@@ -582,6 +590,7 @@ export class ChatService {
         !record ||
         record.note !== input.note ||
         record.state === "written" ||
+        (input.from === "undo-closed" && record.state !== "to-start") ||
         // Going on now. A "started" record without a run is one president was shut down
         // during: it can be tried again.
         this.#newOptions.has(k) ||
@@ -684,8 +693,9 @@ export class ChatService {
         } else {
           message = answer.data.message.trim();
           try {
+            const content = newCardContent(card, answer.data);
             written = await this.#writeCard(project, () =>
-              rewriteCard(project, key.id, card, newCardContent(card, answer.data)),
+              rewriteCard(project, key.id, card, content),
             );
           } catch (error) {
             if (!(error instanceof UserError)) throw error;
@@ -1035,11 +1045,36 @@ async function cardIds(project: Project): Promise<Set<string> | "unknown" | unde
 /**
  * The card with the run's options (#0007): `options`, their `## Option` sections and
  * `recommendation` replaced, `needs_new_options` removed; everything else as the run read it.
+ * The answer is model-written, so it must stay inside its sections: ids, titles and summaries
+ * on one line, the option count the card's kind takes, and `details` that neither end their
+ * section (its level-2 headings become level 3) nor run past it (an unclosed code fence). The
+ * new body is read back to check that: exactly the answer's sections, and the context and the
+ * appendix (`## Sources`, notes) as they were. Otherwise a UserError says what was wrong.
  */
 function newCardContent(
   card: LoadedCard,
   answer: z.output<typeof NewOptionsAnswer>,
 ): { raw: RawFrontmatter; body: string } {
+  const refuse = (problem: string): never => {
+    throw new UserError(`the agent's options didn't pass the card checks (${problem})`, {
+      status: 422,
+      code: "invalid_card",
+    });
+  };
+  const { min, max } = optionCount(card);
+  const count = answer.options.length;
+  if (count < min || count > max) {
+    const takes = min === max ? `${min}` : `${min} to ${max}`;
+    refuse(`it wrote ${count} option${count === 1 ? "" : "s"}; this card takes ${takes}`);
+  }
+  const multiline = (text: string) => /[\r\n]/.test(text);
+  for (const option of answer.options) {
+    if (multiline(option.id) || multiline(option.title) || multiline(option.summary)) {
+      refuse("an option's id, title or summary has a line break in it");
+    }
+  }
+  if (multiline(answer.recommendation.option)) refuse("the pick has a line break in it");
+
   const raw: RawFrontmatter = {
     ...card.raw,
     options: answer.options.map(({ id, title, summary, pros, cons }) => ({
@@ -1052,13 +1087,31 @@ function newCardContent(
     recommendation: answer.recommendation,
   };
   delete raw.needs_new_options;
-  const body = replaceOptionSections(
-    card.body,
-    answer.options.map((option) => ({
-      id: option.id,
-      title: option.title,
-      markdown: option.details,
-    })),
-  );
+  const sections = answer.options.map((option) => ({
+    id: option.id,
+    title: option.title.trim(),
+    markdown: demoteSectionHeadings(option.details.replace(/\r\n/g, "\n")).trim(),
+  }));
+  const body = replaceOptionSections(card.body, sections);
+
+  // Read back: exactly the answer's sections, and the rest of the body as it was.
+  const before = splitSections(card.body);
+  const after = splitSections(body);
+  const same =
+    after.context === before.context &&
+    after.appendix === before.appendix &&
+    after.options.length === sections.length &&
+    after.options.every((written, i) => {
+      const wanted = sections[i];
+      return (
+        wanted !== undefined &&
+        written.id === wanted.id &&
+        (written.heading ?? "") === wanted.title &&
+        written.markdown === wanted.markdown
+      );
+    });
+  if (!same) {
+    refuse("an option's text runs outside its section, for example an unclosed code fence");
+  }
   return { raw, body };
 }

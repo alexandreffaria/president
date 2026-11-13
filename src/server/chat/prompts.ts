@@ -140,7 +140,7 @@ export function optionsHash(frontmatter: Pick<Frontmatter, "options" | "recommen
 }
 
 /** How many options a card of this kind takes (the card checks, schema.ts; keys 1 to 9). */
-function optionCount(card: Pick<LoadedCard, "frontmatter">): { min: number; max: number } {
+export function optionCount(card: Pick<LoadedCard, "frontmatter">): { min: number; max: number } {
   switch (card.frontmatter.kind) {
     case "ab":
       return { min: 2, max: 2 };
@@ -178,14 +178,14 @@ export function newOptionsSchema(card: Pick<LoadedCard, "frontmatter">): object 
               pattern: OPTION_ID_PATTERN.source,
               description: `A short lowercase slug such as "on-device"; not "${CUSTOM_CHOICE}".`,
             },
-            title: text,
-            summary: { ...text, description: "One sentence." },
+            title: { ...text, description: "One line." },
+            summary: { ...text, description: "One sentence, on one line." },
             pros: { type: "array", items: text },
             cons: { type: "array", items: text },
             details: {
               ...text,
               description:
-                "Markdown for the option's own section on the card: what choosing it looks like in practice (an example, code, a sketch).",
+                "Markdown for the option's own section on the card: what choosing it looks like in practice (an example, code, a sketch). Use ### or smaller headings, and close every code fence.",
             },
           },
           required: ["id", "title", "summary", "pros", "cons", "details"],

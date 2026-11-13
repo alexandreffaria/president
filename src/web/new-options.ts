@@ -30,12 +30,13 @@ export function releaseUndo(project: string, id: string, note: string): void {
 }
 
 /**
- * The notice closed without Undo: the run starts now. Nothing to say if it had already
- * started from another tab or the note is gone; a failure shows in the conversation.
+ * The notice closed without Undo: the run starts now, if it is still "to start". Nothing to
+ * say if it had already started from another tab (or failed there: Try again is the human's
+ * call, never an automatic retry) or the note is gone; a failure shows in the conversation.
  */
 export function startWhenUndoCloses(project: string, id: string, note: string): void {
   releaseUndo(project, id, note);
-  api.startNewOptions(project, id, { note }).catch(() => {
+  api.startNewOptions(project, id, { note, from: "undo-closed" }).catch(() => {
     // The hub is unreachable: the record still says "to start", so the card offers Start now.
   });
 }

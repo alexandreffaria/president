@@ -1604,6 +1604,32 @@ describe("Neither: new options right away (#0007, 202611111gpm, 20261112160s, 20
     await until(() => text().includes("(The options are now on the card.)"), "the run's reply");
   });
 
+  it("the notice closing never retries a run that failed from another tab (no automatic retry)", async () => {
+    await script([
+      { lines: [{ type: "result", subtype: "error_max_budget_usd", is_error: true }] },
+      { structured: ANSWER },
+    ]);
+    await askForNewOptions();
+    // Another tab presses Start now, and its run fails fast.
+    const note = (await chatCopy()).newOptions?.note as string;
+    const started = await fetch("/api/chats/demo/0002/new-options", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ note }),
+    });
+    expect(await started.json()).toEqual({ started: true });
+    for (let i = 0; (await chatCopy()).newOptions?.state !== "failed"; i++) {
+      if (i > 400) throw new Error("the run never failed");
+      await pause();
+    }
+    // This tab's notice closes: the failed run stays failed, with Try again for the human.
+    dismissToast();
+    for (let i = 0; i < 10; i++) await pause();
+    await Promise.allSettled([...inFlight]);
+    expect(await calls()).toHaveLength(1);
+    expect((await chatCopy()).newOptions?.state).toBe("failed");
+  });
+
   it("holds a message sent while the Neither message waits, and sends it after", async () => {
     await script([{ structured: ANSWER }, {}]);
     await askForNewOptions();

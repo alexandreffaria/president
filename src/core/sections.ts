@@ -161,3 +161,27 @@ function sectionEnd(lines: string[], headingIndex: number): number {
   }
   return lines.length;
 }
+
+/**
+ * `markdown` with its level-2 headings outside code fences made level 3, so that, written as
+ * an option's section, it can't end that section (a new-options run's `details`, #0007).
+ */
+export function demoteSectionHeadings(markdown: string): string {
+  let fence: string | null = null;
+  return markdown
+    .split(/\r?\n/)
+    .map((line) => {
+      if (fence === null) {
+        const open = FENCE_OPEN.exec(line)?.[1];
+        if (open) {
+          fence = open;
+          return line;
+        }
+        return H2.test(line) ? line.replace(/^( {0,3})##/, "$1###") : line;
+      }
+      const close = FENCE_CLOSE.exec(line)?.[1];
+      if (close && close[0] === fence[0] && close.length >= fence.length) fence = null;
+      return line;
+    })
+    .join("\n");
+}
