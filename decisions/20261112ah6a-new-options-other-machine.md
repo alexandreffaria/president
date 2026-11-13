@@ -42,6 +42,7 @@ options:
 resolution:
   choice: wait
   resolved_at: 2026-11-12T21:54:51Z
+applied_at: 2026-11-13T19:32:59Z
 ---
 
 ## Context
