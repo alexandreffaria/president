@@ -67,7 +67,7 @@ export interface CardListResponse {
 
 /**
  * GET /api/queue-count: how many cards are in the Queue across every project (the same cards
- * the Queue lists under "All"), for the Windows tray icon (20261112vzn8).
+ * the Queue lists under "All"), for the tray icon on Windows and Linux (20261112vzn8).
  */
 export interface QueueCountResponse {
   count: number;

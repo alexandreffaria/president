@@ -82,6 +82,7 @@ async function fakeWindows(options: { csc?: boolean; env?: NodeJS.ProcessEnv } =
       cwds.push(cwd);
     },
     hubAnswers: async () => false,
+    healthPid: async () => undefined,
     sleep: async () => {},
   };
   const dir = join(localAppData, "president");
@@ -102,21 +103,25 @@ async function fakeWindows(options: { csc?: boolean; env?: NodeJS.ProcessEnv } =
 
 describe("preside tray", () => {
   it.each(["install", "uninstall", "status"])(
-    "refuses `%s` outside Windows, saying it is Windows only",
+    "refuses `%s` outside Windows and Linux, saying where it works",
     async (sub) => {
       const { deps, calls } = await fakeWindows();
       const { io, err } = output();
-      expect(await tray([sub], io, { ...deps, platform: "linux" })).toBe(1);
-      expect(err.join("\n")).toMatch(/Windows only/);
+      expect(await tray([sub], io, { ...deps, platform: "darwin" })).toBe(1);
+      expect(err.join("\n")).toMatch(/for Windows and Linux only/);
       expect(calls).toEqual([]);
     },
   );
 
-  it.skipIf(process.platform === "win32")("refuses on this system from the real CLI", async () => {
-    const { io, err } = output();
-    expect(await run(["tray", "install"], io)).toBe(1);
-    expect(err.join("\n")).toMatch(/Windows only/);
-  });
+  // Only where it refuses: on Windows and Linux the real CLI would install for real.
+  it.runIf(process.platform !== "win32" && process.platform !== "linux")(
+    "refuses on this system from the real CLI",
+    async () => {
+      const { io, err } = output();
+      expect(await run(["tray", "install"], io)).toBe(1);
+      expect(err.join("\n")).toMatch(/for Windows and Linux only/);
+    },
+  );
 
   it("explains its usage for a missing or unknown subcommand", async () => {
     const { deps } = await fakeWindows();

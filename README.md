@@ -145,6 +145,43 @@ and the tooltip says "port 4747 in use by another program"). If a Node upgrade m
 - **Remove:** `preside tray uninstall` stops it and its hub, takes it out of Start with Windows
   and deletes its files.
 
+### On Linux: keep the hub running, with an icon
+
+On Linux the same command runs the hub in the background with systemd, starts it at login and
+again if it crashes, and puts an icon in your tray: waybar's `tray` module, KDE Plasma, or GNOME
+with the AppIndicator extension (any StatusNotifierItem tray). The icon shows the same count as
+on Windows, and its tooltip names the build being served ("Serving main @ 1a2b3c4"). Click it to
+open president in your browser; its menu has **Open president** and **Quit** (which stops the
+hub; it starts again at the next login). Without a tray the hub runs all the same.
+
+From the president checkout, after `npm install` and `npm run build`:
+
+```sh
+node bin/preside.js tray install     # or `preside tray install` if preside is on your PATH
+```
+
+This writes two systemd user units into `~/.config/systemd/user/` (`$XDG_CONFIG_HOME`):
+`president.service` runs the hub (`node <checkout>/src/server/main.ts`, with the node and the
+`PATH` you ran `install` with, so it finds `claude` and `git`), and `president-tray.service` runs
+the icon, which starts and stops with it. Don't also run `npm start`: both want port 4747 (the
+icon then turns grey and says "port 4747 in use by another program").
+
+- **Serve another build:** run `install` from another checkout, a pull request's worktree for
+  example (`node <worktree>/bin/preside.js tray install`); the hub restarts from there. Run it
+  from your main checkout to put main back. `install` refuses a checkout without `dist/web`
+  (run `npm run build` there first) and warns when `dist/web` looks older than the checkout's
+  sources or its last commit.
+- **Status:** `preside tray status` shows the checkout, branch and short sha being served,
+  whether the hub and the icon run, and says when the checkout has moved on or is gone.
+- **Logs:** `journalctl --user -u president.service -u president-tray.service`.
+- **Opening the browser** uses `xdg-open`. A systemd service only knows your display if your
+  session exports it to systemd (KDE, GNOME and uwsm do); otherwise the icon finds your Wayland
+  or X11 socket itself. If clicking does nothing, add
+  `exec-once = dbus-update-activation-environment --systemd --all` to your Hyprland config.
+- **Update:** `git pull && npm install && npm run build`, then `preside tray install` again (it
+  restarts the hub and the icon).
+- **Remove:** `preside tray uninstall` stops both, takes them out of login and deletes the units.
+
 ## Usage
 
 1. Register a project (or let an agent do it):
@@ -316,9 +353,12 @@ preside demo [path] [--name <name>]             copy the sample project and regi
 preside serve                                   start the hub (same as npm start)
 preside tray install [--no-autostart] [--no-start]
                                                 Windows: build and start the tray icon that runs
-                                                the hub (see "On Windows" above)
-preside tray uninstall                          Windows: stop and remove it
-preside tray status                             Windows: is it installed and running, where's the log
+                                                the hub (see "On Windows" above). Linux: install
+                                                and start systemd user units for the hub and its
+                                                icon, from this checkout (see "On Linux" above)
+preside tray uninstall                          stop and remove them
+preside tray status                             is it installed and running, the build served
+                                                (Linux), where's the log
 ```
 
 A project is named after its folder unless `--name` says otherwise; when that name is taken, `add`
@@ -353,6 +393,7 @@ src/core/     card format: zod schemas, parser/writer, state transitions, queue 
 src/server/   Hono API, registry, file access, watcher + live events (WebSocket), Sync
 src/cli/      the preside command
 src/web/      React UI
+tray/         the tray icons: windows/ (C#, compiled on install), linux/ (a StatusNotifierItem)
 skills/       the Claude Code skill for agents
 examples/     a demo project with sample cards (`preside demo` copies it)
 test/         vitest suites; test/fixtures/ has the tests' own copy of the demo cards

@@ -1,5 +1,6 @@
 /**
- * `preside tray`: the Windows notification-area helper (20261112vzn8, option `count`).
+ * `preside tray`: the Windows notification-area helper (20261112vzn8, option `count`). On
+ * Linux the same command installs systemd user units instead (tray-linux.ts).
  *
  * The helper is tray/windows/PresideTray.cs, compiled here, on the user's machine, by the C#
  * compiler that ships with Windows (.NET Framework 4's csc.exe), into
@@ -57,13 +58,16 @@ export interface TrayDeps {
   repoRoot: string;
   /**
    * Runs a program, by its absolute path, to the end, in `cwd` (the helper's folder, never
-   * the caller's: on Windows a program looks for what it starts in its cwd first).
+   * the caller's: on Windows a program looks for what it starts in its cwd first). On Linux,
+   * systemctl and git by name, in the checkout.
    */
   run(file: string, args: string[], cwd: string): Promise<RunResult>;
   /** Starts a program that outlives this one, in `cwd` (as for `run`). */
   launch(file: string, args: string[], cwd: string): void;
   /** Whether a hub answers /api/health on that port. */
   hubAnswers(port: number): Promise<boolean>;
+  /** The pid a hub on that port gives in /api/health, if one answers (Linux). */
+  healthPid(port: number): Promise<number | undefined>;
   /** Waits between tries (a file still locked by an exe that is exiting). */
   sleep(ms: number): Promise<void>;
 }
@@ -99,6 +103,17 @@ export function systemDeps(): TrayDeps {
         return false;
       }
     },
+    healthPid: async (port) => {
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/api/health`, {
+          signal: AbortSignal.timeout(2000),
+        });
+        const pid = response.ok ? ((await response.json()) as { pid?: unknown }).pid : undefined;
+        return typeof pid === "number" ? pid : undefined;
+      } catch {
+        return undefined;
+      }
+    },
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   };
 }
@@ -115,9 +130,12 @@ export async function tray(
     out.error(`preside: ${sub === undefined ? "" : `unknown tray command "${sub}"; `}${USAGE}`);
     return 2;
   }
+  if (deps.platform === "linux") {
+    return (await import("./tray-linux.ts")).linuxTray(sub, rest, out, deps);
+  }
   if (deps.platform !== "win32") {
     out.error(
-      "preside: `preside tray` is Windows only: it puts president in the Windows notification area. Elsewhere, run the hub with `preside serve` (or your system's service manager).",
+      "preside: `preside tray` is for Windows and Linux only: it puts president in the Windows notification area, or in a Linux tray with systemd. Elsewhere, run the hub with `preside serve` (or your system's service manager).",
     );
     return 1;
   }

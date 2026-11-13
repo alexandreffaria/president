@@ -6,6 +6,14 @@
     "moduleResolution": "nodenext",
     "types": ["node"]
   },
-  "include": ["src/core", "src/server", "src/cli", "test", "vite.config.ts", "vitest.config.ts"],
+  "include": [
+    "src/core",
+    "src/server",
+    "src/cli",
+    "tray/linux",
+    "test",
+    "vite.config.ts",
+    "vitest.config.ts"
+  ],
   "exclude": ["test/web"]
 }
