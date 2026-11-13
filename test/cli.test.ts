@@ -1409,7 +1409,7 @@ describe("preside CLI", () => {
     const all = await cli("validate", web);
     expect(all.code).toBe(1);
     expect(all.out).toMatch(
-      /^ok {6}0001-web-copy\.md\n\n1 valid, 1 broken in .*\/web\/decisions\./,
+      /^ok {6}0001-web-copy\.md\n\n1 valid, 1 broken in .*[\\/]web[\\/]decisions\./,
     );
     const pending = await cli("pending", web);
     expect(pending.out).toMatch(/Broken cards .*\n {2}0002-broken\.md: /);
