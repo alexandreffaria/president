@@ -178,7 +178,14 @@ type Output = { log: (line: string) => void; error: (line: string) => void };
  * The startup-error prefix is `president:` because this is the product's server, shared by
  * `npm start` and `preside serve`.
  */
-export async function runServer(out: Output = console): Promise<number> {
+export async function runServer(
+  out: Output = console,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<number> {
+  // Read once and taken out, before anything starts a child: the flag is only between the
+  // tray helper and this hub. Whatever the hub runs with process.env (a card chat's claude,
+  // git) must not inherit it, or a hub one of them starts with a closed stdin would stop at once.
+  const stopWithStdin = takeStopOnStdinEnd(env);
   let hub: RunningHub;
   try {
     hub = await startHub();
@@ -190,9 +197,37 @@ export async function runServer(out: Output = console): Promise<number> {
   await new Promise<void>((resolve) => {
     process.once("SIGINT", () => resolve());
     process.once("SIGTERM", () => resolve());
+    if (stopWithStdin) stopOnStdinEnd(resolve);
   });
   await hub.close();
   return 0;
+}
+
+/**
+ * Set by the Windows tray helper (tray/windows/PresideTray.cs), which holds the hub's stdin:
+ * the hub shuts down cleanly when that pipe closes. Windows has no SIGTERM to send a hidden
+ * child, and the pipe also closes when the helper itself dies, so the hub never outlives it.
+ */
+export const STOP_ON_STDIN_END = "PRESIDENT_STOP_ON_STDIN_END";
+
+/**
+ * Whether PRESIDENT_STOP_ON_STDIN_END=1 is set (only that exact value), removing it from
+ * `env` and from process.env so that nothing the hub starts inherits it.
+ */
+export function takeStopOnStdinEnd(env: NodeJS.ProcessEnv = process.env): boolean {
+  const on = env[STOP_ON_STDIN_END] === "1";
+  delete env[STOP_ON_STDIN_END];
+  delete process.env[STOP_ON_STDIN_END];
+  return on;
+}
+
+function stopOnStdinEnd(stop: () => void): void {
+  const stdin = process.stdin;
+  stdin.once("end", stop);
+  stdin.once("close", stop);
+  // A broken pipe (the helper was killed) is an end too, not a crash.
+  stdin.once("error", stop);
+  stdin.resume();
 }
 
 function startupError(error: unknown): string {

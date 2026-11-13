@@ -4,7 +4,7 @@
  */
 import { EventEmitter } from "node:events";
 import { stat } from "node:fs/promises";
-import { basename, dirname } from "node:path";
+import { basename, dirname, normalize } from "node:path";
 import { type FSWatcher, watch } from "chokidar";
 import type { HubEvent } from "../core/api.ts";
 import { isIgnoredFile } from "./cards.ts";
@@ -143,7 +143,8 @@ export class HubWatcher {
   }
 
   /** True for paths whose changes don't matter (anything but registry entries, decisions/ and cards). */
-  ignores(path: string): boolean {
+  ignores(chokidarPath: string): boolean {
+    const path = nativePath(chokidarPath);
     if (path === this.#registry.dir || this.#dirs.has(path)) return false;
     const parent = dirname(path);
     // In the registry folder only the projects' files matter (not temp files).
@@ -173,8 +174,9 @@ export class HubWatcher {
 
   /** A watched decisions/ that is deleted or moved away raises a raw `rename` naming itself. */
   #onRaw(event: string, path: string, details: unknown): void {
-    const watched = (details as { watchedPath?: unknown } | undefined)?.watchedPath;
-    if (event !== "rename" || typeof watched !== "string") return;
+    const raw = (details as { watchedPath?: unknown } | undefined)?.watchedPath;
+    if (event !== "rename" || typeof raw !== "string") return;
+    const watched = nativePath(raw);
     if (path === watched || path === basename(watched)) this.#wentAway(watched);
   }
 
@@ -225,6 +227,14 @@ export class HubWatcher {
     // All at once, after every look: chokidar's ready event counts only the adds made before it.
     if (there.length > 0) this.#watcher.add(there);
   }
+}
+
+/**
+ * A path as president spells it. On Windows chokidar gives `ignored` and raw events its own
+ * spelling, with forward slashes (C:/Users/...), though its other events use backslashes.
+ */
+function nativePath(path: string): string {
+  return process.platform === "win32" ? normalize(path) : path;
 }
 
 /** What `#seen` holds for a folder that went: no identity equals it. */

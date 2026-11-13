@@ -65,7 +65,26 @@ export interface CardListResponse {
   projects: ProjectDto[];
 }
 
+/**
+ * GET /api/queue-count: how many cards are in the Queue across every project (the same cards
+ * the Queue lists under "All"), for the Windows tray icon (20261112vzn8).
+ */
+export interface QueueCountResponse {
+  count: number;
+}
+
 export type CardResponse = { ok: true; card: CardDetailDto } | { ok: false; broken: BrokenCardDto };
+
+/**
+ * `POST /api/cards/:project/:id/actions`: the card as written, and when the action saved a
+ * conversation summary or closed the conversation, whether it is still unsummarized after it
+ * (a message came after the summary was written).
+ */
+export interface CardActionResponse {
+  ok: true;
+  card: CardDetailDto;
+  unsummarized?: boolean;
+}
 
 export interface ApiError {
   error: string;
@@ -124,8 +143,11 @@ export interface ChatDto {
    * starts from the summaries." (#0018). True otherwise, also when there is no conversation.
    */
   remembers: boolean;
-  /** A run of the card's session is going on now (a reply, a summary, new options). */
-  running: boolean;
+  /**
+   * The run of the card's session going on now: a reply, a summary, new options (#0007; also
+   * while that run waits for a reply to end), or none (false).
+   */
+  running: false | "reply" | "summary" | "options";
   /**
    * The run that writes new options from the card's latest "neither" note (#0007,
    * 20261112160s, 20261112dfik), while it concerns the card as it is: absent when there is
@@ -158,6 +180,20 @@ export interface StartNewOptionsResponse {
   /** False when it had already started from another page, or the note is gone (undone). */
   started: boolean;
 }
+
+/** `POST /api/chats/:project/:id/close`: the conversation now, and what undoes the close. */
+export interface ChatCloseResponse {
+  chat: ChatDto;
+  /** Sent back to `POST /api/chats/:project/:id/reopen` by the notice's Undo. */
+  closed: string;
+}
+
+/**
+ * A request from one of the panel's buttons instead of typed text: "teach" is Teach me (#0005,
+ * 20261111fauj), "research" is More info.
+ */
+export const CHAT_ASKS = ["teach", "research"] as const;
+export type ChatAsk = (typeof CHAT_ASKS)[number];
 
 /**
  * The lines of `POST /api/chats/:project/:id/messages` (newline-delimited JSON), in order:

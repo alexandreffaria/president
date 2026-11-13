@@ -33,26 +33,25 @@ PATH by linking the repo's script (no build needed; Node 24 runs the TypeScript 
 
 ```sh
 mkdir -p ~/.local/bin
-ln -s "$PWD/bin/preside.js" ~/.local/bin/preside       # make sure ~/.local/bin is on PATH
-ln -s "$PWD/bin/president.js" ~/.local/bin/president   # the old name, an alias for now
+ln -s "$PWD/bin/preside.js" ~/.local/bin/preside   # make sure ~/.local/bin is on PATH
 preside help
 ```
 
-(`npm link` works too if your npm prefix is writable; it links both names.)
+(`npm link` works too if your npm prefix is writable.)
 
-The command used to be called `president`. If you installed it under that name, your link
-still works (it is now an alias, until it is removed in a later release), but add the new one:
-run the `ln -s "$PWD/bin/preside.js" ~/.local/bin/preside` line above from this repo. Everything
-president prints and every doc now says `preside`.
+The command used to be called `president`, and that name no longer works. If you installed it
+under the old name, run the `ln -s` line above from this repo and remove the old link:
+`rm ~/.local/bin/president`. If you used `npm link`, run it again (or delete `president` from
+`$(npm prefix -g)/bin`).
 
 **Use `preside`, not `npx preside`, outside this repo.** When a command isn't installed
 locally, `npx` looks for an npm package with that name. The `preside` package on npm is a
 placeholder of ours with no command, so `npx preside` only fails with
 `could not determine executable to run`; it can't run someone else's code, but it doesn't run
-president either. The old name is worse: an unrelated package called `president` exists on npm,
-and if a future release of it adds a command, `npx president` would download and run it,
-without asking when there is no terminal (as for an agent). Inside this repo `npx preside` runs
-the local copy.
+president either. Never type `npx president`: an unrelated package called `president` exists
+on npm, and if a future release of it adds a command, `npx president` would download and run
+it, without asking when there is no terminal (as for an agent). Inside this repo `npx preside`
+runs the local copy.
 
 ### Install the agent skill
 
@@ -112,6 +111,40 @@ symlinks also needs Developer Mode or admin rights).
 
 Because these are symlinks, pulling this repo updates the skill everywhere it's linked.
 
+### On Windows: keep the hub running, with an icon
+
+On Windows, president can run in the background from the notification area (the tray, at the
+right of the taskbar), start with Windows, and start the hub again if it crashes. Its icon shows
+how many cards are in your Queue (`9+` above nine; the tooltip says "president: 3 cards
+waiting" or "nothing waiting"), and turns grey while the hub isn't running. Right-click it for
+**Open president** (double-click does the same), **Restart hub**, **Start with Windows** and
+**Quit**. It never pops up notifications.
+
+From the president checkout, after `npm install` and `npm run build`:
+
+```powershell
+node bin/preside.js tray install     # or `preside tray install` if preside is on your PATH
+```
+
+This compiles a small helper on your machine with the C# compiler that comes with Windows
+(.NET Framework 4, nothing is downloaded) into `%LOCALAPPDATA%\president\`, remembers which
+`node.exe` and which checkout run the hub, adds it to Start with Windows and starts it. Don't
+also run `npm start`: both would want port 4747 (when another program has it, the icon is grey
+and the tooltip says "port 4747 in use by another program"). If a Node upgrade moves
+`node.exe`, or you move the checkout, the tooltip and `preside tray status` say so: run
+`preside tray install` again.
+
+- **Show the icon (once, Windows 11).** New tray icons hide behind the `^` arrow. To see the
+  number: Settings > Personalization > Taskbar > Other system tray icons > president: On (or
+  drag the icon out from behind the arrow). Windows doesn't let the helper do it for you.
+- **Logs:** the hub's output is in `%LOCALAPPDATA%\president\hub.log` (at most 1 MB, then it
+  moves to `hub.log.1`).
+- **Update:** `git pull && npm install && npm run build`, then **Restart hub** from the icon's
+  menu. `preside tray status` says if the update changed the helper itself; then run
+  `preside tray install` again.
+- **Remove:** `preside tray uninstall` stops it and its hub, takes it out of Start with Windows
+  and deletes its files.
+
 ## Usage
 
 1. Register a project (or let an agent do it):
@@ -123,7 +156,7 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
    You can also add and remove projects on the **Projects** page.
 
 2. Work with your agent as usual. When it hits a decision for you, it writes
-   `decisions/0007-some-question.md`. The card shows up in the queue right away, no reload needed.
+   `decisions/20261112k7q2-some-question.md`. The card shows up in the queue right away, no reload needed.
 
 3. Go through the **Queue**. On a card:
 
@@ -137,19 +170,31 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
    | `d` | defer for a week: the card leaves the queue and comes back, marked "back from deferral", when the week is over |
    | `D` | defer until another date: tomorrow, next month or a day you pick (also the **Defer until…** button) |
    | `j` / `k` | next / previous card |
-   | `u` | undo the last action on a card: a decision, deferral, "neither", note or reopen (while its notice is shown); an undone note or "neither" comes back in its panel |
+   | `u` | undo the last action on a card: a decision, deferral, "neither", note, saved conversation summary or reopen (while its notice is shown); an undone note, "neither" or summary comes back in its panel or box |
    | `?` | all shortcuts |
 
    Shortcuts never act while you are typing or while the help is open. `Enter` and `Space` on a
-   focused button or link press that control instead. While the Neither or Note panel is open,
-   only `Esc` works (it closes the panel). What you type on a card and haven't sent (a note, a
-   "why", your own answer) is kept until you send it, even if you close the panel or leave the
-   card, and deferring (`d`, `D` or the Defer buttons) is refused while there is any.
+   focused button or link press that control instead. While the Neither or Note panel or the
+   summary box is open, only `Esc` works (it closes the panel). What you type on a card and
+   haven't sent (a note, a "why", your own answer, a message, a summary you are editing) is
+   kept until you send it, even if you close the panel or leave the card, and deferring (`d`,
+   `D` or the Defer buttons) is refused while there is any.
 
    The queue shows cards that are ready first, then the ones that depend on a card you haven't
    decided yet; each group by priority, then oldest first. A deferred card stays under
    **Deferred** until its date, then is back in the queue; a card deferred with no date (before
    this existed, or by hand) is back at once.
+
+   A card an agent withdrew (it no longer matters, the agent says why) leaves the queue for the
+   collapsed **Withdrawn by agents** list, even if it was deferred: its date is ignored while it
+   is withdrawn. Its page shows the agent's reason, and you can still decide it, add a note or
+   reject its options, but not defer it (`d`, `D` and the Defer buttons are gone there). **Back
+   to queue** puts it back (with a "Back in the queue" note, so the agent hears of it); a
+   deferred one goes back under Deferred if its date is still ahead, otherwise straight to the
+   queue, and you can defer it from there. Cards that depend on it stay at the bottom, marked
+   "depends on #0042, withdrawn", until you decide it. Once you decide it, its page keeps the
+   agent's reason in a muted line under the decision: "An agent had withdrawn this card:
+   <reason>".
 
    If an agent changes a card while you have it open, president shows what changed and refuses
    to send anything until you press **I've read it**, so you never decide on text you didn't see.
@@ -167,7 +212,16 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
    `$XDG_STATE_HOME/president/` (by default `~/.local/state/president/`), never in the
    project. When you're done, **Write summary**: the agent drafts a summary, you edit it, and
    what you save is added to the card's history as a conversation summary, which the project's
-   working agent reads like a note. Until then the card reminds you it isn't summarized.
+   working agent reads like a note. Until then the card reminds you it isn't summarized;
+   **Close without summary** in the summary box ends the reminder, drops the draft and adds
+   nothing to the card (Undo on its notice brings them back).
+   **Teach me** asks the agent for a worked example on one realistic scenario from the project
+   (a guess first, then each option walked through it), and **More info** for the two or three
+   facts the decision turns on, each answered briefly and backed by a quote from a primary
+   source, with its link. Deciding a card whose conversation isn't summarized first
+   shows the agent's summary to edit: **Save and decide** adds it and your decision in one
+   write (Undo takes both back), **Decide without summary** decides and closes the conversation
+   as Close without summary does (Undo brings the reminder back), and Esc goes back to the card.
 
    **Ask for new options** (the Neither panel) records your note, then, once its Undo notice
    has closed, sends it to the card's agent as a message in that conversation: "Neither: ...",
@@ -272,6 +326,11 @@ preside update <card-file> <new-version-file>   replace an undecided card with a
                                                 read it
 preside demo [path] [--name <name>]             copy the sample project and register the copy
 preside serve                                   start the hub (same as npm start)
+preside tray install [--no-autostart] [--no-start]
+                                                Windows: build and start the tray icon that runs
+                                                the hub (see "On Windows" above)
+preside tray uninstall                          Windows: stop and remove it
+preside tray status                             Windows: is it installed and running, where's the log
 ```
 
 A project is named after its folder unless `--name` says otherwise; when that name is taken, `add`
@@ -354,6 +413,6 @@ How it fits together:
   `POST /api/sync` passes the same Host and Origin checks as every write. While a project's
   Sync runs, card actions there are refused (409 `syncing`), and a Sync waits for a card
   write already under way.
-- State transitions live in `src/core/actions.ts`, shared by the API and the CLI. The coming
-  per-card chat ("ask", "teach me", "research") plugs in there and in
-  `src/web/components/CardAssistant.tsx`.
+- State transitions live in `src/core/actions.ts`, shared by the API and the CLI. The
+  per-card chat (asking, Teach me, More info, summaries) is `src/server/chat/` and
+  `src/web/components/CardChat.tsx`.

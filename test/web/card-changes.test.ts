@@ -35,6 +35,23 @@ const changed = (from: string, to: string) => {
   return describeChanges(card(original), card(original.replace(from, to)));
 };
 
+describe("describeChanges on a withdrawal (#0014)", () => {
+  const field = (reason: string) =>
+    `status: open\nwithdrawn:\n  at: 2026-11-11T10:00:00Z\n  reason: "${reason}"\n`;
+  it("says an agent withdrew the card and why, changed its reason, or took it back", () => {
+    expect(changed("status: open\n", field("Moot now."))).toEqual([
+      "An agent withdrew it: Moot now.",
+    ]);
+    const withdrawn = original.replace("status: open\n", field("Moot now."));
+    expect(describeChanges(card(withdrawn), card(original))).toEqual([
+      "It is no longer withdrawn.",
+    ]);
+    expect(
+      describeChanges(card(withdrawn), card(original.replace("status: open\n", field("Other.")))),
+    ).toEqual(["The agent's withdrawal changed: Other."]);
+  });
+});
+
 describe("describeChanges", () => {
   it("names priority, tags and dependencies", () => {
     expect(changed("priority: normal", "priority: low")).toEqual([

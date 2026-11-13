@@ -14,8 +14,14 @@ concurrency:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows: president is about to get a Windows tray/autostart helper, so the hub and its
+        # tests must work there too.
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -33,9 +39,52 @@ jobs:
         # are not checked here). A broken card fails CI.
         run: node bin/preside.js validate .
       - name: Test
+        if: runner.os != 'Windows'
         run: npm test
         env:
           # The card writer's property test: 1000 generated cards here, 100 locally.
           FC_RUNS: "1000"
+      - name: Test (Windows)
+        if: runner.os == 'Windows'
+        # Card chat isn't ready for Windows yet: its runner spawns `claude` without resolving
+        # claude.exe / npm's claude.cmd, and its tests put test/fake-claude.mjs on PATH as a
+        # command. Open PRs change those files, so the fix comes after they merge; until then
+        # the chat tests don't run here.
+        run: npx vitest run --exclude test/chat.test.ts --exclude test/web/chat.test.tsx
+        env:
+          FC_RUNS: "1000"
       - name: Build
         run: npm run build
+      - name: Tray helper (Windows)
+        # 20261112vzn8: `preside tray install` compiles tray/windows/PresideTray.cs with the
+        # Windows C# compiler, then the helper's --self-test runs the hub on a free port with
+        # the demo project, reads the count, kills the hub to see it come back, uses Restart
+        # hub, and stops it cleanly. Scratch folders, so nothing of the runner's user is
+        # touched, and --no-autostart leaves its Run key alone. The icon and the menu are
+        # checked by hand. It runs even when a step above failed: it says something else.
+        if: ${{ !cancelled() && runner.os == 'Windows' }}
+        shell: pwsh
+        env:
+          LOCALAPPDATA: ${{ runner.temp }}\tray\local
+          XDG_CONFIG_HOME: ${{ runner.temp }}\tray\config
+          XDG_STATE_HOME: ${{ runner.temp }}\tray\state
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\tray" | Out-Null
+          node bin/preside.js demo "$env:RUNNER_TEMP\tray\demo"
+          if ($LASTEXITCODE -ne 0) { throw 'preside demo failed' }
+          node bin/preside.js tray install --no-autostart --no-start
+          if ($LASTEXITCODE -ne 0) { throw 'preside tray install failed' }
+          $dir = Join-Path $env:LOCALAPPDATA 'president'
+          $out = Join-Path $env:RUNNER_TEMP 'tray\self-test.txt'
+          $test = Start-Process -FilePath (Join-Path $dir 'PresideTray.exe') -ArgumentList '--self-test' `
+            -Wait -PassThru -NoNewWindow -RedirectStandardOutput $out
+          Get-Content $out
+          Get-Content (Join-Path $dir 'self-test.log') -ErrorAction SilentlyContinue | Select-Object -Last 40
+          if ($test.ExitCode -ne 0) { throw "self-test exited with $($test.ExitCode)" }
+          # The demo project has three cards in its Queue.
+          if (-not (Select-String -Path $out -Pattern '^count=3$' -Quiet)) { throw 'expected count=3' }
+          node bin/preside.js tray status
+          node bin/preside.js tray uninstall
+          if ($LASTEXITCODE -ne 0) { throw 'preside tray uninstall failed' }
+          if (Test-Path $dir) { throw "uninstall left $dir behind" }

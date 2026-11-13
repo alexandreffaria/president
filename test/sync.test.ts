@@ -276,21 +276,25 @@ describe("Sync: the checks say not now and change nothing", () => {
     expect(await s.read(s.laptop, "app.js")).toBe("x = wip\n");
   });
 
-  it("refuses when the file both changed is named with only a space (S7-4)", async () => {
-    const s = await gitSandbox();
-    await s.write(s.laptop, " ", "x\n");
-    s.push(s.laptop, "a file named space");
-    s.git(s.desktop, "pull", "--quiet");
-    await desktopPushes(s, { " ": "x = remote\n" });
-    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
-    await s.write(s.laptop, " ", "x = wip\n");
-    const before = snapshot(s);
+  // Windows can't have a file named " " (it drops trailing spaces from names).
+  it.skipIf(process.platform === "win32")(
+    "refuses when the file both changed is named with only a space (S7-4)",
+    async () => {
+      const s = await gitSandbox();
+      await s.write(s.laptop, " ", "x\n");
+      s.push(s.laptop, "a file named space");
+      s.git(s.desktop, "pull", "--quiet");
+      await desktopPushes(s, { " ": "x = remote\n" });
+      await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\n");
+      await s.write(s.laptop, " ", "x = wip\n");
+      const before = snapshot(s);
 
-    const result = await syncRepo(s.laptop, "shop", s.options);
+      const result = await syncRepo(s.laptop, "shop", s.options);
 
-    expect(result.outcome).toBe("not-now");
-    expect(snapshot(s)).toEqual(before);
-  });
+      expect(result.outcome).toBe("not-now");
+      expect(snapshot(s)).toEqual(before);
+    },
+  );
 
   it("refuses when the remote renamed a file the agent has uncommitted edits to (S7-1)", async () => {
     const s = await gitSandbox();
@@ -621,6 +625,8 @@ describe("Sync: the network", () => {
     const server = await listen(
       createTcpServer((socket) => {
         sockets.add(socket); // Accept, then say nothing.
+        // Windows resets the connection of a git that was stopped.
+        socket.on("error", () => {});
       }),
     );
     try {

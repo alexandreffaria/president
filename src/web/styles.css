@@ -566,6 +566,8 @@ input:disabled {
   border-radius: var(--radius-small);
   border: 1px solid var(--border);
   background: var(--surface);
+  /* Agent-written text (a withdrawal's reason, #0014) may hold a long unbroken path. */
+  overflow-wrap: anywhere;
 }
 
 .notice p {
@@ -617,6 +619,12 @@ input:disabled {
 .notice .resolution-note {
   margin-top: 0.4rem;
   font-family: var(--font-reading);
+}
+
+/* 20261112jdyg: under a decision, the reason an agent had withdrawn the card. Agent-written,
+   so it wraps a long path like any notice (.notice's overflow-wrap). */
+.notice .withdrawal-note {
+  margin-top: 0.4rem;
 }
 
 /* Queue */
@@ -706,8 +714,10 @@ input:disabled {
   padding-left: 1.2rem;
 }
 
+/* An agent's withdrawal reason (#0014) can hold a long path or URL: wrap it at narrow widths. */
 .compact-list li {
   margin: 0.3rem 0;
+  overflow-wrap: anywhere;
 }
 
 .broken-list {
@@ -1067,7 +1077,8 @@ ul.broken {
   z-index: 4;
   top: 4.5rem;
   bottom: 6rem;
-  right: max(1.25rem, calc((100vw - var(--page-max) - var(--chat-width) - var(--chat-gap)) / 2));
+  /* % of the viewport without its scrollbar, as the page is centred in (100vw includes it). */
+  right: max(1.25rem, calc((100% - var(--page-max) - var(--chat-width) - var(--chat-gap)) / 2));
   width: var(--chat-width);
   box-shadow: var(--shadow);
 }
@@ -1148,6 +1159,13 @@ ul.broken {
 }
 
 .chat-summary p {
+  margin: 0;
+}
+
+.chat-asks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
   margin: 0;
 }
 

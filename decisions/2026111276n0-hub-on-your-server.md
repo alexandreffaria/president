@@ -78,6 +78,7 @@ options:
 resolution:
   choice: local
   resolved_at: 2026-11-12T17:00:01Z
+applied_at: 2026-11-12T19:36:30Z
 ---
 
 ## Context

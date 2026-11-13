@@ -12,10 +12,11 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { createServer } from "node:net";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CARD_FORMAT_DOC, DEMO_SOURCE, run } from "../src/cli/main.ts";
+import { shellQuote } from "../src/cli/shell.ts";
 import { linkedWorktree } from "../src/cli/worktree.ts";
 import type { CardAction } from "../src/core/actions.ts";
 import { MAX_CARD_BYTES } from "../src/core/card-file.ts";
@@ -165,6 +166,9 @@ describe("preside CLI", () => {
   it("tries the demo on a copy, never on the tracked example", async () => {
     const scratch = await tempDir();
     vi.stubEnv("TMPDIR", scratch);
+    // Windows' temp folder.
+    vi.stubEnv("TEMP", scratch);
+    vi.stubEnv("TMP", scratch);
     const first = await cli("demo");
     expect(first).toMatchObject({ code: 0 });
     const copy = /to (\S+) and registered it as "demo"/.exec(first.out)?.[1] ?? "";
@@ -248,7 +252,19 @@ describe("preside CLI", () => {
 
   // A path through a file or a loop of links is one line, not a stack trace (R10-1, R10-2),
   // and validate says the same, not "does not exist" (R11-3).
+  // Windows says a path through a file doesn't exist (ENOENT, not ENOTDIR); a loop of links
+  // is ELOOP there too (libuv maps ERROR_CANT_RESOLVE_FILENAME to it), so it says the same.
   it("says a path goes through a file or a link loop, in one line", async () => {
+    const windows = process.platform === "win32";
+    const oneLine = (
+      result: { code: number; out: string; err: string },
+      expected: { code: number; out: string; err: string | RegExp },
+    ) => {
+      expect(result).toMatchObject({ code: expected.code, out: expected.out });
+      if (typeof expected.err === "string") expect(result.err).toBe(expected.err);
+      else expect(result.err).toMatch(expected.err);
+      expect(result.err).toMatch(/^preside: [^\n]+$/);
+    };
     const scratch = await tempDir();
     await writeFile(join(scratch, "file.txt"), "notes");
     const throughFile = join(scratch, "file.txt", "x");
@@ -259,23 +275,23 @@ describe("preside CLI", () => {
     const looped = (path: string) =>
       `preside: cannot open ${path}: the path goes through a loop of links`;
     for (const command of ["pending", "add", "validate"]) {
-      expect(await cli(command, throughFile)).toEqual({
+      oneLine(await cli(command, throughFile), {
         code: 1,
         out: "",
-        err: notFolder(throughFile),
+        err: windows ? /does not exist/ : notFolder(throughFile),
       });
-      expect(await cli(command, loop)).toEqual({ code: 1, out: "", err: looped(loop) });
+      oneLine(await cli(command, loop), { code: 1, out: "", err: looped(loop) });
     }
     // decisions -> decisions: add explains it (with or without --create), pending says what it is.
     const dir = join(scratch, "project");
     const decisions = join(dir, "decisions");
     await mkdir(dir);
     await symlink("decisions", decisions);
-    expect(await cli("add", dir)).toEqual({ code: 1, out: "", err: looped(decisions) });
-    expect(await cli("add", dir, "--create")).toEqual({ code: 1, out: "", err: looped(decisions) });
+    oneLine(await cli("add", dir), { code: 1, out: "", err: looped(decisions) });
+    oneLine(await cli("add", dir, "--create"), { code: 1, out: "", err: looped(decisions) });
     expect(await cli("list", "--json")).toMatchObject({ code: 0, out: "[]" });
     const notAFolder = `preside: "${decisions}" is not a folder`;
-    expect(await cli("pending", dir)).toEqual({ code: 1, out: "", err: notAFolder });
+    oneLine(await cli("pending", dir), { code: 1, out: "", err: notAFolder });
   });
 
   it("validates cards and fails on broken ones", async () => {
@@ -312,7 +328,8 @@ describe("preside CLI", () => {
   });
 
   it("points at the card format spec by absolute path", async () => {
-    expect(CARD_FORMAT_DOC).toMatch(/^\/.*\/docs\/card-format\.md$/);
+    expect(isAbsolute(CARD_FORMAT_DOC)).toBe(true);
+    expect(CARD_FORMAT_DOC.endsWith(join("docs", "card-format.md"))).toBe(true);
     expect(await readFile(CARD_FORMAT_DOC, "utf8")).toMatch(/^# Decision card format/);
   });
 
@@ -470,6 +487,25 @@ describe("preside CLI", () => {
       expect(result.err).toMatch(/the human added 1 entry since you read the card/);
       expect(await readFile(tiles, "utf8")).not.toContain("withdrawn:");
     });
+
+    it("after Back to queue, refuses an agent's update made from an earlier read (#0014)", async () => {
+      const demo = await copyDemoProject();
+      const tiles = await writeMapCards(demo);
+      // The agent read the withdrawn card, and rewrites it (keeping its withdrawal)...
+      const read = await readFile(tiles, "utf8");
+      // ...after the human put it back in the queue.
+      await human(demo, "20261111k7q2", { type: "unwithdraw" });
+      expect(await readFile(tiles, "utf8")).not.toContain("withdrawn:");
+      const mine = join(demo, "decisions", ".tiles.new");
+      await writeFile(mine, read.replace("title: Which map tiles?", "title: Which map tiles now?"));
+      const result = await cli("update", tiles, mine);
+      expect(result.code).toBe(1);
+      expect(result.err).toMatch(/the human added 1 entry since you read the card/);
+      expect(await readFile(tiles, "utf8")).not.toContain("withdrawn:");
+      // And pending tells the agent, as a note from the human.
+      expect((await cli("pending", demo)).out).toContain("note ");
+      expect((await cli("pending", demo)).out).toContain("Back in the queue");
+    });
   });
 
   it("prints a conversation summary as chat in pending (#0023)", async () => {
@@ -503,7 +539,7 @@ describe("preside CLI", () => {
 
     const listed = (await cli("pending", demo)).out;
     const token = JSON.parse(pending.out).resolved_not_applied[0].token;
-    expect(listed).toContain(`done: preside applied ${file} --token ${token}`);
+    expect(listed).toContain(`done: preside applied ${shellQuote(file)} --token ${token}`);
     const applied = await runDone(listed, file);
     expect(applied).toMatchObject({ code: 0 });
     const text = await readFile(file, "utf8");
@@ -673,7 +709,9 @@ describe("preside CLI", () => {
       const broken = await cli("update", file, mine);
       expect(broken.code).toBe(1);
       expect(broken.err).toMatch(
-        new RegExp(`^broken  ${mine}\\n\\s+- kind: Invalid option[\\s\\S]*was not changed`),
+        new RegExp(
+          `^broken  ${escapeRegExp(mine)}\\n\\s+- kind: Invalid option[\\s\\S]*was not changed`,
+        ),
       );
       expect(await readFile(file, "utf8")).toBe(before);
       expect((await cli("update", file, file)).err).toMatch(/as a separate file/);
@@ -1204,7 +1242,7 @@ describe("preside CLI", () => {
 
   it("says when the project is not registered", async () => {
     const demo = await copyDemoProject("trips");
-    const note = `preside: note: ${demo} is not registered with the hub, so the human doesn't see its cards. Register it: preside add ${demo}`;
+    const note = `preside: note: ${demo} is not registered with the hub, so the human doesn't see its cards. Register it: preside add ${shellQuote(demo)}`;
     expect(await cli("pending", demo)).toEqual({ code: 0, out: "Nothing pending.", err: note });
     expect((await cli("validate", demo)).err).toBe(note);
     expect((await cli("validate", join(demo, "decisions", "0002-api-errors.md"))).err).toBe(note);
@@ -1275,28 +1313,34 @@ describe("preside CLI", () => {
   });
 
   // git before 2.31 prints an option it doesn't know (--path-format) and gives relative paths.
-  it("gives no worktree warning when git is too old to say", async () => {
-    const main = await realpath(await copyDemoProject("trips"));
-    const wt = join(dirname(main), "wt");
-    await commitDemo(main);
-    await git(main, "worktree", "add", "-q", wt);
-    const realGit = (await promisify(execFile)("sh", ["-c", "command -v git"])).stdout.trim();
-    const bin = await tempDir();
-    await writeFile(
-      join(bin, "git"),
-      `#!/bin/sh\nif [ "$1" = rev-parse ] && [ "$2" = --path-format=absolute ]; then\n  echo "$2"; shift 2; exec '${realGit}' rev-parse "$@"\nfi\nexec '${realGit}' "$@"\n`,
-    );
-    await chmod(join(bin, "git"), 0o755);
-    vi.stubEnv("PATH", `${bin}:${process.env.PATH}`);
-    expect((await promisify(execFile)("git", ["--version"], { cwd: main })).stdout).toMatch(/^git/);
-    // Not registered, so that only the git answer can keep the warning away.
-    const pending = await cli("pending", main);
-    expect(pending.code).toBe(0);
-    expect(pending.err).toMatch(/^preside: note: .* is not registered with the hub/);
-    expect(pending.err).not.toMatch(/warning/);
-    expect(await linkedWorktree(main)).toBeUndefined();
-    expect(await linkedWorktree(wt)).toBeUndefined();
-  });
+  // The old git here is a shell script on PATH, which Windows can't run as a command.
+  it.skipIf(process.platform === "win32")(
+    "gives no worktree warning when git is too old to say",
+    async () => {
+      const main = await realpath(await copyDemoProject("trips"));
+      const wt = join(dirname(main), "wt");
+      await commitDemo(main);
+      await git(main, "worktree", "add", "-q", wt);
+      const realGit = (await promisify(execFile)("sh", ["-c", "command -v git"])).stdout.trim();
+      const bin = await tempDir();
+      await writeFile(
+        join(bin, "git"),
+        `#!/bin/sh\nif [ "$1" = rev-parse ] && [ "$2" = --path-format=absolute ]; then\n  echo "$2"; shift 2; exec '${realGit}' rev-parse "$@"\nfi\nexec '${realGit}' "$@"\n`,
+      );
+      await chmod(join(bin, "git"), 0o755);
+      vi.stubEnv("PATH", `${bin}:${process.env.PATH}`);
+      expect((await promisify(execFile)("git", ["--version"], { cwd: main })).stdout).toMatch(
+        /^git/,
+      );
+      // Not registered, so that only the git answer can keep the warning away.
+      const pending = await cli("pending", main);
+      expect(pending.code).toBe(0);
+      expect(pending.err).toMatch(/^preside: note: .* is not registered with the hub/);
+      expect(pending.err).not.toMatch(/warning/);
+      expect(await linkedWorktree(main)).toBeUndefined();
+      expect(await linkedWorktree(wt)).toBeUndefined();
+    },
+  );
 
   // A bare repository in proj/.git, every checkout a worktree: proj/ itself has no decisions/.
   it("names the registered checkout, never the bare folder, when the repository is bare", async () => {
@@ -1356,7 +1400,7 @@ describe("preside CLI", () => {
     await mkdir(join(web, "decisions"), { recursive: true });
     const card = join(web, "decisions", "0001-web-copy.md");
     await writeFile(card, cardText({ id: '"0001"' }));
-    const unregistered = `preside: note: ${web} is not registered with the hub, so the human doesn't see its cards. Register it: preside add ${web}`;
+    const unregistered = `preside: note: ${web} is not registered with the hub, so the human doesn't see its cards. Register it: preside add ${shellQuote(web)}`;
     const good = await cli("validate", card);
     expect(good).toMatchObject({ code: 0, err: unregistered });
     expect(good.out).toMatch(/^ok {6}0001-web-copy\.md\n/);
@@ -1368,7 +1412,7 @@ describe("preside CLI", () => {
     const all = await cli("validate", web);
     expect(all.code).toBe(1);
     expect(all.out).toMatch(
-      /^ok {6}0001-web-copy\.md\n\n1 valid, 1 broken in .*\/web\/decisions\./,
+      /^ok {6}0001-web-copy\.md\n\n1 valid, 1 broken in .*[\\/]web[\\/]decisions\./,
     );
     const pending = await cli("pending", web);
     expect(pending.out).toMatch(/Broken cards .*\n {2}0002-broken\.md: /);
@@ -1424,7 +1468,10 @@ describe("preside CLI", () => {
     expect(result.err).toMatch(/^preside: .*"bad name" is not a valid project name/);
   });
 
-  it.skipIf(process.getuid?.() === 0)("explains a folder it may not create", async () => {
+  // Windows has no POSIX permissions: chmod can't take away the right to create or look in.
+  const noPermissions = process.getuid?.() === 0 || process.platform === "win32";
+
+  it.skipIf(noPermissions)("explains a folder it may not create", async () => {
     const dir = await tempDir();
     await chmod(dir, 0o500);
     try {
@@ -1439,7 +1486,7 @@ describe("preside CLI", () => {
   });
 
   // Not "has no decisions/ folder" for one it may not look in (R11-4).
-  it.skipIf(process.getuid?.() === 0)("explains a project folder it may not look in", async () => {
+  it.skipIf(noPermissions)("explains a project folder it may not look in", async () => {
     const dir = await tempDir();
     await mkdir(join(dir, "decisions"));
     await chmod(dir, 0o600);
@@ -1536,24 +1583,19 @@ describe("preside CLI", () => {
       timeout: 9000,
     });
     expect(stdout).toMatch(/Usage:/);
+    // The README installs it as a symlink named preside; run it that way too.
+    const link = join(await tempDir(), "preside");
+    await symlink(BIN, link);
+    const viaLink = await promisify(execFile)(process.execPath, [link, "help"], {
+      timeout: 9000,
+    });
+    expect(viaLink.stdout).toMatch(/Usage:/);
   });
 
-  // `president` is the old name, kept as an alias until F2 (20261111dmvt): its script, and a
-  // link made by the README's old install line (`ln -s .../bin/president.js .../president`).
-  it("runs through the president alias, also from an old install's link", {
-    timeout: 10_000,
-  }, async () => {
-    const alias = join(dirname(BIN), "president.js");
-    const link = join(await tempDir(), "president");
-    await symlink(alias, link);
-    for (const entry of [alias, link]) {
-      const { stdout } = await promisify(execFile)(process.execPath, [entry, "help"], {
-        timeout: 9000,
-      });
-      expect(stdout).toMatch(/Usage:\n {2}preside add/);
-    }
+  // The `president` alias was removed in F2 (20261111dmvt): `preside` is the only command.
+  it("installs only the preside command", async () => {
     const pkg = JSON.parse(await readFile(join(dirname(BIN), "..", "package.json"), "utf8"));
-    expect(pkg.bin).toEqual({ preside: "bin/preside.js", president: "bin/president.js" });
+    expect(pkg.bin).toEqual({ preside: "bin/preside.js" });
   });
 
   // Before 24.9 the server's shouldUpgradeCallback is ignored without a word (R6-14), so
@@ -1581,3 +1623,7 @@ describe("preside CLI", () => {
     });
   });
 });
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
+}

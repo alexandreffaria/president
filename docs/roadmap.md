@@ -45,23 +45,67 @@ Then (2026-11-12): C (queue and card UX) is built in the pull request "Queue and
 [Withdrawn cards in the hub](#withdrawn-cards-in-the-hub-0014), which needs D's `withdrawn`
 field (merged in PR #20) and follows in a small pull request. E isn't built.
 
+Then (2026-11-12): 2026111276n0 (should the hub move to an always-on server) is decided:
+`local`, a hub on each machine as today, no server. It builds nothing; E stays as planned,
+run by the hub next to the project on each machine, with its per-machine stores.
+
+Then (2026-11-12): F2 (the `president` alias removed; `preside` is the only command) is built
+in the pull request "Remove the president alias (F2)" (branch `feat/remove-president-alias`),
+without waiting the month: the human waived the wait because nobody else uses the command.
+
+Then (2026-11-12): the Withdrawn section (#0014's and 202611116ff6's hub part) is built in the
+pull request "Withdrawn cards in the hub" (PR #24, branch `feat/withdrawn-section`), so C is fully
+built. E isn't built.
+
+Then (2026-11-12): the two questions PR #24 left in [Needs a card](#needs-a-card) are decided:
+20261112tiuq `hidden` (no Defer on a withdrawn card, as built) and 20261112jdyg `quiet-line` (a
+decided card's page says an agent had withdrawn it), built in the pull request "Apply
+20261112tiuq and 20261112jdyg". [Needs a card](#needs-a-card) is empty again.
+
 Then (2026-11-12): E is being built in a stack of pull requests. Its first, "Card chat (E1a):
-session, per-machine stores and API" (branch `feat/card-chat`), runs the card's session with
+session, per-machine stores and API" (PR #25, branch `feat/card-chat`), runs the card's session with
 #0004's flags and adds the four per-machine stores, the conversation API, summaries (written
 by the session or from the hub's copy) and the `chat` card action. The second, "Card chat
-(E1b): the conversation panel" (branch `feat/card-chat-panel`, stacked on the first), adds the
+(E1b): the conversation panel" (PR #27, branch `feat/card-chat-panel`, after the first merged), adds the
 panel on the card page (#0002, 20261111sblu), the conversation shown again from the hub's copy
 (#0018), the reminder on leaving and Write summary (#0024, 202611111ky9, 20261111paot) and
-saving a summary outside a decision's Undo window (#0020). Teach me, More info, deciding while a
-conversation is open (#0019) and Neither's run (#0007) follow in the next pull requests.
+saving a summary outside a decision's Undo window (#0020). The third, "Card chat (E1c):
+deciding with a conversation open, Teach me and More info" (PR #28, branch
+`feat/card-chat-decide`, after the second merged), adds the "Before deciding" box for Decide
+and "Decide this as my answer" (#0019, 20261111is21) with Undo taking back the summary and the
+decision together, the Teach me (#0005, 20261111fauj) and More info buttons, and "Close without
+summary" in the summary box (202611111ky9), with Undo on its notice. It also builds the two
+cards PR #28 asked for: "Decide without summary" closes the conversation too (20261112hq3k
+`ends`), and More info answers with the facts the decision turns on, each backed by a quote
+(20261112e1ik `findings`). E1c note: Decide never replaces a summary already in the box; an
+agent summary isn't refreshed after more chat — edit or clear it. (Three review rounds of
+PR #28 tried to tell an out-of-date agent draft from one you edited, and each fix lost typed
+text another way; the rule was cut back to this one.) Neither's run (#0007) follows in E2.
 
-Then (2026-11-12): "Card chat (E2): Neither's new options" (branch `feat/card-chat-neither`,
-stacked on E1b) builds [Neither: new options right away](#neither-new-options-right-away-0007):
-the run as a turn in the card's conversation without the reminder (202611111gpm), the new pick
-hidden again (2026111272fu), the run starting when the Undo notice closes with the "to start /
-started" record and the held messages (20261112160s), Start now and the `run_started` undo
-refusal (20261112dfik), and the README `n` row. Teach me, More info and deciding while a
-conversation is open (#0019) are still to come (E1c).
+Then (2026-11-12): 20261112nyu2 (what the project's agent does with new options the hub wrote
+from a "neither" note) is decided: `fix`, change only a wrong or missing fact or an option that
+clashes with its work, and say so in the card's context. It is a skill rule only, added in the
+pull request "Apply 20261112nyu2" (see
+[Neither: new options right away](#neither-new-options-right-away-0007)).
+
+Then (2026-11-12): 20261112vzn8 (what the Windows tray icon tells you) is decided: `count`, the
+number of cards in the Queue on the icon and in its tooltip, no pop-ups. G (the tray helper)
+is built in the pull request "Windows tray helper (G)" (PR #32, branch `feat/windows-tray`, stacked on
+the Windows CI pull request, PR #31).
+
+Then (2026-11-12): "Card chat (E2): Neither's new options" (PR #29, branch
+`feat/card-chat-neither`, on `main` since E1b and E1c merged) builds
+[Neither: new options right away](#neither-new-options-right-away-0007): the run as a turn in
+the card's conversation without the reminder (202611111gpm), the new pick hidden again
+(2026111272fu), the run starting when the Undo notice closes with the "to start / started"
+record and the held messages (20261112160s), Start now and the `run_started` undo refusal
+(20261112dfik), and the README `n` row.
+
+Then (2026-11-12): two questions PR #29 left are decided, each with what PR #29 already does:
+202611128a05 (`leave`: Ask for new options still moves on to the next card) and 20261112ah6a
+(`wait`: a machine offers no run for a "neither" made on another machine). Both are recorded
+under [Neither: new options right away](#neither-new-options-right-away-0007); nothing new to
+build.
 
 ## Build plan
 
@@ -74,11 +118,12 @@ Each row is one pull request (PR 2 may be split, see its section). The order is 
 | A2 | [Agent rules: how agents deliver new cards and rewrites](#a2-agent-rules-how-agents-deliver-new-cards-and-rewrites-20261111st0c) (agent-facing: the skill) | 20261111st0c | A (built) | **Built** in PR #17 |
 | B | [Sync](#b-sync-0001) | #0001, #0022, 2026111209dq, 20261112xp4s | nothing | **Built** in PR #12, together with [the two follow-up decisions](#decided-while-pr-12-was-open-2026111209dq-20261112xp4s): 09dq is what it already did, and xp4s is commit `b672fe1` |
 | B2 | [Sync: count a skipped project's answers apart](#b2-sync-count-a-skipped-projects-answers-apart-20261112l9vh) | 20261112l9vh | B (PR #12) merged | **Built** in the follow-up pull request (PR #18, branch `feat/sync-followups`) |
-| C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | **Built** in the pull request "Queue and card UX (C)" (PR #21, branch `feat/queue-card-ux-c`), except the [Withdrawn section](#withdrawn-cards-in-the-hub-0014) (#0014's and 202611116ff6's hub part), a follow-up now that D is merged (PR #20) |
+| C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | **Built** in the pull request "Queue and card UX (C)" (PR #21, branch `feat/queue-card-ux-c`), and the [Withdrawn section](#withdrawn-cards-in-the-hub-0014) (#0014's and 202611116ff6's hub part) in the follow-up pull request "Withdrawn cards in the hub" (PR #24, branch `feat/withdrawn-section`) |
 | D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part), 202611116ff6 (`pending` and `validate`) | PR #7 (it edits `card-format.md` and `SKILL.md`) | **Built** in the pull request "Card format and CLI (D)" (PR #20, branch `feat/card-format-d`) |
-| E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s, 20261112dfik | C (#0010's panel, #0011's notes on decided cards), D (`chat` type) | **In progress**, as a stack of pull requests: E1a (the session, the per-machine stores, the API and summaries on the server) in "Card chat (E1a)" (branch `feat/card-chat`); E1b (the panel, Write summary, the reminder) in "Card chat (E1b)" (branch `feat/card-chat-panel`); E2 (Neither's new options: #0007, 202611111gpm, 2026111272fu, 20261112160s, 20261112dfik) in "Card chat (E2)" (branch `feat/card-chat-neither`, stacked on E1b); Teach me, More info and deciding while open (E1c) follow |
+| E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s, 20261112dfik, 20261112hq3k, 20261112e1ik, 202611128a05, 20261112ah6a | C (#0010's panel, #0011's notes on decided cards), D (`chat` type) | **In progress**, as a stack of pull requests: E1a (the session, the per-machine stores, the API and summaries on the server) in "Card chat (E1a)" (merged, PR #25, branch `feat/card-chat`); E1b (the panel, Write summary, the reminder) in "Card chat (E1b)" (merged, PR #27, branch `feat/card-chat-panel`); E1c (deciding while a conversation is open, Teach me, More info, Close without summary, and 20261112hq3k and 20261112e1ik) in "Card chat (E1c)" (merged, PR #28, branch `feat/card-chat-decide`); E2 (Neither's new options: #0007, 202611111gpm, 2026111272fu, 20261112160s, 20261112dfik, 202611128a05, 20261112ah6a) in "Card chat (E2)" (PR #29, branch `feat/card-chat-neither`) |
 | F | [Rename the command to `preside`](#f-rename-the-command-to-preside-0016-20261111dmvt) (agent-facing: the CLI, the skill and every printed command) | #0016, 20261111dmvt | A2 (both edit `SKILL.md`). The npm placeholder is published by the human (an agent prepares it). No card orders it against F; suggested: publish it before F merges (after repeating the name check), so the name F writes everywhere can't be taken meanwhile | **Built** in the pull request "Rename the command to preside (F)" (PR #19, branch `feat/rename-preside`) |
-| F2 | [Remove the `president` alias](#the-president-alias-and-when-it-ends) | 20261111dmvt | F | One month after F ships, or once every registered project's own docs and agent instructions use `preside`, whichever is later |
+| F2 | [Remove the `president` alias](#the-president-alias-and-when-it-ends) | 20261111dmvt | F | **Built** in the pull request "Remove the president alias (F2)" (branch `feat/remove-president-alias`); the human waived the wait on 2026-11-12, see [the alias](#the-president-alias-and-when-it-ends) |
+| G | [The Windows tray helper](#g-the-windows-tray-helper-20261112vzn8) | 20261112vzn8 (and 2026111276n0: a hub on each machine) | PR #31 (Windows CI and portability) | **Built** in the pull request "Windows tray helper (G)" (PR #32, branch `feat/windows-tray`) |
 
 Nothing here needs Sync to be built first: B is early because of #0022, not because the others
 depend on it.
@@ -547,7 +592,8 @@ Hub changes (`src/core/queue.ts`, `src/core/actions.ts`, `src/web/views/QueueVie
 They can ship together or one by one.
 
 Built in the pull request "Queue and card UX (C)" (PR #21), except
-[Withdrawn cards in the hub](#withdrawn-cards-in-the-hub-0014). That PR also added
+[Withdrawn cards in the hub](#withdrawn-cards-in-the-hub-0014), which is built in the
+follow-up pull request "Withdrawn cards in the hub" (PR #24, branch `feat/withdrawn-section`). PR #21 also added
 `defer_until` to `preside update`'s guarded fields, the skill and `docs/card-format.md` (the
 Snooze section allowed it in D).
 
@@ -696,8 +742,11 @@ Card: [0017-deferred-resurfacing.md](../decisions/0017-deferred-resurfacing.md),
 Card: [0014-withdrawn-status.md](../decisions/0014-withdrawn-status.md), option `field`. The
 format part is in D.
 
-Not built yet: it needs D's `withdrawn` field (merged in PR #20), so it follows C's pull
-request in a small one.
+**Built** in the pull request "Withdrawn cards in the hub" (PR #24, branch `feat/withdrawn-section`),
+after D's `withdrawn` field (PR #20) and C's pull request (PR #21), as written below. Back to
+queue is a new action, `unwithdraw` (`src/core/actions.ts`); the queue's rules are in
+`src/core/queue.ts` (`activeWithdrawal`, `buildWithdrawn`, `describeDependencies`). The skill's
+"until then the hub still shows it in the queue" clause is dropped.
 
 - The queue leaves out open cards that have a `withdrawn` field and lists them in a collapsed
   **Withdrawn by agents (n)** section. A withdrawn **deferred** card is listed under
@@ -709,6 +758,17 @@ request in a small one.
   202611112hzh's rule: the date, missing or not, is what is ignored.
 - The card page shows "Withdrawn by the agent: <reason>" above the options, which still work:
   you can decide, note, or reject a withdrawn card as usual.
+- **No Defer on a withdrawn card** ([20261112tiuq-defer-withdrawn-card.md](../decisions/20261112tiuq-defer-withdrawn-card.md),
+  option `hidden`, as PR #24 built it): its page offers no Defer buttons and `d` and `D` do
+  nothing (`canDefer` in `src/web/views/CardView.tsx`); Back to queue takes their place, and
+  the card can be deferred once it is back. Nothing on the page writes a date that would be
+  ignored. Accepted: putting a withdrawn card off takes two steps, and `d` silently does
+  nothing there (no hint).
+- **A decided card that kept `withdrawn`** ([20261112jdyg-decided-withdrawn-page.md](../decisions/20261112jdyg-decided-withdrawn-page.md),
+  option `quiet-line`): under the "Decided" notice, a muted line says "An agent had withdrawn
+  this card: <reason>" (`StatusNotice` in `src/web/views/CardView.tsx`), since the withdrawal
+  is a field, not in the card's history, and the hub would otherwise show it nowhere once the
+  card is decided. Built in the pull request "Apply 20261112tiuq and 20261112jdyg".
 - A **Back to queue** button removes the field **and** appends a note to `feedback` (the card's
   example: "Back in the queue"). The note is required: `preside update` doesn't compare
   `withdrawn`, so without it an agent's update made from an earlier read would withdraw the card
@@ -722,6 +782,12 @@ request in a small one.
   option's stated cost). What `preside pending` and `validate` say is in D.
 - When this ships, drop the "until then the hub still shows it in the queue" clause from the
   skill's *Withdrawing a card* (added by D in PR #20).
+- Settled by the rules above (not open questions): **Reopen on a decided card that kept
+  `withdrawn`** gives an open card with the field (a decision keeps it, D, and Reopen is
+  unchanged), so by the first rule it is listed under Withdrawn by agents, and the toast says
+  so. **A withdrawn card the human had said "neither" to** is an open card with the field, so it
+  is listed under Withdrawn by agents too (#0014, option `field`); its page shows the withdrawal
+  notice and, below it, "You asked for different options".
 
 ## D. Card format and CLI
 
@@ -923,6 +989,15 @@ of its own. The hub picks the prompt by whether the card has options
 An `open` card that does list suggestions gets #0005's format on them as is. Accepted costs:
 with nothing to contrast you learn less about the differences that matter, and one scenario can
 mislead if it isn't typical.
+
+**More info's answer**
+([20261112e1ik-more-info-answer.md](../decisions/20261112e1ik-more-info-answer.md), option
+`findings`): "The agent names the two or three facts the decision turns on, answers each in a
+sentence or two, and backs each answer with a quoted primary source and its link, then what it
+couldn't verify." The hub's request asks for them under "What this turns on:" and "Couldn't
+verify:", and, as for everything in the chat, names no pick until you press `r` (20261111mby8).
+Accepted costs: you see the evidence through the agent's framing, and a wrong "this is what it
+turns on" sends the research the wrong way.
 
 ### The chat stays neutral until you reveal the pick (20261111mby8)
 
@@ -1131,8 +1206,23 @@ option `wait`.
   ```
 
 - **Save and decide** makes **one write** that appends the `chat` entry and records the
-  decision (with the "Why?" note, if any). **Decide without summary** is today's Decide. **Esc**
-  goes back to the card without deciding.
+  decision (with the "Why?" note, if any). **Decide without summary** is today's Decide, and it
+  also closes the conversation as **Close without summary** does
+  ([20261112hq3k-decide-without-summary-reminder.md](../decisions/20261112hq3k-decide-without-summary-reminder.md),
+  option `ends`): nothing from the conversation is added to the card, its messages count as
+  covered, and the "not summarized" reminder ends (no notice on leaving, no Write summary on
+  the decided card). Undo takes back the decision and brings the reminder back (the hub closes
+  the conversation in the same request as the decision, and undoing that decision reopens it).
+  Accepted cost: if you meant "summarize later", use Save and decide, or add a note to the
+  decided card. **Esc** goes back to the card without deciding.
+- **The agent never replaces text already in the summary box** (E1c). If the box already holds
+  a draft (the agent's from an earlier Write summary, one you typed, or one Undo put back),
+  Decide opens it as it is, with no new run, even when messages came after it: edit it, or
+  clear it and decide again for a new one. Only an empty box gets "Writing a summary...". An
+  agent summary that arrives once there is text in the box (Write summary finishing after you
+  typed in the "Before deciding" box) is dropped, with a notice. Decide while Write summary is
+  still running opens the box at once to type in, saying a summary is being written; it fills
+  the box when done, if the box is still empty.
 - The summary is a separate `chat` entry, not text in the decision's "Why?" (the card's variant
   that would prefill "Why?" was not chosen).
 - **Undo** (10 seconds, #0006) restores the card from before that one write, which removes both,
@@ -1194,8 +1284,33 @@ Card: [0007-neither-try-again.md](../decisions/0007-neither-try-again.md), optio
 - The hub does not run `preside seen`: the working agent still finds the card in
   `preside pending` (the `neither` entry is unread) and reads options it didn't write. That is
   the card's accepted cost, along with one Claude Code run per "neither".
+  What that agent then does is
+  [20261112nyu2-agent-and-hub-written-options.md](../decisions/20261112nyu2-agent-and-hub-written-options.md),
+  option `fix`: it checks the hub's options against the code and its plan, changes only a fact
+  that is wrong or missing or an option that clashes with its work, with `preside update`, and
+  adds a line to the card's context saying what it changed ("Edited by the project's agent:
+  ..."); otherwise it changes nothing, then runs the `done:` line. It recognises these cards in
+  `preside pending` by an unread `neither` entry under "New notes from the human" on a card
+  without `needs_new_options`. The rule is in the skill's "New notes from the human"; nothing
+  to build in the hub or the CLI.
 - With #0010 the panel has two buttons: **Ask for new options** and **Decide this as my
   answer**. (A third, "Ask for new options now", belonged to #0007's `per-card`, not chosen.)
+- **Ask for new options moves on to the next card**
+  ([202611128a05-stay-after-new-options.md](../decisions/202611128a05-stay-after-new-options.md),
+  option `leave`): "Ask for new options records your note, shows "Asked for new options on
+  #0042." with Undo, and goes to the next card, as today; the card is back in the queue once
+  the new options are written." Like Decide and Defer. Going back to the card while the notice
+  is up shows "Sending when Undo closes"; later, "Writing new options…" or the new options.
+  Accepted: you see the pending message and the agent's reply only if you go back to the card.
+- **A "neither" made on another machine waits for that machine or the project's agent**
+  ([20261112ah6a-new-options-other-machine.md](../decisions/20261112ah6a-new-options-other-machine.md),
+  option `wait`): "The second machine shows the card under "Waiting for new options" with no
+  button; the first machine's Try again or Start now, or the project's agent, writes the
+  options." The "to start / started" record is per machine (in `sessions.json`, like the
+  session id, #0021), so a "neither" that arrives by Sync has none here and this hub offers no
+  Start now or Try again for it, and never starts a run for it. Accepted: if you left the first
+  machine with a failed run, the card waits until you go back to it or an agent runs in the
+  project.
 - Under #0008, the new `recommendation` stays hidden until you reveal it, like any other. The
   run's message doesn't name it either, and every conversation on the card is neutral about it
   until you press `r`, even one where you had revealed the old pick (2026111272fu `reset`; see
@@ -1359,7 +1474,7 @@ president tab", the page title), `PRESIDENT_PORT`, `$XDG_CONFIG_HOME/president/`
 `$XDG_STATE_HOME/president/`, the package `name`, the repo URL, temp-folder prefixes, the
 decision records in foundations.md and what this roadmap says about built sections and about
 the cards (history). The npm placeholder `preside` is published by the human, separately. F2
-isn't built.
+removed the alias later (see below).
 
 Cards: [0016-rename-the-cli.md](../decisions/0016-rename-the-cli.md), option `rename`, and
 [20261111dmvt-command-name.md](../decisions/20261111dmvt-command-name.md), option `preside`. An
@@ -1413,6 +1528,35 @@ old name from habit still find the installed command, rather than failing and tr
   nothing.
 - Accepted cost: agents keep seeing and typing `president` longer, and the old name has to be
   removed in a second step.
+- **Wait waived (2026-11-12):** the human waived the month and the `grep` ("don't worry about
+  holding the old name, no one uses this"), since nobody else uses the command, so F2 is built
+  the same day as F.
+
+## G. The Windows tray helper (20261112vzn8)
+
+**Built** in the pull request "Windows tray helper (G)" (PR #32, branch `feat/windows-tray`). Card:
+[20261112vzn8-tray-icon-on-windows.md](../decisions/20261112vzn8-tray-icon-on-windows.md),
+option `count`.
+
+- What every option shares: on Windows the hub runs in the background from an icon in the
+  notification area, starts with Windows (a menu toggle) and is started again after a crash.
+  The menu is Open president (the hub in the default browser; double-click too), Restart hub,
+  Start with Windows ✓, Quit.
+- `count`: the icon carries the number of cards in the Queue (open cards and deferred cards
+  whose date came, not withdrawn, not waiting on an agent for new options: `buildQueue`, as
+  the Queue's "All"), `9+` above nine, and the tooltip says it ("president: 3 cards waiting",
+  "president: nothing waiting"). No pop-up notifications (that was `notify`).
+- Accepted: Windows 11 hides new tray icons until you show them once by hand (README); a
+  number on a 16-pixel icon is hard to read above 9.
+- How it is built (not part of the card): `tray/windows/PresideTray.cs`, compiled on the
+  user's machine by `preside tray install` with the .NET Framework 4 C# compiler that ships
+  with Windows, into `%LOCALAPPDATA%\president\` with a config naming `node.exe` and the
+  checkout. It reads `GET /api/queue-count` every 3 seconds; it stops the hub by closing its
+  stdin (`PRESIDENT_STOP_ON_STDIN_END`, which the hub takes out of its environment so its
+  children don't inherit it), then `taskkill /T` (by full path) if it hasn't stopped. It tells
+  its own hub from another program on the port by the pid `/api/health` gives; Start with
+  Windows is the `HKCU\...\Run` value `president`. CI compiles it on windows-latest and runs
+  its `--self-test`.
 
 ## Cross-card consequences
 
@@ -1437,9 +1581,11 @@ old name from habit still find the installed command, rather than failing and tr
 - **Four per-machine stores, one folder.** Session ids (#0021), the hub's copy (#0018), the
   "not summarized" list if it is kept rather than derived (#0024), and the "first found
   missing" dates 202611114wet's cleanup records all live in `$XDG_STATE_HOME/president/`, keyed
-  by project name and card id, and none travels with Sync. 2026111272fu adds the
-  per-conversation "revealed" flag, with which recommendation was revealed; its card suggests
-  keeping it next to the session id, so on the same machine and not in the card.
+  by project name and card id, and none travels with Sync. 2026111276n0 (`local`, no
+  server hub) keeps it that way: a conversation stays on the machine that had it.
+  2026111272fu adds the per-conversation "revealed" flag, with which recommendation was
+  revealed; its card suggests keeping it next to the session id, so on the same machine and
+  not in the card.
 - **202611111gpm `shown-no-reminder` + #0002 + 20261111sblu.** Every "neither" now gives the card
   a stored conversation, and #0002 opens the panel by default once a card has one, so after a
   "neither" the panel is open on that card (three columns on an A/B card). The run's
@@ -1506,7 +1652,7 @@ only); the build PR named in brackets fixes each.
 - `docs/card-format.md` and the skill, picking an id ("add one to the highest number"):
   replaced by #0013's dated ids [D; fixed in PR #20].
 - `docs/card-format.md`, `session_id` "Reserved for the per-card chat": unused under #0021 [E;
-  fixed in "Card chat (E1a)"].
+  fixed in PR #25].
 - `docs/card-format.md`, feedback types (`neither | note | defer | reopen | undo`): gains `chat`
   (#0023) [D; fixed in PR #20]; fields: gains `withdrawn` (#0014) [D; fixed in PR #20] and
   `defer_until` (#0017) [C or D; fixed by C in PR #21].
@@ -1554,4 +1700,26 @@ The three questions this list held after PR #14 were answered on 2026-11-12: 1 b
 The question this list held after PR #15 (the same card open in a second tab while the run
 waits for Undo) was answered on 2026-11-12 by 20261112dfik.
 
-None at the moment.
+The two questions this list held after the Withdrawn section's pull request (PR #24) were
+answered on 2026-11-12: 1 (Defer on a withdrawn card) by 20261112tiuq and 2 (a decided card's
+page) by 20261112jdyg; see [Withdrawn cards in the hub](#withdrawn-cards-in-the-hub-0014).
+
+Left open by "Card chat (E1a)" (PR #25); cards for them are being written.
+
+**E1b (the side panel)**
+
+1. **Hiding the panel vs. closing the conversation.** #0002's panel has a close button and a
+   toggle key, and #0020/#0024 say "closing the conversation offers the summary box". No card
+   says whether hiding the panel closes the conversation (and offers the summary) or only hides
+   it.
+2. **The same session or a fresh one after a saved summary.** E1a keeps one session per card
+   (#0021 `local`, the `"project/id" → session id` store) and the next summary covers only what
+   came after the last saved one. #0021's "starting a fresh conversation on the same card would
+   then need a counter" suggests a new session per conversation could also have been meant.
+
+**E1b and E1c (the chat on the page)**
+
+3. **The chat on a card with no pick** (an `open` card, or one whose agent gave no
+   `recommendation`). There is nothing to reveal with `r`, so under 20261111mby8 the chat would
+   stay neutral for good. E1a tells the session the card has no pick and keeps it neutral (no
+   view of its own); whether it may give its own view on such a card is the question.

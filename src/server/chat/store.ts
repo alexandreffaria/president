@@ -37,8 +37,8 @@ export interface SessionEntry {
   /** Messages were exchanged since the last saved summary (#0024's reminder). */
   unsummarized?: boolean;
   /**
-   * How many of the hub copy's messages the last saved summary covers: the next summary is
-   * about the ones after them.
+   * How many of the hub copy's messages the last saved summary covers (or the last "Close
+   * without summary" left out): the next summary is about the ones after them.
    */
   summarized?: number;
   /**
@@ -106,11 +106,13 @@ export class ChatStore {
   /** Changes a card's entry; returning undefined removes it. */
   async updateEntry(
     key: CardKey,
-    change: (entry: SessionEntry | undefined) => SessionEntry | undefined,
+    change: (
+      entry: SessionEntry | undefined,
+    ) => SessionEntry | undefined | Promise<SessionEntry | undefined>,
   ): Promise<SessionEntry | undefined> {
     return this.#lock.run("sessions.json", async () => {
       const table = await this.#readTable<SessionEntry>("sessions.json");
-      const next = change(table[keyOf(key)]);
+      const next = await change(table[keyOf(key)]);
       if (next) table[keyOf(key)] = next;
       else delete table[keyOf(key)];
       await this.#writeTable("sessions.json", table);

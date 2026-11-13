@@ -9,9 +9,11 @@
  *   and refuses `--resume` of a session without one ("No conversation found ...");
  * - answers with the next entry of $FAKE_CLAUDE_DIR/script.json when there is one
  *   ({ lines?: object[], text?: string, structured?: object, stderr?: string, exit?: number,
- *   delayMs?: number }; `structured` is the `--json-schema` answer, given as the result's
- *   `structured_output` the way Claude Code reports structured output),
- *   otherwise with "Echo: " and the last line of its standard input.
+ *   delayMs?: number, pauseMs?: number, lateTranscript?: boolean }), otherwise with "Echo: "
+ *   and the last line of its standard input. `structured` is the `--json-schema` answer,
+ *   given as the result's `structured_output` the way Claude Code reports structured output;
+ *   `pauseMs` waits after the first stream line; `lateTranscript` writes a new session's
+ *   transcript only at the end of the run, as Claude Code may.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -42,10 +44,12 @@ if (resume && !existsSync(transcript(resume))) {
   process.exit(1);
 }
 const session = resume ?? start ?? "00000000-0000-4000-8000-000000000000";
-if (start && !args.includes("--no-session-persistence")) {
-  mkdirSync(folder, { recursive: true });
-  writeFileSync(transcript(start), "");
-}
+const writeTranscript = () => {
+  if (start && !args.includes("--no-session-persistence")) {
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(transcript(start), "");
+  }
+};
 
 let step = {};
 const scriptFile = join(dir, "script.json");
@@ -56,6 +60,8 @@ if (existsSync(scriptFile)) {
   writeFileSync(counter, String(n + 1));
   step = script[n] ?? {};
 }
+
+if (!step.lateTranscript) writeTranscript();
 
 const out = (line) => process.stdout.write(`${JSON.stringify(line)}\n`);
 if (step.delayMs) await new Promise((resolve) => setTimeout(resolve, step.delayMs));
@@ -82,5 +88,9 @@ const lines = step.lines ?? [
     ...(step.structured !== undefined ? { structured_output: step.structured } : {}),
   },
 ];
-for (const line of lines) out(line);
+for (const [i, line] of lines.entries()) {
+  out(line);
+  if (i === 0 && step.pauseMs) await new Promise((resolve) => setTimeout(resolve, step.pauseMs));
+}
+if (step.lateTranscript) writeTranscript();
 process.exit(step.exit ?? 0);

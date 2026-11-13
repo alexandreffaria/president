@@ -12,11 +12,26 @@
  * A test that expects such output says so with `expectConsole`, and then only matching
  * messages are allowed, and at least one must come.
  */
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { format } from "node:util";
 import { afterAll, afterEach, expect } from "vitest";
+
+// On Windows the temp folder can come as a short 8.3 name (C:\Users\RUNNER~1\...), and
+// president resolves the paths it is given to their real, long names: tests compare those
+// with the temp folders they made, so the temp folder is the long name from the start.
+if (process.platform === "win32") {
+  process.env.TEMP = process.env.TMP = realpathSync.native(tmpdir());
+}
 
 // president's state folder (card conversations, chat/store.ts) is a temp folder in every
 // test, so no test can read or clean up the real ~/.local/state/president, whatever hub it
@@ -28,8 +43,26 @@ process.env.CLAUDE_CONFIG_DIR = join(stateHome, "claude");
 // without one can never run the real Claude Code.
 mkdirSync(join(stateHome, "bin"));
 mkdirSync(join(stateHome, "fake"));
-symlinkSync(join(import.meta.dirname, "fake-claude.mjs"), join(stateHome, "bin", "claude"));
-process.env.PATH = `${join(stateHome, "bin")}${delimiter}${process.env.PATH ?? ""}`;
+try {
+  symlinkSync(join(import.meta.dirname, "fake-claude.mjs"), join(stateHome, "bin", "claude"));
+} catch (error) {
+  // Windows without Developer Mode can't make links.
+  if (process.platform !== "win32") throw error;
+  copyFileSync(join(import.meta.dirname, "fake-claude.mjs"), join(stateHome, "bin", "claude"));
+}
+let path = process.env.PATH ?? "";
+if (process.platform === "win32") {
+  // On Windows the stand-in can't take the real one's place: for a bare `spawn("claude")`,
+  // libuv tries only claude.com and claude.exe (first in the child's cwd, then in each PATH
+  // folder), never the extensionless stand-in, and a shell would find claude.cmd or
+  // claude.bat (npm's shim). So no PATH folder that has one of those stays.
+  const names = ["claude.exe", "claude.com", "claude.cmd", "claude.bat"];
+  path = path
+    .split(delimiter)
+    .filter((dir) => !names.some((name) => existsSync(join(dir.replace(/^"(.*)"$/, "$1"), name))))
+    .join(delimiter);
+}
+process.env.PATH = `${join(stateHome, "bin")}${delimiter}${path}`;
 process.env.FAKE_CLAUDE_DIR = join(stateHome, "fake");
 afterAll(() => rmSync(stateHome, { recursive: true, force: true }));
 

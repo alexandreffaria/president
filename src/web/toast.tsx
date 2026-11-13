@@ -47,6 +47,7 @@ type ShowToast = (
 const ToastContext = createContext<{
   show: ShowToast;
   dismissGroup: (group: string) => void;
+  shown: (group: string) => boolean;
 } | null>(null);
 
 /**
@@ -90,7 +91,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         group: options.group,
         onClose: options.onClose,
       };
-      replace([...current.current.slice(-2), toast]);
+      const all = current.current;
+      if (all.length < 3) {
+        replace([...all, toast]);
+        return;
+      }
+      // Three at most. A notice must not push an Undo out (the refusal to save a summary
+      // during a decision's Undo would take that very Undo away): plain ones go first.
+      const drop = all.find((t) => !t.action) ?? all[0];
+      replace([...all.filter((t) => t !== drop), toast]);
     },
     [replace],
   );
@@ -102,7 +111,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     [replace],
   );
 
-  const context = useMemo(() => ({ show, dismissGroup }), [show, dismissGroup]);
+  const shown = useCallback((group: string) => current.current.some((t) => t.group === group), []);
+
+  const context = useMemo(() => ({ show, dismissGroup, shown }), [show, dismissGroup, shown]);
 
   // The newest toast whose action has a shortcut answers that key.
   const keys: Record<string, () => unknown> = {};
@@ -204,4 +215,11 @@ export function useDismissToasts(): (group: string) => void {
   const context = useContext(ToastContext);
   if (!context) throw new Error("useDismissToasts must be used inside <ToastProvider>");
   return context.dismissGroup;
+}
+
+/** Whether a toast of the group is on screen now (an Undo still within reach, say). */
+export function useToastShown(): (group: string) => boolean {
+  const context = useContext(ToastContext);
+  if (!context) throw new Error("useToastShown must be used inside <ToastProvider>");
+  return context.shown;
 }
