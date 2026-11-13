@@ -5,7 +5,7 @@ export const SHORTCUTS: [string, string][] = [
   ["↓ / ↑", "Move in the queue"],
   ["Enter", "Open the selected card, or confirm your choice"],
   ["1 – 9", "Select an option (A / B also work on A/B cards)"],
-  ["r", "Show the agent's pick"],
+  ["r", "Show the agent's pick (on a card without one, ask the chat for the agent's view)"],
   ["n", "Neither: reject all options and say why, or decide with your own answer"],
   ["m", "Add a note (also on a decided card)"],
   ["c", "Show or hide the conversation with the card's agent"],

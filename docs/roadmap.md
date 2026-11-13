@@ -966,6 +966,21 @@ Card: [0002-conversation-placement.md](../decisions/0002-conversation-placement.
   and about 27% on a 1280-pixel one, so long code lines scroll sideways more often, and three
   columns of text is a busy screen on a laptop.
 
+### Hiding the panel only hides it (20261112m6dx)
+
+Card: [20261112m6dx-hiding-the-chat-panel.md](../decisions/20261112m6dx-hiding-the-chat-panel.md),
+option `hide`: "The × ("Hide c") and the c key put the panel away and nothing else; you close a
+conversation from its own "Write summary" button."
+
+- **Hide conversation** and `c` hide the panel and nothing else: no summary is written, no run
+  starts, and the conversation stays "not summarized" (the card says so next to **Show the
+  conversation**). `c` brings it back as it was.
+- **You close a conversation** with **Write summary** (then **Save summary**) or **Close
+  without summary** (202611111ky9), both in the panel; Decide offers the summary too (#0019).
+  Leaving the card is #0024's `remind` either way.
+- Accepted costs: closing is a separate step you have to remember (until then the card says
+  "Conversation not summarized yet."), and hiding and closing look alike.
+
 ### Teach me: a worked example (#0005)
 
 Card: [0005-teach-me-format.md](../decisions/0005-teach-me-format.md), option `worked`. The first
@@ -1064,6 +1079,28 @@ Teach me, More info and your questions.
     dodges questions it answered freely before; the earlier messages stay in the panel, and what
     the chat said about the old pick can still hint at the new one.
 
+### On a card without a pick, r asks for the agent's view (20261112irpn)
+
+Card: [20261112irpn-chat-on-card-without-pick.md](../decisions/20261112irpn-chat-on-card-without-pick.md),
+option `r-asks`: "The chat stays neutral until you press r, which on a card with no pick tells
+it you want its view; the page then says "The agent's view is in the chat.""
+
+- A card can have no pick (no `recommendation`; an `open` card often has none). Until `r`, the
+  line sent with each message says so honestly: "This card has no pick ... if asked which one
+  to choose or what you would do, say the card has no pick and that you keep your own view out
+  of it so the answer is theirs." It never points at a pick behind `r`.
+- On such a card the page offers **Ask for the agent's view** (`r`) where a pick's **Show the
+  agent's pick** would be. Pressing it shows "The agent's view is in the chat." (and opens the
+  panel if it was hidden), and the next message tells the session the human "has just pressed
+  r to ask for your own view: give it in this answer". Later messages say it may give its view
+  and discuss freely. So `r` means "now tell me what you think" on every card.
+- As with a revealed pick, the conversation keeps it (`revealed` in the session store holds
+  `view-asked` instead of the pick's hash) until a New conversation; a pick the card gets later
+  is still hidden until `r`.
+- Cards with a pick are unchanged.
+- Accepted costs: `r` does something new on these cards; the view comes as a chat message, not
+  as a written pick on the card.
+
 ### Where the conversation lives (#0003, #0018, #0021)
 
 Cards: [0003-conversation-storage.md](../decisions/0003-conversation-storage.md) (`summary`),
@@ -1136,6 +1173,32 @@ Cards: [0003-conversation-storage.md](../decisions/0003-conversation-storage.md)
   summary should state what the human concluded and asked for, not just what was discussed.
 - Summaries are card file changes, so they travel between machines with Sync (#0001); the hub
   copy, the session ids and Claude Code's logs don't, and no transcript ever goes into git.
+
+### New conversation starts a fresh session (20261112lvbu)
+
+Card: [20261112lvbu-conversation-after-summary.md](../decisions/20261112lvbu-conversation-after-summary.md),
+option `choose`: "Your next message resumes the same session, as built; a New conversation
+control (in the panel or the summary box) ends it and starts a new session from the card and
+its saved summaries."
+
+- **By default your next message resumes the same session**, also after a saved summary or a
+  Close without summary, so the agent keeps the files it read for follow-ups.
+- **New conversation**, in the panel's header (offered once there are messages, off while a
+  run goes on), ends the session on this machine: the hub forgets its id (the entry is marked
+  `fresh`), and the next message starts a new one the way it does when `--resume` can't find
+  the session, with a new id chosen up front (#0021's "counter"), seeded with the card and its
+  saved summaries ("The human started a new conversation about this card; it starts from the
+  card and its summaries."). There is no "isn't available on this machine" notice for it.
+- The panel keeps the earlier messages, followed by a divider: "── New conversation. It starts
+  from the card and its summaries. ──" (a "hub" line in the copy).
+- **The reveal resets with the session**: the stored `revealed` goes, and the page hides the
+  pick again, so the new session is neutral about it until you press `r`, unless a saved
+  summary names it.
+- Messages from before the divider that no saved summary covers keep the reminder; while the
+  next summary covers any of them, it is written from the hub's copy (20261111paot), since the
+  new session never had them.
+- Accepted costs: one more control to know about; forget it, and a revealed pick stays free in
+  the chat.
 
 ### Leaving a conversation without closing it (#0024)
 
@@ -1715,22 +1778,9 @@ The two questions this list held after the Withdrawn section's pull request (PR 
 answered on 2026-11-12: 1 (Defer on a withdrawn card) by 20261112tiuq and 2 (a decided card's
 page) by 20261112jdyg; see [Withdrawn cards in the hub](#withdrawn-cards-in-the-hub-0014).
 
-Left open by "Card chat (E1a)" (PR #25); cards for them are being written.
-
-**E1b (the side panel)**
-
-1. **Hiding the panel vs. closing the conversation.** #0002's panel has a close button and a
-   toggle key, and #0020/#0024 say "closing the conversation offers the summary box". No card
-   says whether hiding the panel closes the conversation (and offers the summary) or only hides
-   it.
-2. **The same session or a fresh one after a saved summary.** E1a keeps one session per card
-   (#0021 `local`, the `"project/id" → session id` store) and the next summary covers only what
-   came after the last saved one. #0021's "starting a fresh conversation on the same card would
-   then need a counter" suggests a new session per conversation could also have been meant.
-
-**E1b and E1c (the chat on the page)**
-
-3. **The chat on a card with no pick** (an `open` card, or one whose agent gave no
-   `recommendation`). There is nothing to reveal with `r`, so under 20261111mby8 the chat would
-   stay neutral for good. E1a tells the session the card has no pick and keeps it neutral (no
-   view of its own); whether it may give its own view on such a card is the question.
+The three questions left open by "Card chat (E1a)" (PR #25) were answered on 2026-11-12: 1
+(hiding the panel vs. closing the conversation) by 20261112m6dx, 2 (the same session or a fresh
+one after a saved summary) by 20261112lvbu and 3 (the chat on a card with no pick) by
+20261112irpn; see [Hiding the panel only hides it](#hiding-the-panel-only-hides-it-20261112m6dx),
+[New conversation](#new-conversation-starts-a-fresh-session-20261112lvbu) and
+[On a card without a pick, r asks for the agent's view](#on-a-card-without-a-pick-r-asks-for-the-agents-view-20261112irpn).

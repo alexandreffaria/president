@@ -5,10 +5,12 @@
  * ("Four per-machine stores, one folder" in docs/roadmap.md):
  *
  *   sessions.json             { "<project>/<id>": SessionEntry }: the card's Claude Code
- *                             session id (#0021), whether the conversation has messages no
+ *                             session id (#0021) or that a new one was asked for
+ *                             (20261112lvbu), whether the conversation has messages no
  *                             saved summary covers (#0024), which pick the human revealed
- *                             in it (2026111272fu), and the new-options run's record (#0007,
- *                             20261112160s)
+ *                             in it, or that they asked for the agent's view on a card
+ *                             without one (2026111272fu, 20261112irpn), and the new-options
+ *                             run's record (#0007, 20261112160s)
  *   chats/<project>/<id>.jsonl  the hub's copy of the messages it showed (#0018), one
  *                             ChatMessageDto per line
  *   missing.json              { "<project>/<id>": when the card or its project was first found
@@ -34,6 +36,11 @@ export function defaultStateDir(env: NodeJS.ProcessEnv = process.env): string {
 export interface SessionEntry {
   /** The Claude Code session id this machine resumes (`claude -p --resume <id>`). */
   session?: string;
+  /**
+   * The human started a new conversation (20261112lvbu `choose`): the next message starts a
+   * new session from the card and its summaries, and the session id is replaced once it has.
+   */
+  fresh?: boolean;
   /** Messages were exchanged since the last saved summary (#0024's reminder). */
   unsummarized?: boolean;
   /**
@@ -44,7 +51,8 @@ export interface SessionEntry {
   /**
    * Which recommendation the human revealed in this conversation (a hash of it, see
    * pickHash): the chat is free about that pick, and neutral again about a new one
-   * (2026111272fu).
+   * (2026111272fu). On a card without a pick, VIEW_ASKED: the human pressed r to ask for the
+   * agent's view (20261112irpn). A new conversation starts without it (20261112lvbu).
    */
   revealed?: string;
   /**

@@ -5,8 +5,9 @@
  *   card it is about, that it only reads and researches, and that it never applies decisions
  *   (#0004, #0006).
  * - The line sent with every message about the card's pick (20261111mby8 `neutral`,
- *   2026111272fu `reset`). It goes with each message, not only in the system prompt, which
- *   Claude Code records once per conversation and reuses on every resume.
+ *   2026111272fu `reset`), or on a card without one, about the agent's own view (20261112irpn
+ *   `r-asks`). It goes with each message, not only in the system prompt, which Claude Code
+ *   records once per conversation and reuses on every resume.
  * - The summary request (#0003, #0024) and, when Claude Code no longer has the session, the
  *   hub's copy it is written from (20261111paot).
  * - The new-options request after "neither" (#0007), with the `--json-schema` its answer
@@ -25,7 +26,7 @@ export function sessionInstructions(card: LoadedCard): string {
   return [
     `You are talking with the human about one decision card in president, a hub where coding agents ask a human to decide things. The card is decisions/${card.fileName} in this project (project "${card.project}", card id ${card.id}). Read it before your first answer, and read it again whenever the human says it changed: its options, its sections and its \`feedback\` (the human's earlier notes; entries with \`type: chat\` summarize earlier conversations about it).`,
     "You can read this project's files and research the web. You can't change anything, and you never apply decisions or record them: the project's working agent does that later, from the card. When the human wants something done, say what they could put in a note or the conversation's summary for that agent.",
-    "Each of the human's messages starts with a line from president in parentheses, \"(president: ...)\", saying whether the human has revealed the card's pick (its `recommendation`), or that the card has none. Follow it.",
+    "Each of the human's messages starts with a line from president in parentheses, \"(president: ...)\", saying whether the human has revealed the card's pick (its `recommendation`), or, on a card that has none, whether they asked for your own view. Follow it.",
     "Answer plainly and briefly, and say where in the project or on the web each claim comes from.",
   ].join("\n\n");
 }
@@ -44,30 +45,59 @@ const NEUTRAL =
   "Until they do, explain and compare the options without naming the card's pick or recommending one of your own; if asked which one to choose, say the pick is behind r and keep your own view out of it until they have formed theirs.";
 
 /**
- * What a card without a pick (no `recommendation`) is told: there is nothing to reveal, so
- * nothing false is said about `r`. It stays neutral; whether the chat may give its own view
- * on such a card is an open question for the human (docs/roadmap.md, "Needs a card").
+ * What a conversation records when the human presses r on a card without a pick: they asked
+ * for the agent's own view (20261112irpn `r-asks`). Kept where a revealed pick's hash goes.
  */
-export const NO_PICK =
-  "This card has no pick (no `recommendation`), so there is nothing for the human to reveal. Explain and compare the options without recommending one of your own; if asked which one to choose, say the card has no pick and keep your own view out of it.";
+export const VIEW_ASKED = "view-asked";
 
 /**
- * The line about the pick for a conversation in which `revealed` (a pickHash) was revealed:
- * - the card has no pick: neutral, saying so;
+ * What the page's r reveals in the conversation (`revealed` in the session store): the card's
+ * pick (pickHash), or on a card without one, that the human asked for the agent's view.
+ */
+export function revealOf(card: Pick<LoadedCard, "frontmatter">): string {
+  return pickHash(card) ?? VIEW_ASKED;
+}
+
+/**
+ * What a card without a pick (no `recommendation`) is told until the human presses r
+ * (20261112irpn `r-asks`): there is no pick, and the agent keeps its own view out so the
+ * answer is the human's. Nothing is said about a pick behind r: there is none.
+ */
+export const NO_PICK =
+  "This card has no pick (no `recommendation`). Explain and compare the options without recommending one of your own; if asked which one to choose or what you would do, say the card has no pick and that you keep your own view out of it so the answer is theirs.";
+
+/** The first message after the human pressed r on a card without a pick: the view, now. */
+export const VIEW_NOW =
+  'This card has no pick (no `recommendation`), and the human has just pressed r to ask for your own view: give it in this answer, saying it is your view (for example "You asked for my view: ..."). From now on you may discuss the options freely.';
+
+/** Later messages in a conversation where the human asked for the agent's view. */
+export const VIEW_GIVEN =
+  "This card has no pick (no `recommendation`); the human asked for your own view in this conversation, so you may give it and discuss the options freely.";
+
+/**
+ * The line about the pick for a conversation in which `revealed` (revealOf) was revealed:
+ * - the card has no pick: neutral, saying so, until the human asks for the agent's view with
+ *   r; then the view in the next answer (`asksNow`: this message is the first since), and
+ *   free after it;
  * - never revealed: neutral;
  * - the card's current pick was revealed: free;
- * - an earlier pick was revealed and new options replaced it: neutral about the new one.
+ * - an earlier pick was revealed and new options replaced it: neutral about the new one. A
+ *   view asked for while the card had no pick reveals nothing about a pick it has since.
  */
 export function pickLine(
   card: Pick<LoadedCard, "frontmatter">,
   revealed: string | undefined,
+  asksNow = false,
 ): string {
   const current = pickHash(card);
-  if (current === undefined) return NO_PICK;
+  if (current === undefined) {
+    if (revealed !== VIEW_ASKED) return NO_PICK;
+    return asksNow ? VIEW_NOW : VIEW_GIVEN;
+  }
   if (revealed !== undefined && revealed === current) {
     return "The human has revealed the card's pick; you may discuss it freely and give your own view.";
   }
-  if (revealed !== undefined) {
+  if (revealed !== undefined && revealed !== VIEW_ASKED) {
     return `The human revealed an earlier pick on this card, which the new options replaced; they have not revealed the new one. ${NEUTRAL}`;
   }
   return `The human has not revealed the card's pick. ${NEUTRAL}`;
@@ -80,12 +110,14 @@ export function withPickLine(line: string, text: string): string {
 
 /**
  * What a session that starts over is told first, when this machine had a conversation it
- * no longer has, or the card has summaries of conversations held elsewhere (#0003, #0021).
+ * no longer has, or the card has summaries of conversations held elsewhere (#0003, #0021),
+ * or the human started a new conversation (`asked`, 20261112lvbu `choose`).
  */
-export function startOverNote(card: LoadedCard): string {
+export function startOverNote(card: LoadedCard, asked = false): string {
   const summaries = card.frontmatter.feedback.filter((entry) => entry.type === "chat");
-  const intro =
-    "An earlier conversation about this card isn't available here; this one starts from the card and its summaries.";
+  const intro = asked
+    ? "The human started a new conversation about this card; it starts from the card and its summaries."
+    : "An earlier conversation about this card isn't available here; this one starts from the card and its summaries.";
   if (summaries.length === 0) return intro;
   return [
     intro,

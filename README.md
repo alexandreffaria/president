@@ -228,10 +228,10 @@ both want port 4747 (the icon then turns grey and says "port 4747 in use by anot
    | Key | Action |
    |---|---|
    | `1`–`9` (`a`/`b` on A/B cards) | select an option, then `Enter` to decide (optionally type why first) |
-   | `r` | show the agent's pick (hidden until you ask, and again each time you come back to the card) |
+   | `r` | show the agent's pick (hidden until you ask, and again each time you come back to the card); on a card without one, ask the chat for the agent's own view |
    | `n` | neither: reject all options with a note; the card's own agent writes new ones right away, once the Undo notice closes. The same panel can also decide the card with what you typed as your own answer |
    | `m` | add a note without deciding; also works on a decided card (the decision stays) |
-   | `c` | show or hide the conversation with the card's agent |
+   | `c` | show or hide the conversation with the card's agent (hiding only hides it; the conversation stays open) |
    | `d` | defer for a week: the card leaves the queue and comes back, marked "back from deferral", when the week is over |
    | `D` | defer until another date: tomorrow, next month or a day you pick (also the **Defer until…** button) |
    | `j` / `k` | next / previous card |
@@ -279,7 +279,21 @@ both want port 4747 (the icon then turns grey and says "port 4747 in use by anot
    what you save is added to the card's history as a conversation summary, which the project's
    working agent reads like a note. Until then the card reminds you it isn't summarized;
    **Close without summary** in the summary box ends the reminder, drops the draft and adds
-   nothing to the card (Undo on its notice brings them back).
+   nothing to the card (Undo on its notice brings them back). Hiding the panel (**Hide
+   conversation** or `c`) only hides it: the conversation stays open and unsummarized, and
+   nothing runs. You close a conversation with **Write summary** (then **Save summary**) or
+   **Close without summary**.
+   Your next message on the card resumes the same session, so the agent remembers what it
+   read, even after a saved summary. **New conversation** (in the panel's header) ends that
+   session: your next message starts a new one from the card and its saved summaries. The
+   earlier messages stay in the panel above a divider, "── New conversation. It starts from the
+   card and its summaries. ──", and the pick is hidden again, on the page and in the chat,
+   until you press `r` (unless a saved summary names it).
+   Until you press `r`, the chat explains and compares the options without naming the card's
+   pick or giving its own; asked, it says the pick is behind `r`. On a card with no pick (an
+   open card, say), it says there is no pick and keeps its own view out so the answer is
+   yours; there `r` (**Ask for the agent's view**) tells the chat you now want its view, the
+   page says "The agent's view is in the chat.", and its next answer gives it.
    **Teach me** asks the agent for a worked example on one realistic scenario from the project
    (a guess first, then each option walked through it), and **More info** for the two or three
    facts the decision turns on, each answered briefly and backed by a quote from a primary

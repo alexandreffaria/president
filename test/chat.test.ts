@@ -117,7 +117,13 @@ async function setup() {
   const sessions = async () =>
     JSON.parse(await readFile(join(root, "state", "sessions.json"), "utf8")) as Record<
       string,
-      { session?: string; unsummarized?: boolean; revealed?: string; summarized?: number }
+      {
+        session?: string;
+        fresh?: boolean;
+        unsummarized?: boolean;
+        revealed?: string;
+        summarized?: number;
+      }
     >;
   const deleteTranscripts = () => rm(join(claudeDir, "projects"), { recursive: true, force: true });
   const setNow = (date: Date) => {
@@ -423,16 +429,53 @@ describe("the pick line (20261111mby8, 2026111272fu)", () => {
     expect((await t.calls())[0]?.stdin).toMatch(NOT_REVEALED);
   });
 
-  it("says a card without a pick has none, and stays neutral", async () => {
+  it("says a card without a pick has none, and keeps its own view out until r (20261112irpn)", async () => {
+    const t = await setup();
+    await t.send("Which wording?", {}, "0003");
+    await t.send("And yours?", {}, "0003");
+    for (const call of await t.calls()) {
+      expect(call.stdin).toMatch(/^\(president: This card has no pick \(no `recommendation`\)\./);
+      expect(call.stdin).toMatch(/without recommending one of your own/);
+      expect(call.stdin).toMatch(/keep your own view out of it so the answer is theirs/);
+      // Nothing is behind r on such a card.
+      expect(call.stdin).not.toMatch(/behind r|has not revealed|has revealed/);
+    }
+  });
+
+  it("on a card without a pick, r asks for the agent's view: the next answer gives it (20261112irpn r-asks)", async () => {
     const t = await setup();
     const { revision } = await t.card("0003");
     await t.send("Which wording?", {}, "0003");
-    await t.send("And now?", { revealed: true, revision }, "0003");
-    for (const call of await t.calls()) {
-      expect(call.stdin).toMatch(/^\(president: This card has no pick \(no `recommendation`\)/);
-      expect(call.stdin).toMatch(/without recommending one of your own/);
-      expect(call.stdin).not.toMatch(/behind r|has not revealed|has revealed/);
-    }
+    await t.send("What would you write?", { revealed: true, revision }, "0003");
+    await t.send("Shorter?", { revealed: true, revision }, "0003");
+    // The page hides it again on the next visit; the conversation keeps it, as with a pick.
+    await t.send("And now?", { revealed: false, revision }, "0003");
+    const stdin = (await t.calls()).map((c) => c.stdin);
+    expect(stdin[0]).toMatch(/keep your own view out of it/);
+    expect(stdin[1]).toMatch(
+      /^\(president: This card has no pick \(no `recommendation`\), and the human has just pressed r to ask for your own view: give it in this answer/,
+    );
+    expect(stdin[2]).toMatch(/the human asked for your own view in this conversation/);
+    expect(stdin[3]).toMatch(/the human asked for your own view in this conversation/);
+    expect((await t.sessions())["demo/0003"]?.revealed).toBe("view-asked");
+    // A summary is written under the same line.
+    await t.post("/api/chats/demo/0003/summary", {});
+    expect((await t.calls()).at(-1)?.stdin).toMatch(/asked for your own view/);
+  });
+
+  it("a stale revision asks for nothing, and a view asked for reveals no pick the card gets later", async () => {
+    const t = await setup();
+    await t.send("Which wording?", { revealed: true, revision: "stale" }, "0003");
+    expect((await t.calls())[0]?.stdin).toMatch(/keep your own view out of it/);
+    // #0002 without its pick for a while: the view asked for then isn't its pick revealed.
+    const path = join(t.demo, "decisions", "0002-api-errors.md");
+    const text = await readFile(path, "utf8");
+    await writeFile(path, text.replace(/^recommendation:\n(?: {2}.*\n| {4}.*\n)+/m, ""));
+    await t.send("Yours?", { revealed: true, revision: (await t.card()).revision });
+    expect((await t.calls())[1]?.stdin).toMatch(/has just pressed r to ask for your own view/);
+    await writeFile(path, text);
+    await t.send("And now?");
+    expect((await t.calls())[2]?.stdin).toMatch(NOT_REVEALED);
   });
 
   it("is neutral about a new pick that replaced the revealed one", async () => {
@@ -514,6 +557,140 @@ describe("when Claude Code no longer has the session (#0018, #0021)", () => {
     const events = await t.send("Hello");
     expect(events[0]).toMatchObject({ type: "message", message: { from: "hub" } });
     expect((await t.calls())[0]?.stdin).toMatch(/Asked about 404s on the laptop\./);
+  });
+});
+
+describe("New conversation (20261112lvbu choose)", () => {
+  const DIVIDER = "New conversation. It starts from the card and its summaries.";
+
+  it("ends the session: the next message starts a new one from the card, below a divider", async () => {
+    const t = await setup();
+    await t.send("One");
+    const old = (await t.sessions())["demo/0002"]?.session;
+    const response = await t.post("/api/chats/demo/0002/new-conversation", {});
+    expect(response.status).toBe(200);
+    const after = (await response.json()) as ChatDto;
+    expect(after.messages.map((m) => [m.from, m.text])).toEqual([
+      ["you", "One"],
+      ["agent", "Echo: One"],
+      ["hub", DIVIDER],
+    ]);
+    expect(after).toMatchObject({ remembers: true, running: false, unsummarized: true });
+    expect((await t.sessions())["demo/0002"]).toMatchObject({ fresh: true });
+    expect((await t.sessions())["demo/0002"]?.session).toBeUndefined();
+    expect(t.events).toContainEqual({ type: "chat", project: "demo", id: "0002" });
+
+    const events = await t.send("Two");
+    // No "isn't available on this machine": the divider already says it.
+    expect(events.flatMap((e) => (e.type === "message" ? [e.message.from] : []))).toEqual(["you"]);
+    const call = (await t.calls())[1];
+    const session = call?.args[call.args.indexOf("--session-id") + 1];
+    expect(session).toMatch(UUID);
+    expect(session).not.toBe(old);
+    expect(call?.args).not.toContain("--resume");
+    expect(call?.args).toContain("--append-system-prompt");
+    expect(call?.stdin).toMatch(/The human started a new conversation about this card/);
+    expect((await t.sessions())["demo/0002"]).toMatchObject({ session });
+    expect((await t.sessions())["demo/0002"]?.fresh).toBeUndefined();
+    expect((await t.conversation()).messages.map((m) => m.text)).toEqual([
+      "One",
+      "Echo: One",
+      DIVIDER,
+      "Two",
+      "Echo: Two",
+    ]);
+    // The message after that resumes the new session, as by default.
+    await t.send("Three");
+    expect((await t.calls())[2]?.args.slice(4, 6)).toEqual(["--resume", session]);
+  });
+
+  it("starts neutral about the pick again, unless revealed again", async () => {
+    const t = await setup();
+    const { revision } = await t.card();
+    await t.send("Which one?", { revealed: true, revision });
+    expect((await t.sessions())["demo/0002"]?.revealed).toEqual(expect.any(String));
+    await t.post("/api/chats/demo/0002/new-conversation", {});
+    expect((await t.sessions())["demo/0002"]?.revealed).toBeUndefined();
+    await t.send("And now?");
+    expect((await t.calls())[1]?.stdin).toMatch(
+      /^\(president: The human has not revealed the card's pick\./,
+    );
+    await t.send("Now?", { revealed: true, revision });
+    expect((await t.calls())[2]?.stdin).toMatch(/^\(president: The human has revealed/);
+  });
+
+  it("gives the new session the card's saved summaries", async () => {
+    const t = await setup();
+    await t.send("One");
+    const path = join(t.demo, "decisions", "0002-api-errors.md");
+    const text = await readFile(path, "utf8");
+    await writeFile(
+      path,
+      text.replace(
+        /^---\n/,
+        "---\nfeedback:\n  - at: 2026-11-10T09:00:00Z\n    type: chat\n    note: The client throws on 404.\n",
+      ),
+    );
+    await t.post("/api/chats/demo/0002/new-conversation", {});
+    await t.send("And the CLI?");
+    expect((await t.calls())[1]?.stdin).toMatch(
+      /- 2026-11-10T09:00:00Z: The client throws on 404\./,
+    );
+  });
+
+  it("does nothing without a conversation, or twice in a row", async () => {
+    const t = await setup();
+    const empty = (await (
+      await t.post("/api/chats/demo/0002/new-conversation", {})
+    ).json()) as ChatDto;
+    expect(empty.messages).toEqual([]);
+    await t.send("One");
+    await t.post("/api/chats/demo/0002/new-conversation", {});
+    await t.post("/api/chats/demo/0002/new-conversation", {});
+    expect((await t.conversation()).messages.filter((m) => m.text === DIVIDER)).toHaveLength(1);
+  });
+
+  it("is refused while the agent is answering, and needs a JSON body and a card", async () => {
+    const t = await setup();
+    await t.script([{ delayMs: 400 }]);
+    const slow = t.post("/api/chats/demo/0002/messages", { text: "slow" });
+    await vi.waitFor(async () => expect((await t.conversation()).running).toBe("reply"));
+    const busy = await t.post("/api/chats/demo/0002/new-conversation", {});
+    expect(busy.status).toBe(409);
+    expect(await busy.json()).toMatchObject({ code: "chat_busy" });
+    await (await slow).text();
+    expect((await t.sessions())["demo/0002"]?.fresh).toBeUndefined();
+    const noBody = await t.request("/api/chats/demo/0002/new-conversation", {
+      method: "POST",
+      headers: { origin: ORIGIN },
+    });
+    expect(noBody.status).toBeGreaterThanOrEqual(400);
+    expect((await t.post("/api/chats/demo/0999/new-conversation", {})).status).toBe(404);
+  });
+
+  it("writes the next summary from the copy while it covers messages from before the divider", async () => {
+    const t = await setup();
+    await t.send("One");
+    await t.post("/api/chats/demo/0002/new-conversation", {});
+    await t.send("Two");
+    const spanning = (await (
+      await t.post("/api/chats/demo/0002/summary", {})
+    ).json()) as ChatSummaryResponse;
+    expect(spanning.fromCopy).toBe(true);
+    const call = (await t.calls()).at(-1);
+    expect(call?.args).not.toContain("--resume");
+    expect(call?.stdin).toMatch(/Human, .*:\nOne/);
+    expect(call?.stdin).toMatch(/Human, .*:\nTwo/);
+
+    // Once the earlier part is closed, the new session writes the next one itself.
+    await t.post("/api/chats/demo/0002/close", {});
+    await t.post("/api/chats/demo/0002/new-conversation", {});
+    await t.send("Three");
+    const own = (await (
+      await t.post("/api/chats/demo/0002/summary", {})
+    ).json()) as ChatSummaryResponse;
+    expect(own.fromCopy).toBe(false);
+    expect((await t.calls()).at(-1)?.args).toContain("--resume");
   });
 });
 

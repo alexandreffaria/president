@@ -208,6 +208,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ closed }),
     }),
+  /**
+   * New conversation (20261112lvbu): the card's session ends, and the next message starts a
+   * new one from the card and its summaries.
+   */
+  newConversation: (project: string, id: string) =>
+    call<ChatDto>(`/api/chats/${segment(project)}/${segment(id)}/new-conversation`, {
+      method: "POST",
+      body: "{}",
+    }),
   addProject: (input: AddProjectRequest) =>
     call<AddProjectResponse>("/api/projects", { method: "POST", body: JSON.stringify(input) }),
   syncStatus: () => call<SyncStatusResponse>("/api/sync"),

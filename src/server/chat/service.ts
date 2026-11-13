@@ -11,6 +11,9 @@
  * - When Claude Code no longer has the session (another machine, or after
  *   `cleanupPeriodDays`), the next message starts a fresh one from the card and its
  *   summaries, the page says so, and the entry is replaced.
+ * - Your next message resumes the same session by default; New conversation (20261112lvbu
+ *   `choose`) ends it, and the next message starts a new one the same way, with a new id,
+ *   neutral about the pick again. The copy keeps the earlier messages, above a divider.
  * - Summaries: the session writes one (or, when Claude Code deleted it, a fresh one-off
  *   session reads the hub's copy, 20261111paot); nothing is saved until the human saves it
  *   as a `chat` card action, which goes through the card API like any other write.
@@ -21,15 +24,17 @@ import { randomUUID } from "node:crypto";
 import { readdir } from "node:fs/promises";
 import { z } from "zod";
 import { type CardActionType, timestamp } from "../../core/actions.ts";
-import type {
-  ChatAsk,
-  ChatCloseResponse,
-  ChatDto,
-  ChatMessageDto,
-  ChatStreamEvent,
-  ChatSummaryResponse,
-  NewOptionsRunDto,
-  StartNewOptionsResponse,
+import {
+  type ChatAsk,
+  type ChatCloseResponse,
+  type ChatDto,
+  type ChatMessageDto,
+  type ChatStreamEvent,
+  type ChatSummaryResponse,
+  isNewConversation,
+  NEW_CONVERSATION,
+  type NewOptionsRunDto,
+  type StartNewOptionsResponse,
 } from "../../core/api.ts";
 import { parseCardFileName } from "../../core/card-file.ts";
 import { newOptionsFailure } from "../../core/new-options.ts";
@@ -55,8 +60,8 @@ import {
   newOptionsSchema,
   optionCount,
   optionsHash,
-  pickHash,
   pickLine,
+  revealOf,
   sessionInstructions,
   startOverNote,
   summaryFromCopy,
@@ -197,7 +202,7 @@ export class ChatService {
   readonly #timeoutMs: number | undefined;
   readonly #now: () => Date;
   /** Cards with a run going on (a reply, a summary, new options): one at a time per card. */
-  readonly #running = new Map<string, ChatRun | "summary">();
+  readonly #running = new Map<string, ChatRun | "summary" | "new">();
   /** Who waits for a card's run to end (#whenIdle). */
   readonly #waiters = new Map<string, (() => void)[]>();
   /**
@@ -259,7 +264,7 @@ export class ChatService {
     clearInterval(this.#cleanupTimer);
     this.#abort.abort();
     await Promise.all([
-      ...[...this.#running.values()].map((run) => (run === "summary" ? undefined : run.done)),
+      ...[...this.#running.values()].map((run) => (typeof run === "string" ? undefined : run.done)),
       ...this.#newOptions.values(),
     ]);
   }
@@ -274,7 +279,7 @@ export class ChatService {
     const running: ChatDto["running"] =
       run === "summary"
         ? "summary"
-        : run !== undefined && !this.#optionRuns.has(run)
+        : run instanceof ChatRun && !this.#optionRuns.has(run)
           ? "reply"
           : this.#newOptions.has(keyName(key))
             ? "options"
@@ -377,7 +382,7 @@ export class ChatService {
     this.#changed(key);
     const entry = await this.store.entry(key);
     const revealedNow =
-      input.revealed && input.revision === card.revision ? pickHash(card) : undefined;
+      input.revealed && input.revision === card.revision ? revealOf(card) : undefined;
     const save = async (message: ChatMessageDto) => {
       await this.store.append(key, message);
       run.emit({ type: "message", message });
@@ -424,9 +429,10 @@ export class ChatService {
   /**
    * One turn of the card's session: resumes it, or starts one (with an id chosen up front,
    * kept in this machine's entry once Claude Code has it), starting over from the card and
-   * its summaries when Claude Code no longer has the conversation. `first` saves the human's
-   * message, after the start-over notice when there is one; `text` goes to the session after
-   * the pick line.
+   * its summaries when Claude Code no longer has the conversation or the human started a new
+   * one (`fresh`, 20261112lvbu; its divider is already in the copy, so no notice). `first`
+   * saves the human's message, after the start-over notice when there is one; `text` goes to
+   * the session after the pick line.
    */
   async #converse(
     project: Project,
@@ -445,13 +451,15 @@ export class ChatService {
       onActivity?: (text: string) => void;
     },
   ): Promise<RunResult> {
-    let resume = entry?.session && (await transcriptExists(this.#claudeDir, entry.session));
+    const fresh = entry?.fresh === true;
+    let resume =
+      !fresh && entry?.session && (await transcriptExists(this.#claudeDir, entry.session));
     // A conversation existed (here, or on another machine: the card has its summaries) that
     // this session won't remember.
     const startsOver = () =>
-      Boolean(entry?.session) || card.frontmatter.feedback.some((f) => f.type === "chat");
+      fresh || Boolean(entry?.session) || card.frontmatter.feedback.some((f) => f.type === "chat");
     let startOver = !resume && startsOver();
-    if (startOver) await turn.notice(this.#startOverNotice());
+    if (startOver && !fresh) await turn.notice(this.#startOverNotice());
     await turn.first();
 
     let revealed = resume ? (turn.revealedNow ?? entry?.revealed) : turn.revealedNow;
@@ -460,9 +468,12 @@ export class ChatService {
       const session = resume && entry?.session ? entry.session : randomUUID();
       if (resume) this.#starting.delete(keyName(key));
       else this.#starting.add(keyName(key));
+      // The first message since the human asked for the agent's view on a card without a
+      // pick gives it (20261112irpn).
+      const asksNow = revealed !== undefined && (!resume || entry?.revealed !== revealed);
       const message = withPickLine(
-        pickLine(card, revealed),
-        startOver ? `${startOverNote(card)}\n\n${turn.text}` : turn.text,
+        pickLine(card, revealed, asksNow),
+        startOver ? `${startOverNote(card, fresh)}\n\n${turn.text}` : turn.text,
       );
       if (resume) {
         await this.store.updateEntry(key, (e) => ({
@@ -487,6 +498,7 @@ export class ChatService {
             entryWrite = this.store
               .updateEntry(key, (e) => {
                 const next: SessionEntry = { ...e, session };
+                delete next.fresh;
                 if (revealed) next.revealed = revealed;
                 else delete next.revealed;
                 return next;
@@ -602,7 +614,7 @@ export class ChatService {
         return { started: false };
       }
       const revealedNow =
-        input.revealed && input.revision === current.revision ? pickHash(current) : undefined;
+        input.revealed && input.revision === current.revision ? revealOf(current) : undefined;
       const retry =
         record.state === "failed"
           ? record.error
@@ -746,6 +758,44 @@ export class ChatService {
   }
 
   /**
+   * New conversation (20261112lvbu `choose`): ends the card's session on this machine. The
+   * next message starts a new one from the card and its saved summaries, as when `--resume`
+   * can't find the session, with a new session id; the pick it revealed is forgotten, so the
+   * new one is neutral again unless a saved summary names it. The copy keeps the earlier
+   * messages, followed by a divider; what they leave unsummarized stays so (the next summary
+   * is written from the copy). Nothing happens without a conversation, or right after a
+   * divider. Refused while a run is going on.
+   */
+  async newConversation(project: Project, id: string): Promise<ChatDto> {
+    const card = await this.#card(project, id);
+    const key = { project: project.name, id: card.id };
+    if (this.#newOptions.has(keyName(key))) {
+      throw new UserError("new options are being written on this card; wait for them", {
+        status: 409,
+        code: "chat_busy",
+      });
+    }
+    this.#reserve(key, "new");
+    try {
+      const messages = await this.store.messages(key);
+      const last = messages.at(-1);
+      if (last && !isNewConversation(last)) {
+        await this.store.updateEntry(key, (entry) => {
+          const next: SessionEntry = { ...entry, fresh: true };
+          delete next.session;
+          delete next.revealed;
+          return next;
+        });
+        await this.store.append(key, this.#message("hub", NEW_CONVERSATION));
+      }
+    } finally {
+      this.#release(key);
+      this.#changed(key);
+    }
+    return this.conversation(project, card.id);
+  }
+
+  /**
    * Has the session write a summary of the messages after the last saved summary, and returns
    * it for the human to edit. Nothing is saved.
    */
@@ -772,11 +822,15 @@ export class ChatService {
         });
       }
       const revealedNow =
-        input.revealed && input.revision === card.revision ? pickHash(card) : undefined;
+        input.revealed && input.revision === card.revision ? revealOf(card) : undefined;
       const line = pickLine(card, revealedNow ?? entry?.revealed);
+      // Messages to cover from before a New conversation (20261112lvbu): the session now
+      // resumed never had them, so the summary is written from the copy.
+      const divider = messages.findLastIndex(isNewConversation);
+      const spans = divider > since && messages.slice(since, divider).some((m) => m.from !== "hub");
       let result: RunResult | undefined;
       let fromCopy = true;
-      if (entry?.session && (await transcriptExists(this.#claudeDir, entry.session))) {
+      if (!spans && entry?.session && (await transcriptExists(this.#claudeDir, entry.session))) {
         fromCopy = false;
         result = await this.#run({
           cwd: project.path,
@@ -964,7 +1018,7 @@ export class ChatService {
     return found.card;
   }
 
-  #reserve(key: CardKey, run: ChatRun | "summary"): void {
+  #reserve(key: CardKey, run: ChatRun | "summary" | "new"): void {
     if (this.#running.has(keyName(key))) {
       throw new UserError("the agent is still answering on this card; wait for it to finish", {
         status: 409,

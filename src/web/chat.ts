@@ -50,6 +50,11 @@ export interface CardChat {
   close: () => Promise<string>;
   /** Undoes a `close`: the conversation is "not summarized" again as it was before. */
   reopen: (closed: string) => Promise<void>;
+  /**
+   * New conversation (20261112lvbu): ends the session; the next message starts a new one.
+   * Throws when refused.
+   */
+  startNew: () => Promise<void>;
 }
 
 export const LOST_CONNECTION =
@@ -160,7 +165,11 @@ export function useCardChat(project: string, id: string): CardChat {
     [project, id],
   );
 
-  return { chat, live, send, summarize, close, reopen };
+  const startNew = useCallback(async () => {
+    setChat(await api.newConversation(project, id));
+  }, [project, id]);
+
+  return { chat, live, send, summarize, close, reopen, startNew };
 }
 
 /** Whether the window is at least `px` wide, following resizes. */
