@@ -212,7 +212,16 @@ and the tooltip says "port 4747 in use by another program"). If a Node upgrade m
    `$XDG_STATE_HOME/president/` (by default `~/.local/state/president/`), never in the
    project. When you're done, **Write summary**: the agent drafts a summary, you edit it, and
    what you save is added to the card's history as a conversation summary, which the project's
-   working agent reads like a note. Until then the card reminds you it isn't summarized.
+   working agent reads like a note. Until then the card reminds you it isn't summarized;
+   **Close without summary** in the summary box ends the reminder, drops the draft and adds
+   nothing to the card (Undo on its notice brings them back).
+   **Teach me** asks the agent for a worked example on one realistic scenario from the project
+   (a guess first, then each option walked through it), and **More info** for the two or three
+   facts the decision turns on, each answered briefly and backed by a quote from a primary
+   source, with its link. Deciding a card whose conversation isn't summarized first
+   shows the agent's summary to edit: **Save and decide** adds it and your decision in one
+   write (Undo takes both back), **Decide without summary** decides and closes the conversation
+   as Close without summary does (Undo brings the reminder back), and Esc goes back to the card.
 
    Notes (`m`) reach agents through `preside pending`, which lists notes they haven't read yet.
    An agent marks a card handled with a token from `pending` that records what it was shown, so
@@ -392,6 +401,6 @@ How it fits together:
   `POST /api/sync` passes the same Host and Origin checks as every write. While a project's
   Sync runs, card actions there are refused (409 `syncing`), and a Sync waits for a card
   write already under way.
-- State transitions live in `src/core/actions.ts`, shared by the API and the CLI. The coming
-  per-card chat ("ask", "teach me", "research") plugs in there and in
-  `src/web/components/CardAssistant.tsx`.
+- State transitions live in `src/core/actions.ts`, shared by the API and the CLI. The
+  per-card chat (asking, Teach me, More info, summaries) is `src/server/chat/` and
+  `src/web/components/CardChat.tsx`.

@@ -3,7 +3,7 @@
  * #0018), and while this tab sends a message, the reply as it streams in.
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { ChatDto, ChatMessageDto, ChatSummaryResponse } from "../core/api.ts";
+import type { ChatAsk, ChatDto, ChatMessageDto, ChatSummaryResponse } from "../core/api.ts";
 import { api, type ChatContext, RequestError } from "./api.ts";
 import { useHub } from "./hub.tsx";
 
@@ -34,9 +34,22 @@ export interface CardChat {
   chat: ChatDto | undefined;
   /** Set while this tab's message is being answered (and after its stream broke). */
   live: LiveReply | undefined;
-  /** Sends a message; resolves with what went wrong when it couldn't be sent or failed. */
-  send: (text: string, context: ChatContext) => Promise<SendFailure | undefined>;
+  /**
+   * Sends a message, or a panel button's request (Teach me, More info); resolves with what
+   * went wrong when it couldn't be sent or failed.
+   */
+  send: (
+    message: string | { ask: ChatAsk },
+    context: ChatContext,
+  ) => Promise<SendFailure | undefined>;
   summarize: (context: ChatContext) => Promise<ChatSummaryResponse>;
+  /**
+   * Ends the conversation without a summary (202611111ky9); throws when refused. Resolves
+   * with what `reopen` takes to undo it.
+   */
+  close: () => Promise<string>;
+  /** Undoes a `close`: the conversation is "not summarized" again as it was before. */
+  reopen: (closed: string) => Promise<void>;
 }
 
 export const LOST_CONNECTION =
@@ -77,7 +90,10 @@ export function useCardChat(project: string, id: string): CardChat {
   useEffect(() => () => abort.current?.abort(), []);
 
   const send = useCallback(
-    async (text: string, context: ChatContext): Promise<SendFailure | undefined> => {
+    async (
+      message: string | { ask: ChatAsk },
+      context: ChatContext,
+    ): Promise<SendFailure | undefined> => {
       if (sending.current) return { error: "The agent is still answering.", notSent: true };
       sending.current = true;
       sends.current++;
@@ -90,7 +106,7 @@ export function useCardChat(project: string, id: string): CardChat {
         for await (const event of api.sendChat(
           project,
           id,
-          { text, ...context },
+          { ...(typeof message === "string" ? { text: message } : message), ...context },
           controller.signal,
         )) {
           if (event.type === "message")
@@ -131,7 +147,20 @@ export function useCardChat(project: string, id: string): CardChat {
     [project, id],
   );
 
-  return { chat, live, send, summarize };
+  const close = useCallback(async () => {
+    const res = await api.closeChat(project, id);
+    setChat(res.chat);
+    return res.closed;
+  }, [project, id]);
+
+  const reopen = useCallback(
+    async (closed: string) => {
+      setChat(await api.reopenChat(project, id, closed));
+    },
+    [project, id],
+  );
+
+  return { chat, live, send, summarize, close, reopen };
 }
 
 /** Whether the window is at least `px` wide, following resizes. */

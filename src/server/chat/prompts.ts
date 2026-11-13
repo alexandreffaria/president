@@ -9,9 +9,10 @@
  *   Claude Code records once per conversation and reuses on every resume.
  * - The summary request (#0003, #0024) and, when Claude Code no longer has the session, the
  *   hub's copy it is written from (20261111paot).
+ * - What the panel's Teach me and More info buttons ask for (#0005, 20261111fauj).
  */
 import { createHash } from "node:crypto";
-import type { ChatMessageDto } from "../../core/api.ts";
+import type { ChatAsk, ChatMessageDto } from "../../core/api.ts";
 import type { LoadedCard } from "../cards.ts";
 
 export function sessionInstructions(card: LoadedCard): string {
@@ -118,3 +119,65 @@ export function summaryFromCopy(
     ...lines,
   ].join("\n\n");
 }
+
+/**
+ * What the panel's buttons ask for (#0002's sketch: Teach me, More info). The hub's copy shows
+ * the button's name as the human's message; the session gets the request.
+ */
+export const ASK_LABEL: Record<ChatAsk, string> = {
+  teach: "Teach me",
+  research: "More info",
+};
+
+/** The request behind a button, for this card. */
+export function askRequest(ask: ChatAsk, card: Pick<LoadedCard, "frontmatter">): string {
+  return ask === "teach" ? teachMeRequest(card) : MORE_INFO_REQUEST;
+}
+
+/**
+ * Teach me (#0005 `worked`): one realistic scenario from the project, a prediction asked for
+ * first, each option walked through it with where they differ, and what it leaves out. On a
+ * card with no options (20261111fauj `scenario`): the same shape minus the comparison, and no
+ * answers drafted by the agent. An `open` card that lists suggestions gets #0005's format on
+ * them as is. The hub picks by `options.length === 0`, as the Neither button does.
+ */
+export function teachMeRequest(card: Pick<LoadedCard, "frontmatter">): string {
+  const intro =
+    "Teach me: I want to understand the background before I decide. Give me a worked example, in this order:";
+  const tail =
+    "Keep to this one scenario; we can go on talking afterwards. Follow the line about the pick: this is a lesson, not a recommendation.";
+  if (card.frontmatter.options.length === 0) {
+    return [
+      intro,
+      "1. Pick one realistic scenario from this project (read its files to find one) that an answer to this card would really have to handle.",
+      '2. First ask me what I would want to happen in it, under the heading "First, a guess:".',
+      "3. Then walk through, step by step, what any answer has to cope with in that scenario.",
+      '4. Say what the scenario leaves out, under "What this leaves out:".',
+      "The card has no options: it asks for my own answer. Don't draft candidate answers of your own, not even as examples; my ideas should come before yours.",
+      tail,
+    ].join("\n");
+  }
+  const options = card.frontmatter.kind === "open" ? "suggestions" : "options";
+  return [
+    intro,
+    `1. Pick one realistic scenario from this project (read its files to find one) where the card's ${options} would play out differently.`,
+    `2. First ask me to predict which of the ${options} handles it better, under the heading "First, a guess:", before any explanation.`,
+    `3. Then walk each of the ${options} through the scenario step by step, as a table with one column per option, and point out where they differ, under "What made the difference:".`,
+    '4. Say what the scenario leaves out, under "What this leaves out:".',
+    tail,
+  ].join("\n");
+}
+
+/**
+ * More info / research (foundations.md, "Card interactions": "from primary sources, with
+ * quotes"), a button of its own next to Teach me (#0005, #0002). Its answer is 20261112e1ik
+ * `findings`: the two or three facts the decision turns on, each answered in a sentence or
+ * two and backed by a quoted primary source and its link, then what couldn't be verified.
+ */
+export const MORE_INFO_REQUEST = [
+  "More info: research this card's question further, from primary sources: this project's own files, official documentation, specifications and standards, papers.",
+  'Under the heading "What this turns on:", name the two or three facts this decision turns on, as numbered questions.',
+  "Answer each in a sentence or two, and back each answer with the passage that matters, quoted from a primary source, and its link or file path.",
+  "Then, under \"Couldn't verify:\", say what you looked for and couldn't find or verify.",
+  "Follow the line about the pick: report what the sources say without recommending an option.",
+].join(" ");

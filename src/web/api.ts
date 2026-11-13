@@ -6,9 +6,12 @@ import type {
   AddProjectRequest,
   AddProjectResponse,
   ApiError,
+  CardActionResponse,
   CardDetailDto,
   CardListResponse,
   CardResponse,
+  ChatAsk,
+  ChatCloseResponse,
   ChatDto,
   ChatStreamEvent,
   ChatSummaryResponse,
@@ -69,7 +72,7 @@ export class StreamError extends Error {}
 async function* sendChat(
   project: string,
   id: string,
-  body: ChatContext & { text: string },
+  body: ChatContext & ({ text: string } | { ask: ChatAsk }),
   signal?: AbortSignal,
 ): AsyncGenerator<ChatStreamEvent> {
   let response: Response;
@@ -132,14 +135,28 @@ export const api = {
       `/api/cards/${segment(project)}/${segment(id)}${since ? `?since=${segment(since)}` : ""}`,
     ),
   /** `revision` is the revision of the card the human read (see drafts.ts `seen`). */
-  act: (project: string, id: string, action: CardAction, revision: string) =>
+  /**
+   * `closeChat` (a decision only): the card's conversation is closed without a summary in the
+   * same request, and undoing the decision brings its reminder back (20261112hq3k).
+   */
+  act: (
+    project: string,
+    id: string,
+    action: CardAction,
+    revision: string,
+    options: { closeChat?: boolean } = {},
+  ) =>
     recorded(
       project,
       id,
-      call<{ ok: true; card: CardDetailDto }>(
-        `/api/cards/${segment(project)}/${segment(id)}/actions`,
-        { method: "POST", body: JSON.stringify({ ...action, revision }) },
-      ),
+      call<CardActionResponse>(`/api/cards/${segment(project)}/${segment(id)}/actions`, {
+        method: "POST",
+        body: JSON.stringify({
+          ...action,
+          revision,
+          ...(options.closeChat ? { closeChat: true } : {}),
+        }),
+      }),
     ),
   /** Reverts the action that returned `revision`, if nothing changed the card since. */
   undo: (project: string, id: string, revision: string) =>
@@ -163,6 +180,18 @@ export const api = {
     call<ChatSummaryResponse>(`/api/chats/${segment(project)}/${segment(id)}/summary`, {
       method: "POST",
       body: JSON.stringify(context),
+    }),
+  /** Ends the conversation without a summary; the card isn't written (202611111ky9). */
+  closeChat: (project: string, id: string) =>
+    call<ChatCloseResponse>(`/api/chats/${segment(project)}/${segment(id)}/close`, {
+      method: "POST",
+      body: "{}",
+    }),
+  /** Undoes `closeChat` (`closed` is what it returned): "not summarized" again. */
+  reopenChat: (project: string, id: string, closed: string) =>
+    call<ChatDto>(`/api/chats/${segment(project)}/${segment(id)}/reopen`, {
+      method: "POST",
+      body: JSON.stringify({ closed }),
     }),
   addProject: (input: AddProjectRequest) =>
     call<AddProjectResponse>("/api/projects", { method: "POST", body: JSON.stringify(input) }),

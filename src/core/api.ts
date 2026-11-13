@@ -75,6 +75,17 @@ export interface QueueCountResponse {
 
 export type CardResponse = { ok: true; card: CardDetailDto } | { ok: false; broken: BrokenCardDto };
 
+/**
+ * `POST /api/cards/:project/:id/actions`: the card as written, and when the action saved a
+ * conversation summary or closed the conversation, whether it is still unsummarized after it
+ * (a message came after the summary was written).
+ */
+export interface CardActionResponse {
+  ok: true;
+  card: CardDetailDto;
+  unsummarized?: boolean;
+}
+
 export interface ApiError {
   error: string;
   /** Machine-readable reason, e.g. "conflict" when the card changed on disk. */
@@ -135,6 +146,20 @@ export interface ChatDto {
   /** The run of the card's session going on now: a reply, a summary, or none (false). */
   running: false | "reply" | "summary";
 }
+
+/** `POST /api/chats/:project/:id/close`: the conversation now, and what undoes the close. */
+export interface ChatCloseResponse {
+  chat: ChatDto;
+  /** Sent back to `POST /api/chats/:project/:id/reopen` by the notice's Undo. */
+  closed: string;
+}
+
+/**
+ * A request from one of the panel's buttons instead of typed text: "teach" is Teach me (#0005,
+ * 20261111fauj), "research" is More info.
+ */
+export const CHAT_ASKS = ["teach", "research"] as const;
+export type ChatAsk = (typeof CHAT_ASKS)[number];
 
 /**
  * The lines of `POST /api/chats/:project/:id/messages` (newline-delimited JSON), in order:

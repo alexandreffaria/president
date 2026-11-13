@@ -69,8 +69,18 @@ by the session or from the hub's copy) and the `chat` card action. The second, "
 (E1b): the conversation panel" (PR #27, branch `feat/card-chat-panel`, after the first merged), adds the
 panel on the card page (#0002, 20261111sblu), the conversation shown again from the hub's copy
 (#0018), the reminder on leaving and Write summary (#0024, 202611111ky9, 20261111paot) and
-saving a summary outside a decision's Undo window (#0020). Teach me, More info, deciding while a
-conversation is open (#0019) and Neither's run (#0007) follow in the next pull requests.
+saving a summary outside a decision's Undo window (#0020). The third, "Card chat (E1c):
+deciding with a conversation open, Teach me and More info" (PR #28, branch
+`feat/card-chat-decide`, after the second merged), adds the "Before deciding" box for Decide
+and "Decide this as my answer" (#0019, 20261111is21) with Undo taking back the summary and the
+decision together, the Teach me (#0005, 20261111fauj) and More info buttons, and "Close without
+summary" in the summary box (202611111ky9), with Undo on its notice. It also builds the two
+cards PR #28 asked for: "Decide without summary" closes the conversation too (20261112hq3k
+`ends`), and More info answers with the facts the decision turns on, each backed by a quote
+(20261112e1ik `findings`). E1c note: Decide never replaces a summary already in the box; an
+agent summary isn't refreshed after more chat — edit or clear it. (Three review rounds of
+PR #28 tried to tell an out-of-date agent draft from one you edited, and each fix lost typed
+text another way; the rule was cut back to this one.) Neither's run (#0007) follows in E2.
 
 Then (2026-11-12): 20261112nyu2 (what the project's agent does with new options the hub wrote
 from a "neither" note) is decided: `fix`, change only a wrong or missing fact or an option that
@@ -96,7 +106,7 @@ Each row is one pull request (PR 2 may be split, see its section). The order is 
 | B2 | [Sync: count a skipped project's answers apart](#b2-sync-count-a-skipped-projects-answers-apart-20261112l9vh) | 20261112l9vh | B (PR #12) merged | **Built** in the follow-up pull request (PR #18, branch `feat/sync-followups`) |
 | C | [Queue and card UX](#c-queue-and-card-ux) | #0008, #0009, #0010, #0011, #0012, #0014 (hub part), #0015, #0017, 20261111nsaj, 202611112hzh, 202611116ff6 (hub part) | D's `withdrawn` definition, for the Withdrawn section only | **Built** in the pull request "Queue and card UX (C)" (PR #21, branch `feat/queue-card-ux-c`), and the [Withdrawn section](#withdrawn-cards-in-the-hub-0014) (#0014's and 202611116ff6's hub part) in the follow-up pull request "Withdrawn cards in the hub" (PR #24, branch `feat/withdrawn-section`) |
 | D | [Card format and CLI](#d-card-format-and-cli) | #0013, #0014 (format part), #0023 (format part), 202611116ff6 (`pending` and `validate`) | PR #7 (it edits `card-format.md` and `SKILL.md`) | **Built** in the pull request "Card format and CLI (D)" (PR #20, branch `feat/card-format-d`) |
-| E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s, 20261112dfik | C (#0010's panel, #0011's notes on decided cards), D (`chat` type) | **In progress**, as a stack of pull requests: E1a (the session, the per-machine stores, the API and summaries on the server) in "Card chat (E1a)" (merged, PR #25, branch `feat/card-chat`); E1b (the panel, Write summary, the reminder) in "Card chat (E1b)" (PR #27, branch `feat/card-chat-panel`); Teach me, deciding while open and Neither's run follow |
+| E | [PR 2: the per-card chat](#e-pr-2-the-per-card-chat) | #0002, #0003, #0004, #0005, #0006, #0007, #0018, #0019, #0020, #0021, #0023, #0024, 20261111mby8, 20261111sblu, 202611114wet, 20261111paot, 202611111ky9, 20261111is21, 202611111gpm, 20261111fauj, 2026111272fu, 20261112160s, 20261112dfik, 20261112hq3k, 20261112e1ik | C (#0010's panel, #0011's notes on decided cards), D (`chat` type) | **In progress**, as a stack of pull requests: E1a (the session, the per-machine stores, the API and summaries on the server) in "Card chat (E1a)" (merged, PR #25, branch `feat/card-chat`); E1b (the panel, Write summary, the reminder) in "Card chat (E1b)" (merged, PR #27, branch `feat/card-chat-panel`); E1c (deciding while a conversation is open, Teach me, More info, Close without summary, and 20261112hq3k and 20261112e1ik) in "Card chat (E1c)" (PR #28, branch `feat/card-chat-decide`); Neither's run (E2) follows |
 | F | [Rename the command to `preside`](#f-rename-the-command-to-preside-0016-20261111dmvt) (agent-facing: the CLI, the skill and every printed command) | #0016, 20261111dmvt | A2 (both edit `SKILL.md`). The npm placeholder is published by the human (an agent prepares it). No card orders it against F; suggested: publish it before F merges (after repeating the name check), so the name F writes everywhere can't be taken meanwhile | **Built** in the pull request "Rename the command to preside (F)" (PR #19, branch `feat/rename-preside`) |
 | F2 | [Remove the `president` alias](#the-president-alias-and-when-it-ends) | 20261111dmvt | F | **Built** in the pull request "Remove the president alias (F2)" (branch `feat/remove-president-alias`); the human waived the wait on 2026-11-12, see [the alias](#the-president-alias-and-when-it-ends) |
 | G | [The Windows tray helper](#g-the-windows-tray-helper-20261112vzn8) | 20261112vzn8 (and 2026111276n0: a hub on each machine) | PR #31 (Windows CI and portability) | **Built** in the pull request "Windows tray helper (G)" (PR #32, branch `feat/windows-tray`) |
@@ -966,6 +976,15 @@ An `open` card that does list suggestions gets #0005's format on them as is. Acc
 with nothing to contrast you learn less about the differences that matter, and one scenario can
 mislead if it isn't typical.
 
+**More info's answer**
+([20261112e1ik-more-info-answer.md](../decisions/20261112e1ik-more-info-answer.md), option
+`findings`): "The agent names the two or three facts the decision turns on, answers each in a
+sentence or two, and backs each answer with a quoted primary source and its link, then what it
+couldn't verify." The hub's request asks for them under "What this turns on:" and "Couldn't
+verify:", and, as for everything in the chat, names no pick until you press `r` (20261111mby8).
+Accepted costs: you see the evidence through the agent's framing, and a wrong "this is what it
+turns on" sends the research the wrong way.
+
 ### The chat stays neutral until you reveal the pick (20261111mby8)
 
 Card: [20261111mby8-chat-and-hidden-pick.md](../decisions/20261111mby8-chat-and-hidden-pick.md),
@@ -1173,8 +1192,23 @@ option `wait`.
   ```
 
 - **Save and decide** makes **one write** that appends the `chat` entry and records the
-  decision (with the "Why?" note, if any). **Decide without summary** is today's Decide. **Esc**
-  goes back to the card without deciding.
+  decision (with the "Why?" note, if any). **Decide without summary** is today's Decide, and it
+  also closes the conversation as **Close without summary** does
+  ([20261112hq3k-decide-without-summary-reminder.md](../decisions/20261112hq3k-decide-without-summary-reminder.md),
+  option `ends`): nothing from the conversation is added to the card, its messages count as
+  covered, and the "not summarized" reminder ends (no notice on leaving, no Write summary on
+  the decided card). Undo takes back the decision and brings the reminder back (the hub closes
+  the conversation in the same request as the decision, and undoing that decision reopens it).
+  Accepted cost: if you meant "summarize later", use Save and decide, or add a note to the
+  decided card. **Esc** goes back to the card without deciding.
+- **The agent never replaces text already in the summary box** (E1c). If the box already holds
+  a draft (the agent's from an earlier Write summary, one you typed, or one Undo put back),
+  Decide opens it as it is, with no new run, even when messages came after it: edit it, or
+  clear it and decide again for a new one. Only an empty box gets "Writing a summary...". An
+  agent summary that arrives once there is text in the box (Write summary finishing after you
+  typed in the "Before deciding" box) is dropped, with a notice. Decide while Write summary is
+  still running opens the box at once to type in, saying a summary is being written; it fills
+  the box when done, if the box is still empty.
 - The summary is a separate `chat` entry, not text in the decision's "Why?" (the card's variant
   that would prefill "Why?" was not chosen).
 - **Undo** (10 seconds, #0006) restores the card from before that one write, which removes both,

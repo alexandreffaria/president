@@ -21,6 +21,8 @@ import { randomUUID } from "node:crypto";
 import { readdir } from "node:fs/promises";
 import { timestamp } from "../../core/actions.ts";
 import type {
+  ChatAsk,
+  ChatCloseResponse,
   ChatDto,
   ChatMessageDto,
   ChatStreamEvent,
@@ -33,6 +35,8 @@ import { isNotFound } from "../fs-utils.ts";
 import { decisionsDirOf, type Project, type Registry } from "../registry.ts";
 import type { EventBus } from "../watcher.ts";
 import {
+  ASK_LABEL,
+  askRequest,
   pickHash,
   pickLine,
   sessionInstructions,
@@ -68,7 +72,10 @@ export interface ChatOptions {
 }
 
 export interface SendInput {
-  text: string;
+  /** What the human typed (ignored when `ask` is given). */
+  text?: string | undefined;
+  /** A panel button's request (Teach me, More info) instead of typed text. */
+  ask?: ChatAsk | undefined;
   /**
    * The page has revealed the card's pick (#0008's `r`) on the revision it sends; the
    * conversation is then free about that pick (20261111mby8).
@@ -130,8 +137,15 @@ export class ChatService {
    * transcript yet, which doesn't mean it forgot the conversation.
    */
   readonly #starting = new Set<string>();
-  /** Card revisions written by saving a summary, with what to put back if that is undone. */
-  readonly #summaryWrites = new Map<string, { key: CardKey; before: SessionEntry | undefined }>();
+  /**
+   * Card revisions written by saving a summary (or by Decide without summary), and the ids of
+   * closes ("Close without summary", `close: true`), with what to put back if that is undone.
+   * Only a close is undone with `reopen`; a card write is undone by undoing it (`undone`).
+   */
+  readonly #summaryWrites = new Map<
+    string,
+    { key: CardKey; before: SessionEntry | undefined; close: boolean }
+  >();
   /** How many messages the summary last offered for a card covers. */
   readonly #offered = new Map<string, number>();
   readonly #abort = new AbortController();
@@ -232,7 +246,10 @@ export class ChatService {
       Boolean(entry?.session) || card.frontmatter.feedback.some((f) => f.type === "chat");
     let startOver = !resume && startsOver();
     if (startOver) await save(this.#startOverNotice());
-    await save(this.#message("you", input.text));
+    // A button shows as its name in the conversation; the session gets its request.
+    const shown = input.ask ? ASK_LABEL[input.ask] : (input.text ?? "");
+    const request = input.ask ? askRequest(input.ask, card) : shown;
+    await save(this.#message("you", shown));
     // Unsummarized from the moment the message is in (#0024): leaving while the agent
     // thinks still gets the reminder.
     await this.store.updateEntry(key, (e) => ({ ...e, unsummarized: true }));
@@ -246,7 +263,7 @@ export class ChatService {
       else this.#starting.add(keyName(key));
       const message = withPickLine(
         pickLine(card, revealed),
-        startOver ? `${startOverNote(card)}\n\n${input.text}` : input.text,
+        startOver ? `${startOverNote(card)}\n\n${request}` : request,
       );
       if (resume) {
         await this.store.updateEntry(key, (e) => ({
@@ -382,6 +399,65 @@ export class ChatService {
   }
 
   /**
+   * Ends the conversation without a summary ("Close without summary" in the summary box;
+   * 202611111ky9 `remind`: the reminder lasts "until you close the conversation, saving its
+   * summary or not"). Nothing is written to the card. The messages so far stay in the hub's
+   * copy, and the next summary covers only what comes after them.
+   *
+   * `decision`: the revision of a decision made with "Decide without summary", which closes
+   * the conversation too (20261112hq3k `ends`); undoing that decision (`undone`) reopens it.
+   * Without it, the close is undone with `reopen` and the returned `closed`.
+   */
+  async closeWithoutSummary(
+    project: Project,
+    id: string,
+    options: { decision?: string } = {},
+  ): Promise<ChatCloseResponse> {
+    const card = await this.#card(project, id);
+    const key = { project: project.name, id: card.id };
+    // A decision is already written: a reply still coming in is left to mark itself.
+    if (options.decision === undefined && this.#running.has(keyName(key))) {
+      throw new UserError("the agent is still answering on this card; wait for it to finish", {
+        status: 409,
+        code: "chat_busy",
+      });
+    }
+    let before: SessionEntry | undefined;
+    await this.store.updateEntry(key, async (entry) => {
+      before = entry;
+      if (!entry) return entry;
+      // Counted under the entry's lock, as in summarySaved.
+      const messages = await this.store.messages(key);
+      const next: SessionEntry = { ...entry, summarized: messages.length };
+      delete next.unsummarized;
+      return next;
+    });
+    this.#offered.delete(keyName(key));
+    const closed = options.decision ?? randomUUID();
+    // A close made by a decision is undone with the decision, never with `reopen`.
+    if (before) this.#remember(closed, key, before, options.decision === undefined);
+    this.#changed(key);
+    return { chat: await this.conversation(project, card.id), closed };
+  }
+
+  /**
+   * Undoes `closeWithoutSummary` (its notice's Undo): the conversation is "not summarized"
+   * again, and the next summary covers what it covered before the close.
+   */
+  async reopen(project: Project, id: string, closed: string): Promise<ChatDto> {
+    const card = await this.#card(project, id);
+    const write = this.#summaryWrites.get(closed);
+    if (!write?.close || write.key.project !== project.name || write.key.id !== card.id) {
+      throw new UserError("this close can no longer be undone", {
+        status: 409,
+        code: "not_undoable",
+      });
+    }
+    await this.undone(closed);
+    return this.conversation(project, card.id);
+  }
+
+  /**
    * A summary was saved on the card (the `chat` action, or a decision carrying one), which
    * wrote `revision`: the conversation counts as summarized up to the messages that summary
    * was written from.
@@ -402,14 +478,22 @@ export class ChatService {
       if (covered >= messages.length) delete next.unsummarized;
       return next;
     });
-    this.#summaryWrites.set(revision, { key, before });
-    if (this.#summaryWrites.size > 200) {
-      this.#summaryWrites.delete(this.#summaryWrites.keys().next().value as string);
-    }
+    this.#remember(revision, key, before, false);
     this.#changed(key);
   }
 
-  /** An undo took back the write that produced `revision`; a summary in it is unsaved again. */
+  /** What an undo of `write` (a card revision, or a close's id) puts back; the last 200. */
+  #remember(write: string, key: CardKey, before: SessionEntry | undefined, close: boolean): void {
+    this.#summaryWrites.set(write, { key, before, close });
+    if (this.#summaryWrites.size > 200) {
+      this.#summaryWrites.delete(this.#summaryWrites.keys().next().value as string);
+    }
+  }
+
+  /**
+   * An undo took back the write that produced `revision`; a summary in it is unsaved again,
+   * and a close in it (Decide without summary, or `reopen`) is undone.
+   */
   async undone(revision: string): Promise<void> {
     const write = this.#summaryWrites.get(revision);
     if (!write) return;

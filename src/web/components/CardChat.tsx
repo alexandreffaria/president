@@ -10,15 +10,24 @@
  * - Summaries: "Conversation not summarized yet. [Write summary]" while messages aren't
  *   covered by a saved summary (#0024, 202611111ky9); the agent writes one, the human edits
  *   it, and only what they save is added to the card as a `chat` entry (#0003, #0023).
+ *   "Close without summary" ends the reminder without writing the card (202611111ky9: it
+ *   lasts "until you close the conversation, saving its summary or not"), drops the draft,
+ *   and can be undone from its notice.
  *   Closing the box (Esc, Cancel) keeps the edited text as a draft, like the other panels.
+ * - Teach me (#0005, 20261111fauj) and More info (20261112e1ik): buttons next to the message
+ *   box (#0002's sketch); the hub writes their requests.
+ * - While the "Before deciding" box is open (#0019, BeforeDeciding.tsx), the summary is edited
+ *   there, so this panel's summary box stays out of the way, and nothing can be asked (the
+ *   message box, Teach me and More info are off): a message then would be missing from the
+ *   summary saved with the decision.
  * - Agent text never loads anything: images in it are links (a page the session read could
  *   have asked for an image whose address carries project text).
  */
 import { type RefObject, useEffect, useRef, useState } from "react";
-import type { CardDetailDto, ChatMessageDto } from "../../core/api.ts";
+import type { CardDetailDto, ChatAsk, ChatMessageDto } from "../../core/api.ts";
 import type { ChatContext } from "../api.ts";
 import type { CardChat as ChatState } from "../chat.ts";
-import type { Draft } from "../drafts.ts";
+import { clearSummaryIf, type Draft, fillSummaryIfEmpty, putBack } from "../drafts.ts";
 import { fullDate, timeAgo } from "../format.ts";
 import { useKeyLayer } from "../keyboard.ts";
 import { useToast } from "../toast.tsx";
@@ -40,8 +49,21 @@ export function CardChat(props: {
   focusOnOpen: RefObject<boolean>;
   /** Saves the edited summary on the card; true when it was saved. */
   onSaveSummary: (summary: string) => Promise<boolean>;
+  /**
+   * Puts an agent summary in the draft, only if the draft is still empty (the agent never
+   * replaces text already in the summary box); true when it was used.
+   */
+  onAgentSummary: (summary: string) => boolean;
+  /**
+   * Told when this panel's Write summary starts and ends, before the hub's copy says so;
+   * at the end, with why no summary was written when the run failed.
+   */
+  onWriting?: (writing: boolean, error?: string) => void;
+  /** The "Before deciding" box is open and holds the summary (#0019). */
+  deciding?: boolean;
 }) {
   const { card, chat, context, draft } = props;
+  const deciding = props.deciding === true;
   const toast = useToast();
   const messages = chat.chat?.messages ?? [];
   const live = chat.live;
@@ -63,6 +85,7 @@ export function CardChat(props: {
   const running = answering || Boolean(chat.chat?.running);
   const remembers = chat.chat?.remembers ?? true;
   const unsummarized = chat.chat?.unsummarized === true;
+  const [closing, setClosing] = useState(false);
   const status = answering
     ? (live.activity ?? "The agent is answering…")
     : writing || chat.chat?.running === "summary"
@@ -82,11 +105,12 @@ export function CardChat(props: {
   }, []);
 
   // A summary draft that appears (the agent wrote one, an Undo put a saved one back) opens
-  // the box; closing the box keeps the draft without reopening it.
+  // the box; closing the box keeps the draft without reopening it. One the "Before deciding"
+  // box wrote waits behind "Edit summary" if that box is left with Esc.
   useEffect(() => {
-    if (hasSummaryDraft && !hadSummaryDraft.current) setBoxOpen(true);
+    if (hasSummaryDraft && !hadSummaryDraft.current && !deciding) setBoxOpen(true);
     hadSummaryDraft.current = hasSummaryDraft;
-  }, [hasSummaryDraft]);
+  }, [hasSummaryDraft, deciding]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: once the box opened or closed
   useEffect(() => {
@@ -106,28 +130,43 @@ export function CardChat(props: {
 
   const send = async () => {
     const text = draft.chat.trim();
-    if (!text || running) return;
+    if (!text || running || deciding) return;
     props.onDraft({ chat: "" });
     const failure = await chat.send(text, context);
     if (failure) {
       toast(failure.error, { tone: "error" });
       // Refused before the hub saved it (the agent was busy, the hub unreachable): keep the
       // text. Once saved, it is in the conversation; sending it again would send it twice.
-      if (failure.notSent) props.onDraft({ chat: text });
+      // Into the stored draft, ahead of what was typed since (here, or in a new view of the
+      // card if the human left and came back), which stays.
+      if (failure.notSent) putBack(card.project, card.id, "chat", text);
     }
+  };
+
+  /** Teach me or More info: the button's name shows as your message. */
+  const ask = async (what: ChatAsk) => {
+    if (running || deciding) return;
+    const failure = await chat.send({ ask: what }, context);
+    if (failure) toast(failure.error, { tone: "error" });
   };
 
   const writeSummary = async () => {
     setWriting(true);
+    props.onWriting?.(true);
+    let failed: string | undefined;
     try {
       const { summary } = await chat.summarize(context);
-      focusAfterBox.current = "box";
-      props.onDraft({ summary });
-      setBoxOpen(true);
+      // Text typed while the agent wrote (here or in the "Before deciding" box) wins.
+      if (props.onAgentSummary(summary)) {
+        focusAfterBox.current = "box";
+        setBoxOpen(true);
+      }
     } catch (error) {
-      toast((error as Error).message, { tone: "error" });
+      failed = (error as Error).message;
+      toast(failed, { tone: "error" });
     } finally {
       setWriting(false);
+      props.onWriting?.(false, failed);
     }
   };
 
@@ -145,6 +184,50 @@ export function CardChat(props: {
     setBoxOpen(true);
   };
 
+  /**
+   * Ends the conversation without saving a summary: the reminder goes, the card stays, and
+   * the draft is dropped (the only button that drops it). Undo on the notice brings the
+   * reminder and the draft back.
+   */
+  const closeWithoutSummary = async () => {
+    if (closing) return;
+    setClosing(true);
+    const dropped = draft.summary;
+    try {
+      const closed = await chat.close();
+      // Only while the box still holds what was dropped, and no other field: this view may
+      // have gone (the human left the card and came back), and what was typed since stays.
+      clearSummaryIf(card.project, card.id, dropped);
+      setBoxOpen(false);
+      toast("Conversation closed without a summary. Nothing was added to the card.", {
+        action: {
+          label: "Undo",
+          key: "u",
+          run: () => {
+            chat
+              .reopen(closed)
+              .then(() => {
+                // Into the stored draft, only while its summary is empty: this view may have
+                // gone (the human left the card and came back), and what was typed since stays.
+                const kept =
+                  dropped.trim() !== "" && !fillSummaryIfEmpty(card.project, card.id, dropped);
+                toast(
+                  kept
+                    ? "Undone. The conversation isn't summarized again. Your earlier summary wasn't put back: the summary box already has text."
+                    : "Undone. The conversation isn't summarized again.",
+                );
+              })
+              .catch((error: Error) => toast(`Couldn't undo: ${error.message}`, { tone: "error" }));
+          },
+        },
+      });
+    } catch (error) {
+      toast((error as Error).message, { tone: "error" });
+    } finally {
+      setClosing(false);
+    }
+  };
+
   const save = async () => {
     const text = draft.summary.trim();
     if (!text || saving) return;
@@ -157,7 +240,7 @@ export function CardChat(props: {
   };
 
   // The summary box holds text not saved yet: Esc closes it, and the page's keys wait.
-  useKeyLayer({ escape: closeBox }, boxOpen);
+  useKeyLayer({ escape: closeBox }, boxOpen && !deciding);
 
   return (
     <section className={`chat chat-${props.layout}`} aria-labelledby={`chat-heading-${card.id}`}>
@@ -212,7 +295,7 @@ export function CardChat(props: {
         </p>
       )}
 
-      {boxOpen ? (
+      {deciding ? null : boxOpen ? (
         <form
           className="chat-summary"
           onSubmit={(event) => {
@@ -243,6 +326,14 @@ export function CardChat(props: {
           <div className="action-panel-buttons">
             <button type="button" className="button" onClick={closeBox}>
               Cancel <kbd>Esc</kbd>
+            </button>
+            <button
+              type="button"
+              className="button"
+              disabled={closing || saving || running}
+              onClick={() => void closeWithoutSummary()}
+            >
+              Close without summary
             </button>
             <button
               type="submit"
@@ -277,6 +368,25 @@ export function CardChat(props: {
         )
       )}
 
+      <p className="chat-asks">
+        <button
+          type="button"
+          className="button"
+          disabled={running || deciding}
+          onClick={() => void ask("teach")}
+        >
+          Teach me
+        </button>
+        <button
+          type="button"
+          className="button"
+          disabled={running || deciding}
+          onClick={() => void ask("research")}
+        >
+          More info
+        </button>
+      </p>
+
       <form
         className="chat-compose"
         onSubmit={(event) => {
@@ -289,6 +399,8 @@ export function CardChat(props: {
           aria-label="Message to the card's agent"
           placeholder="Ask about this card…"
           rows={2}
+          disabled={deciding}
+          aria-describedby={deciding ? `chat-deciding-${card.id}` : undefined}
           value={draft.chat}
           onChange={(event) => props.onDraft({ chat: event.target.value })}
           onKeyDown={(event) => {
@@ -301,11 +413,16 @@ export function CardChat(props: {
         <button
           type="submit"
           className="button button-primary"
-          disabled={running || !draft.chat.trim()}
+          disabled={running || deciding || !draft.chat.trim()}
         >
           Send <kbd>⏎</kbd>
         </button>
       </form>
+      {deciding && (
+        <p className="chat-note muted small" id={`chat-deciding-${card.id}`}>
+          Finish deciding, or press Esc to keep talking.
+        </p>
+      )}
     </section>
   );
 }
