@@ -48,7 +48,14 @@ let syncPosts: number;
 let finishSync: ((results: SyncResultDto[]) => void) | undefined;
 
 function project(overrides: Partial<ProjectSyncStatus> = {}): ProjectSyncStatus {
-  return { project: "shop", unsynced: 0, remoteChanges: 0, running: false, ...overrides };
+  return {
+    project: "shop",
+    unsynced: 0,
+    remoteChanges: 0,
+    fetchRetrying: false,
+    running: false,
+    ...overrides,
+  };
 }
 
 function result(overrides: Partial<SyncResultDto> = {}): SyncResultDto {
@@ -216,14 +223,25 @@ describe("the Sync control", () => {
     expect(host.querySelector(".sync-report")).toBeNull();
   });
 
-  it("shows a fetch that failed when the hub started", async () => {
+  it("shows a fetch that failed since the hub started", async () => {
     projects = [
       project({ fetchError: "fatal: unable to access 'https://example/': Could not resolve host" }),
     ];
     await render();
     await until(() => text().includes("Couldn't fetch from the remote of shop"), "the notice");
-    expect(text()).toContain("Sync fetches again when you press it.");
+    expect(text()).toContain("Couldn't fetch from the remote of shop since the hub started");
+    expect(text()).toContain("Press Sync to fetch again.");
     expect(text()).toContain("Could not resolve host");
+  });
+
+  it("says the hub keeps trying while it retries a failed fetch", async () => {
+    projects = [project({ fetchError: "Could not resolve host: github.com", fetchRetrying: true })];
+    await render();
+    await until(() => text().includes("Couldn't fetch from the remote of shop"), "the notice");
+    expect(text()).toContain(
+      "The hub keeps trying on its own for a while; press Sync to fetch now.",
+    );
+    expect(text()).not.toContain("Press Sync to fetch again.");
   });
 
   it("shows a rebase left in progress when the hub starts, and how to get the files back (S-8)", async () => {

@@ -12,7 +12,9 @@ export const DEMO_PROJECT = join(import.meta.dirname, "fixtures", "demo-project"
 const cleanups: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(cleanups.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(
+    cleanups.splice(0).map((dir) => rm(dir, { recursive: true, force: true, maxRetries: 5 })),
+  );
 });
 
 /** A fresh temp folder, removed after the test. */

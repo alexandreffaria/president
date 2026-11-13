@@ -468,29 +468,36 @@ export async function syncRepo(
   return (await syncRepoDetailed(dir, name, options)).result;
 }
 
-/**
- * {@link syncRepo}, plus the card files whose content the pull changed in the checkout, at
- * the revisions read right after the pull, for "Sync just brought in a newer version of
- * this card".
- */
+/** What a Sync did beyond its result. */
+interface SequenceReport {
+  /**
+   * The card files whose content the pull changed in the checkout, at the revisions read
+   * right after the pull, for "Sync just brought in a newer version of this card".
+   */
+  broughtIn: CardRevision[];
+  /** Sync ran `git fetch` (whether or not it worked); a "Not now" before it didn't. */
+  fetched: boolean;
+}
+
+/** {@link syncRepo}, plus what it brought in and whether it fetched. */
 export async function syncRepoDetailed(
   dir: string,
   name: string,
   options: SyncOptions = {},
-): Promise<{ result: RepoSyncResult; broughtIn: CardRevision[] }> {
-  const pulled = { broughtIn: [] as CardRevision[] };
-  return { result: await guardedSequence(dir, name, options, pulled), broughtIn: pulled.broughtIn };
+): Promise<{ result: RepoSyncResult } & SequenceReport> {
+  const report: SequenceReport = { broughtIn: [], fetched: false };
+  return { result: await guardedSequence(dir, name, options, report), ...report };
 }
 
 async function guardedSequence(
   dir: string,
   name: string,
   options: SyncOptions,
-  pulled: { broughtIn: CardRevision[] },
+  report: SequenceReport,
 ): Promise<RepoSyncResult> {
   const repo = new Repo(dir, options);
   try {
-    return await runSequence(repo, name, options.hostname ?? machineName(), pulled);
+    return await runSequence(repo, name, options.hostname ?? machineName(), report);
   } catch (error) {
     if (error instanceof GitFailed) {
       return result("not-synced", `Not synced: git failed in ${name}`, {
@@ -526,7 +533,7 @@ async function runSequence(
   repo: Repo,
   name: string,
   machine: string,
-  report: { broughtIn: CardRevision[] },
+  report: SequenceReport,
 ): Promise<RepoSyncResult> {
   const dir = repo.dir;
   const unavailable = await repo.unavailable();
@@ -555,6 +562,7 @@ async function runSequence(
         });
   }
 
+  report.fetched = true;
   const fetched = await repo.run(["fetch"]);
   if (fetched.code !== 0) {
     return result("not-synced", `Not synced: couldn't fetch from the remote of ${name}`, {
@@ -992,27 +1000,51 @@ interface ProjectState {
   counts?: RepoStatus;
 }
 
+/**
+ * After a failed fetch at hub start, the waits before each retry (ms). After a reboot the hub
+ * can start before DNS works, and the network is usually up within seconds; a remote still
+ * out of reach after ~9 minutes is a real problem (gone, no access), which Sync reports.
+ */
+export const FETCH_RETRY_DELAYS: readonly number[] = [
+  5_000, 15_000, 30_000, 60_000, 120_000, 300_000,
+];
+
+export interface SyncServiceOptions extends SyncOptions {
+  /** The waits before each retry of a failed start-up fetch (ms); {@link FETCH_RETRY_DELAYS}. */
+  fetchRetryMs?: readonly number[];
+}
+
 /** Sync for every registered project: what the API and the hub start call. */
 export class SyncService {
   readonly #registry: Registry;
   readonly #bus: EventBus;
   readonly #options: SyncOptions;
-  /** One git sequence (Sync or the start-up fetch) per project at a time. */
+  readonly #fetchRetryMs: readonly number[];
+  /** One git sequence (Sync, the start-up fetch or its retry) per project at a time. */
   readonly #lock = new KeyedMutex();
   readonly #gate = new WriteGate();
   readonly #state = new Map<string, ProjectState>();
   readonly #running = new Set<string>();
   readonly #inFlight = new Set<Promise<unknown>>();
+  /** The start-up fetch's retries waiting to run, by project folder. */
+  readonly #retries = new Map<string, NodeJS.Timeout>();
+  /** Projects whose start-up fetch is being retried: a wait, or a retry at or in the lock. */
+  readonly #retrying = new Set<string>();
+  /** Projects a Sync ran in: it fetched, so the start-up fetch isn't retried there. */
+  readonly #synced = new Set<string>();
+  #closed = false;
   /**
    * The card revisions a pull of this hub's Sync brought in, by project folder and card
    * file name (the 500 most recent cards, 20 revisions each; a restart forgets them).
    */
   readonly #broughtIn = new Map<string, string[]>();
 
-  constructor(registry: Registry, bus: EventBus, options: SyncOptions = {}) {
+  constructor(registry: Registry, bus: EventBus, options: SyncServiceOptions = {}) {
     this.#registry = registry;
     this.#bus = bus;
-    this.#options = options;
+    const { fetchRetryMs, ...git } = options;
+    this.#options = git;
+    this.#fetchRetryMs = fetchRetryMs ?? FETCH_RETRY_DELAYS;
   }
 
   #stateOf(project: Project): ProjectState {
@@ -1092,6 +1124,7 @@ export class SyncService {
           remoteChanges: counts.remoteChanges,
           ...(counts.rebase ? { rebase: counts.rebase } : {}),
           ...(state.fetchError ? { fetchError: state.fetchError } : {}),
+          fetchRetrying: this.#retrying.has(project.path),
           running,
           ...(state.last ? { last: state.last } : {}),
         };
@@ -1109,6 +1142,7 @@ export class SyncService {
     const projects = await this.#registry.list();
     const results: SyncResultDto[] = [];
     for (const project of projects) {
+      let fetched = false;
       const outcome = await this.#lock.run(project.path, () =>
         this.#gate.exclusive(project.path, async () => {
           this.#running.add(project.path);
@@ -1118,6 +1152,13 @@ export class SyncService {
             // Recorded before the `cards` event below, so a card view that reloaded while
             // the pull ran (and took the change for an agent's) gets it right on that event.
             this.#recordBroughtIn(project, run.broughtIn);
+            if (run.fetched) {
+              // This Sync fetched: no more retries of the start-up fetch here. One that
+              // stopped before (a rebase in progress, say) leaves them going.
+              fetched = true;
+              this.#synced.add(project.path);
+              this.#stopRetrying(project.path);
+            }
             return run.result;
           } catch (error) {
             console.error(error);
@@ -1137,7 +1178,7 @@ export class SyncService {
       const state = this.#stateOf(project);
       state.last = done;
       // This Sync fetched (or said why it couldn't): the start-up fetch's error is old news.
-      delete state.fetchError;
+      if (fetched) delete state.fetchError;
       results.push(done);
       // A pull (or an abort) may have rewritten card files: open card views reload. The
       // watcher notices too, a moment later.
@@ -1162,14 +1203,10 @@ export class SyncService {
         await Promise.all(
           projects.map((project) =>
             this.#lock.run(project.path, async () => {
-              const state = this.#stateOf(project);
-              try {
-                const fetched = await fetchRepo(project.path, this.#options);
-                if (fetched.error) state.fetchError = fetched.error;
-                else delete state.fetchError;
-              } catch (error) {
-                state.fetchError = (error as Error).message;
-              }
+              // A Sync that took the lock first fetched later than this would: its result stands.
+              if (this.#synced.has(project.path)) return;
+              await this.#fetch(project);
+              if (this.#stateOf(project).fetchError) this.#retryFetch(project, 0);
             }),
           ),
         );
@@ -1178,8 +1215,80 @@ export class SyncService {
     );
   }
 
-  /** Waits for every Sync and fetch in progress (each is bounded by its git timeouts). */
+  /** Fetches `project` and keeps the error for the status; true when that changed it. */
+  async #fetch(project: Project): Promise<boolean> {
+    const state = this.#stateOf(project);
+    const before = state.fetchError;
+    try {
+      const fetched = await fetchRepo(project.path, this.#options);
+      if (fetched.error) state.fetchError = fetched.error;
+      else delete state.fetchError;
+    } catch (error) {
+      state.fetchError = (error as Error).message;
+    }
+    return state.fetchError !== before;
+  }
+
+  /**
+   * Fetches `project` again after the `attempt`th wait, until a fetch works, the waits run
+   * out, a Sync runs there or the hub closes. The error stays shown meanwhile.
+   */
+  #retryFetch(project: Project, attempt: number): void {
+    const { path } = project;
+    const delay = this.#fetchRetryMs[attempt];
+    if (delay === undefined || this.#closed || this.#synced.has(path)) {
+      this.#stopRetrying(path);
+      return;
+    }
+    const timer = setTimeout(() => {
+      this.#retries.delete(path);
+      void this.#track(
+        this.#lock.run(path, async () => {
+          // A Sync that ran while this waited for the lock already fetched.
+          if (this.#closed || this.#synced.has(path)) return;
+          // A project removed meanwhile: nothing left to show the error for.
+          let projects: Project[];
+          try {
+            projects = await this.#registry.list();
+          } catch {
+            projects = [project]; // A broken registry may well be fixed; keep trying.
+          }
+          if (!projects.some((p) => p.path === path)) {
+            this.#stopRetrying(path);
+            this.#state.delete(path);
+            this.#synced.delete(path);
+            return;
+          }
+          const changed = await this.#fetch(project);
+          if (this.#stateOf(project).fetchError) this.#retryFetch(project, attempt + 1);
+          else this.#stopRetrying(path);
+          // The error, or whether the hub keeps trying, changed.
+          if (changed || !this.#retrying.has(path)) this.#bus.emit({ type: "sync" });
+        }),
+      );
+    }, delay);
+    // A wait never keeps the process alive; close() cancels it.
+    timer.unref();
+    clearTimeout(this.#retries.get(path));
+    this.#retries.set(path, timer);
+    this.#retrying.add(path);
+  }
+
+  /** Cancels the waiting retry of the start-up fetch in the project at `path`, if any. */
+  #stopRetrying(path: string): void {
+    clearTimeout(this.#retries.get(path));
+    this.#retries.delete(path);
+    this.#retrying.delete(path);
+  }
+
+  /**
+   * Cancels the start-up fetch's waiting retries, then waits for every Sync and fetch in
+   * progress (each is bounded by its git timeouts).
+   */
   async close(): Promise<void> {
+    this.#closed = true;
+    for (const path of [...this.#retries.keys()]) this.#stopRetrying(path);
+    this.#retrying.clear();
     await Promise.allSettled([...this.#inFlight]);
   }
 }

@@ -312,7 +312,9 @@ both want port 4747 (the icon then turns grey and says "port 4747 in use by anot
    bar shows "3 answers not synced" while a project has card changes that aren't pushed, so
    press Sync before you leave a machine. Where that doesn't fit next to the menu, the number
    is on the Sync button instead. When the hub starts it only runs `git fetch`, which
-   changes no file and no branch, and shows "2 card changes on the remote, press Sync".
+   changes no file and no branch, and shows "2 card changes on the remote, press Sync". A
+   fetch that fails then (the network isn't up yet, say) is retried after 5 s, 15 s, 30 s,
+   1 min, 2 min and 5 min, until one works or a Sync fetches.
 
    For each project with card changes, here or on the remote, Sync runs `git fetch`, checks
    that it is safe to touch the checkout, commits everything in `decisions/` in one commit
