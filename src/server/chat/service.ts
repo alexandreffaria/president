@@ -1156,7 +1156,9 @@ function newCardContent(
   // Read back: exactly the sections with details, and the rest of the body as it was. When
   // the old option sections were removed and none written, a body without option sections
   // may split its text between context and appendix at another heading (a second context
-  // section), so only the text, with the spaces at its line ends, must be the same.
+  // section), so only the text, with the spaces at its line ends, must be the same. Such a
+  // second section then shows below the options, and the card's changes say the context
+  // and the notes below the options changed: accepted, since cards keep one context section.
   const before = splitSections(card.body);
   const after = splitSections(body);
   const rest = (s: BodySections) =>

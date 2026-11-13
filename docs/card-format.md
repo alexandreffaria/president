@@ -225,8 +225,9 @@ human needs to choose.
   heading belongs to that option and is shown inside that option's card. Add one only for a
   tiny example (a few lines of copy, code or a sketch) when the choice is about how something
   looks or reads.
-- Any level-2 section after the options is shown below the options. Cards don't need one: no
-  `## Sources` list.
+- Any level-2 section after the options is shown below the options. In a body without option
+  sections, every level-2 section from the first one after `## Context` on is shown there too,
+  so keep the whole context under `## Context`. Cards don't need one: no `## Sources` list.
 - A `## Option <id>` heading whose id is not in `options` is an error. An option without a body
   section is fine; its summary, pros and cons are still shown.
 - Headings inside fenced code blocks are ignored, so examples can contain markdown.
