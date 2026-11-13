@@ -56,6 +56,15 @@ Usage:
       copy, to try president without touching any of your files.
   preside serve
       Start the hub web app (needs \`npm run build\` first for the UI).
+  preside tray install [--no-autostart] [--no-start]
+      Windows only: build president's notification-area icon on this machine (with the C#
+      compiler that comes with Windows) and start it. It runs the hub in the background,
+      starts it again if it crashes, shows how many cards are waiting, and starts with
+      Windows unless --no-autostart. Run it again after an update that changed the helper.
+  preside tray uninstall
+      Windows only: stop the icon and its hub, stop starting with Windows, remove its files.
+  preside tray status
+      Windows only: whether the icon is installed and running, and where its log is.
 
 Environment:
   PRESIDENT_PORT     port for \`serve\` (default 4747)
@@ -97,6 +106,8 @@ export async function run(argv: string[], out: Output = console): Promise<number
         return await (await commands()).update(rest, out);
       case "demo":
         return await (await commands()).demo(rest, out);
+      case "tray":
+        return await (await import("./tray.ts")).tray(rest, out);
       case "serve":
       case "start":
         return await (await commands()).serve(out);

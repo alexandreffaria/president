@@ -610,7 +610,7 @@ describe("running hub", () => {
     const { hub: running } = await hub();
     expect(running.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
     const res = await fetch(`${running.url}/api/health`);
-    expect(await res.json()).toEqual({ ok: true });
+    expect(await res.json()).toEqual({ ok: true, pid: process.pid });
   });
 
   it("stops the watcher when the port is taken", async () => {
@@ -733,7 +733,7 @@ describe("running hub", () => {
   it("answers a request that asks for another upgrade (curl --http2) as a plain one (R5-1)", async () => {
     const { hub: running } = await hub();
     const { received } = await rawRequest(running, h2c);
-    await until([0], () => received().includes('{"ok":true}'));
+    await until([0], () => received().includes('{"ok":true,"pid":'));
     expect(received()).toMatch(/^HTTP\/1\.1 200 /);
   });
 

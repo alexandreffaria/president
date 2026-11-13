@@ -19,6 +19,7 @@ import type {
   ProjectDto,
 } from "../src/core/api.ts";
 import { agentToken, unseenFeedback } from "../src/core/pending.ts";
+import { buildQueue } from "../src/core/queue.ts";
 import { createApp } from "../src/server/app.ts";
 import { cachedCardPaths } from "../src/server/cards.ts";
 import { Registry } from "../src/server/registry.ts";
@@ -365,6 +366,46 @@ describe("cards API", () => {
       const res = await request(path);
       expect([400, 404], path).toContain(res.status);
     }
+  });
+});
+
+describe("queue count API (the Windows tray, 20261112vzn8)", () => {
+  const count = async (request: (path: string) => Promise<Response>) =>
+    (await json<{ count: number }>(request("/api/queue-count"))).count;
+
+  it("counts what the Queue lists under All: open and back-from-deferral cards", async () => {
+    const { request } = await setup();
+    const { cards } = await json<CardListResponse>(request("/api/cards"));
+    // 0001 (open, sunk under its undecided dependency), 0002 (open), 0003 (deferred, no date).
+    expect(await count(request)).toBe(3);
+    expect(buildQueue(cards)).toHaveLength(3);
+  });
+
+  it("leaves out snoozed, withdrawn and waiting-on-agent cards, and counts every project", async () => {
+    const { request, act, registry } = await setup();
+    expect((await act("0002", { type: "defer" })).status).toBe(200);
+    expect(await count(request)).toBe(2);
+    expect((await act("0001", { type: "neither", note: "None of these." })).status).toBe(200);
+    expect(await count(request)).toBe(1);
+    const other = await copyDemoProject("other");
+    const file = join(other, "decisions", "0002-api-errors.md");
+    const text = await readFile(file, "utf8");
+    await writeFile(
+      file,
+      text.replace(
+        "status: open\n",
+        'status: open\nwithdrawn:\n  at: 2026-11-11T10:00:00Z\n  reason: "Moot."\n',
+      ),
+    );
+    await registry.add({ path: other, name: "other" });
+    // other: 0001 and 0003 count, 0002 is withdrawn, 0004 is resolved.
+    expect(await count(request)).toBe(3);
+  });
+
+  it("is a plain GET: no Origin needed", async () => {
+    const { app } = await setup();
+    const response = await app.request("http://127.0.0.1:4747/api/queue-count");
+    expect(response.status).toBe(200);
   });
 });
 

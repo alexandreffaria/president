@@ -65,6 +65,14 @@ export interface CardListResponse {
   projects: ProjectDto[];
 }
 
+/**
+ * GET /api/queue-count: how many cards are in the Queue across every project (the same cards
+ * the Queue lists under "All"), for the Windows tray icon (20261112vzn8).
+ */
+export interface QueueCountResponse {
+  count: number;
+}
+
 export type CardResponse = { ok: true; card: CardDetailDto } | { ok: false; broken: BrokenCardDto };
 
 export interface ApiError {
