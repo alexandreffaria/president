@@ -7,6 +7,7 @@ import { execFile } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { promisify } from "node:util";
+import { findExecutable } from "../server/executable.ts";
 
 /** A folder inside a linked git worktree, and the same folder in the repository's other checkouts. */
 export interface LinkedWorktree {
@@ -63,12 +64,18 @@ export async function linkedWorktree(dir: string): Promise<LinkedWorktree | unde
   return main === undefined ? { bare, checkouts } : { main, bare, checkouts };
 }
 
-/** Git's output without its final newline, or undefined when it failed. */
+/**
+ * Git's output without its final newline, or undefined when it failed. Git is the one on PATH,
+ * never one in `cwd` (see executable.ts).
+ */
 async function git(cwd: string, args: string[]): Promise<string | undefined> {
+  const env = withoutRepoVariables();
+  const program = findExecutable("git", env);
+  if (program === undefined) return undefined;
   try {
-    const { stdout } = await promisify(execFile)("git", args, {
+    const { stdout } = await promisify(execFile)(program, args, {
       cwd,
-      env: withoutRepoVariables(),
+      env,
       timeout: 5_000,
       windowsHide: true,
     });

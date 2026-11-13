@@ -252,6 +252,20 @@ describe("HubWatcher", () => {
     }
   });
 
+  // Moved away, the old folder still exists and its watch still works, on it: the folder made
+  // in its place must be watched instead. Without the inode fake below, so that it runs on
+  // Windows too, where the poll is what sees the new folder (by its file ID).
+  it("keeps reporting changes after decisions/ is moved away and made again, twice", async () => {
+    const { demo, log } = await watched();
+    const dir = join(demo, "decisions");
+    for (let round = 0; round < 2; round++) {
+      log.splice(0);
+      await rename(dir, `${dir}-${round}`);
+      await mkdir(dir);
+      await untilNewCardSeen(log, "demo", dir);
+    }
+  });
+
   // Where the folder made again gets the old inode and there is no birth time (ext4 with
   // small inodes, most FUSE filesystems), only the old watch's raw event tells (P2b-1).
   // Two signals tell: the folder's raw `rename`, and chokidar's unlinkDir when it notices

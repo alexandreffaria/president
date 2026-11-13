@@ -106,30 +106,33 @@ describe("projects API", () => {
   });
 
   // A typo through a file, or a link loop, is the user's to fix: a 422 that says so (R10-2).
-  // Windows says a path through a file doesn't exist (ENOENT, not ENOTDIR), and has no
-  // error of its own for a loop of links.
-  it.skipIf(process.platform === "win32")(
-    "answers a path through a file or a link loop with what is wrong, not a 500",
-    async () => {
-      const { post } = await setup();
-      const scratch = await tempDir();
-      await writeFile(join(scratch, "file.txt"), "notes");
-      await symlink("loop", join(scratch, "loop"));
-      const project = join(scratch, "project");
-      await mkdir(project);
-      await symlink("decisions", join(project, "decisions"));
-      const cases: [object, string][] = [
-        [{ path: join(scratch, "file.txt", "x") }, "a part of the path is a file, not a folder"],
-        [{ path: join(scratch, "loop") }, "the path goes through a loop of links"],
-        [{ path: project, createDecisions: true }, "the path goes through a loop of links"],
-      ];
-      for (const [body, reason] of cases) {
-        const res = await post("/api/projects", body);
-        expect(res.status).toBe(422);
-        expect((await json(res)).error).toMatch(`: ${reason}`);
-      }
-    },
-  );
+  // Windows says a path through a file doesn't exist (ENOENT, not ENOTDIR): a 400. A loop of
+  // links is ELOOP there too (libuv maps ERROR_CANT_RESOLVE_FILENAME to it): the same 422.
+  it("answers a path through a file or a link loop with what is wrong, not a 500", async () => {
+    const { post } = await setup();
+    const scratch = await tempDir();
+    await writeFile(join(scratch, "file.txt"), "notes");
+    await symlink("loop", join(scratch, "loop"));
+    const project = join(scratch, "project");
+    await mkdir(project);
+    await symlink("decisions", join(project, "decisions"));
+    const windows = process.platform === "win32";
+    const cases: [object, string][] = [
+      [
+        { path: join(scratch, "file.txt", "x") },
+        windows ? "does not exist" : "a part of the path is a file, not a folder",
+      ],
+      [{ path: join(scratch, "loop") }, "the path goes through a loop of links"],
+      [{ path: project, createDecisions: true }, "the path goes through a loop of links"],
+    ];
+    for (const [body, reason] of cases) {
+      const res = await post("/api/projects", body);
+      const { error } = await json(res);
+      expect(res.status, error).toBe(reason === "does not exist" ? 400 : 422);
+      expect(error).toMatch(reason === "does not exist" ? reason : `: ${reason}`);
+      expect(error).toMatch(/^[^\n]+$/);
+    }
+  });
 
   it("validates the request body", async () => {
     const { post } = await setup();

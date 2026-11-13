@@ -12,7 +12,15 @@
  * A test that expects such output says so with `expectConsole`, and then only matching
  * messages are allowed, and at least one must come.
  */
-import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { format } from "node:util";
@@ -38,12 +46,23 @@ mkdirSync(join(stateHome, "fake"));
 try {
   symlinkSync(join(import.meta.dirname, "fake-claude.mjs"), join(stateHome, "bin", "claude"));
 } catch (error) {
-  // Windows without Developer Mode can't make links. A copy still comes first on PATH (Windows
-  // tries the exact name before adding .com or .exe), so the real Claude Code never runs.
+  // Windows without Developer Mode can't make links.
   if (process.platform !== "win32") throw error;
   copyFileSync(join(import.meta.dirname, "fake-claude.mjs"), join(stateHome, "bin", "claude"));
 }
-process.env.PATH = `${join(stateHome, "bin")}${delimiter}${process.env.PATH ?? ""}`;
+let path = process.env.PATH ?? "";
+if (process.platform === "win32") {
+  // On Windows the stand-in can't take the real one's place: for a bare `spawn("claude")`,
+  // libuv tries only claude.com and claude.exe (first in the child's cwd, then in each PATH
+  // folder), never the extensionless stand-in, and a shell would find claude.cmd or
+  // claude.bat (npm's shim). So no PATH folder that has one of those stays.
+  const names = ["claude.exe", "claude.com", "claude.cmd", "claude.bat"];
+  path = path
+    .split(delimiter)
+    .filter((dir) => !names.some((name) => existsSync(join(dir.replace(/^"(.*)"$/, "$1"), name))))
+    .join(delimiter);
+}
+process.env.PATH = `${join(stateHome, "bin")}${delimiter}${path}`;
 process.env.FAKE_CLAUDE_DIR = join(stateHome, "fake");
 afterAll(() => rmSync(stateHome, { recursive: true, force: true }));
 
