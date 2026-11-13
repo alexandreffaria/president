@@ -39,6 +39,11 @@ async function checkout(root: string, name: string): Promise<string> {
   await writeFile(join(repo, "src", "web", "main.tsx"), "");
   await writeFile(join(repo, "src", "server", "main.ts"), "");
   await writeFile(join(repo, "dist", "web", "index.html"), "");
+  // The icon's dependency, as `npm ci` leaves it.
+  const dbus = join(repo, "node_modules", "dbus-native");
+  await mkdir(dbus, { recursive: true });
+  await writeFile(join(dbus, "package.json"), '{ "name": "dbus-native", "main": "index.js" }');
+  await writeFile(join(dbus, "index.js"), "");
   const hourAgo = new Date(Date.now() - 3_600_000);
   await utimes(join(repo, "src", "web", "main.tsx"), hourAgo, hourAgo);
   await utimes(join(repo, "src", "web"), hourAgo, hourAgo);
@@ -55,6 +60,10 @@ async function fakeLinux(options: { env?: NodeJS.ProcessEnv; systemd?: boolean }
   const calls: string[][] = [];
   const state = {
     systemd: options.systemd ?? true,
+    /** The icon crashes as it starts (is-active says it is being restarted). */
+    iconFails: false,
+    /** The user manager's environment, as `systemctl --user show-environment` prints it. */
+    manager: "HOME=/home/u\nPATH=/usr/bin\n",
     active: new Set<string>(),
     enabled: false,
     /** president.service's pid, and the pid /api/health gives (undefined: nobody answers). */
@@ -97,6 +106,9 @@ async function fakeLinux(options: { env?: NodeJS.ProcessEnv; systemd?: boolean }
         if (verb === "enable") state.enabled = true;
         if (verb === "disable") state.enabled = false;
         if (verb === "restart") for (const unit of units) state.active.add(unit);
+        if (verb === "is-active" && state.iconFails && units[0] === ICON_UNIT) {
+          return { code: 3, stdout: "activating\n", stderr: "" };
+        }
         if (verb === "disable" && units[0] === "--now") state.active.delete(units[1] ?? "");
         if (verb === "stop") for (const unit of units) state.active.delete(unit);
         if (verb === "is-active") {
@@ -107,14 +119,12 @@ async function fakeLinux(options: { env?: NodeJS.ProcessEnv; systemd?: boolean }
           return { code: 0, stdout: state.enabled ? "enabled\n" : "disabled\n", stderr: "" };
         }
         if (verb === "show") return { code: 0, stdout: `${state.mainPid}\n`, stderr: "" };
+        if (verb === "show-environment") return { code: 0, stdout: state.manager, stderr: "" };
       }
       return { code: 0, stdout: "", stderr: "" };
     },
     launch() {
       throw new Error("nothing is launched on Linux");
-    },
-    hubAnswers: async () => {
-      throw new Error("Linux asks for the pid");
     },
     healthPid: async () => state.answering,
     sleep: async () => {},
@@ -139,6 +149,10 @@ describe.skipIf(process.platform === "win32")("preside tray on Linux", () => {
     expect(hub).toContain(`WorkingDirectory=${main}`);
     expect(hub).toContain(`Wants=${ICON_UNIT}`);
     expect(hub).toContain("Restart=on-failure");
+    expect(hub).toContain("Type=exec");
+    // Sync's git gets to finish: SIGTERM to the hub alone, and time for it to stop.
+    expect(hub).toContain("KillMode=mixed");
+    expect(hub).toContain("TimeoutStopSec=150");
     expect(hub).toContain("WantedBy=default.target");
     expect(hub).toContain('Environment="PATH=/usr/bin:/bin"');
     expect(hub).toContain('Environment="PRESIDENT_PORT=4747"');
@@ -148,20 +162,24 @@ describe.skipIf(process.platform === "win32")("preside tray on Linux", () => {
     expect(icon).toContain(
       `ExecStart="/usr/bin/node" "${join(main, "tray", "linux", "preside-tray.ts")}"`,
     );
-    expect(icon).toContain(`PartOf=${HUB_UNIT}`);
+    // Not tied to the hub: a hub restarting (or crash-looping) leaves the icon running.
+    expect(icon).not.toMatch(/PartOf|BindsTo/);
+    expect(icon).toContain("Type=exec");
     expect(icon).toContain('Environment="PRESIDENT_BUILD=main @ 1a2b3c4"');
 
     expect(systemctlCalls(calls)).toEqual([
       ["show-environment"],
       ["daemon-reload"],
       ["enable", HUB_UNIT],
-      ["restart", HUB_UNIT],
+      ["restart", HUB_UNIT, ICON_UNIT],
       ["show", "--property=MainPID", "--value", HUB_UNIT],
+      ["is-active", ICON_UNIT],
     ]);
     const text = out.join("\n");
     expect(text).toContain(`serving: ${main} (main @ 1a2b3c4)`);
     expect(text).toMatch(/Starts at login/);
     expect(text).toMatch(/the hub is at http:\/\/127\.0\.0\.1:4747/);
+    expect(text).toMatch(/The icon is running/);
     expect(text).toMatch(/waybar's tray module/);
     // Only the temp XDG_CONFIG_HOME was written.
     expect(existsSync(join(root, "home"))).toBe(false);
@@ -182,7 +200,7 @@ describe.skipIf(process.platform === "win32")("preside tray on Linux", () => {
       build: "feat/x @ 9f8e7d6",
     });
     expect(await readFile(hubPath, "utf8")).toContain(join(pr, "src", "server", "main.ts"));
-    expect(systemctlCalls(calls)).toContainEqual(["restart", HUB_UNIT]);
+    expect(systemctlCalls(calls)).toContainEqual(["restart", HUB_UNIT, ICON_UNIT]);
     expect(swapped.out.join("\n")).toContain(`instead of: ${main} (main @ 1a2b3c4)`);
 
     const back = output();
@@ -207,18 +225,38 @@ describe.skipIf(process.platform === "win32")("preside tray on Linux", () => {
     expect(await readFile(hubPath, "utf8")).toBe(before);
   });
 
-  it("install warns when the UI looks older than the sources or HEAD", async () => {
+  it("install refuses a checkout without the icon's dependencies, changing nothing", async () => {
+    const { deps, calls, main, dir } = await fakeLinux();
+    await rm(join(main, "node_modules"), { recursive: true });
+    await expect(tray(["install"], output().io, deps)).rejects.toThrow(
+      /dependencies aren't installed in .* \(no dbus-native\): run `npm ci` there/,
+    );
+    expect(systemctlCalls(calls)).toEqual([]);
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  it("install says when the icon didn't stay up", async () => {
+    const { deps, state } = await fakeLinux();
+    state.iconFails = true;
+    const { io, out } = output();
+    expect(await tray(["install"], io, deps)).toBe(0);
+    expect(out.join("\n")).toMatch(
+      /The icon isn't running \(activating\): see `journalctl --user -u president\.service -u president-tray\.service`/,
+    );
+  });
+
+  it("install warns when the UI looks older than its sources", async () => {
     const { deps, state, main } = await fakeLinux();
     const fresh = output();
     await tray(["install", "--no-start"], fresh.io, deps);
     expect(fresh.err).toEqual([]);
 
+    // A commit after the build isn't a reason: only the sources' times are.
     state.heads.set(main, { branch: "main", sha: "1a2b3c4", time: Math.floor(Date.now() / 1000) });
     const committed = output();
     expect(await tray(["install", "--no-start"], committed.io, deps)).toBe(0);
-    expect(committed.err.join("\n")).toMatch(/looks older than the checkout \(HEAD was committed/);
+    expect(committed.err).toEqual([]);
 
-    state.heads.set(main, { branch: "main", sha: "1a2b3c4", time: 0 });
     await writeFile(join(main, "src", "web", "main.tsx"), "changed");
     const edited = output();
     expect(await tray(["install", "--no-start"], edited.io, deps)).toBe(0);
@@ -266,7 +304,7 @@ describe.skipIf(process.platform === "win32")("preside tray on Linux", () => {
     const again = output();
     await tray(["install", "--no-start"], again.io, deps);
     expect(again.out.join("\n")).toMatch(
-      /Not restarted: a hub already running keeps serving what it started with/,
+      /Not restarted: a hub and icon already running keep serving what they started with/,
     );
   });
 
@@ -323,7 +361,7 @@ describe.skipIf(process.platform === "win32")("preside tray on Linux", () => {
       `checkout: ${main}`,
       "build: main @ 1a2b3c4",
       "hub: active (enabled at login)",
-      "icon: inactive",
+      "icon: active",
       "hub: answering at http://127.0.0.1:4747",
       `log: journalctl --user -u ${HUB_UNIT} -u ${ICON_UNIT}`,
     ]);
@@ -358,21 +396,67 @@ describe.skipIf(process.platform === "win32")("preside tray on Linux", () => {
 
   it("writes paths and values systemd takes literally", () => {
     const config: UnitConfig = {
-      node: "/opt/my node/node",
+      node: "/opt/my node/100%/node",
       repo: '/p/100% "x" $HOME\\y',
       port: 1,
       build: "a%b @ 1",
       env: { PATH: "/bin:/a%b" },
     };
     const hub = hubUnit(config);
+    // The program is taken as it is (only specifiers), its arguments are unescaped.
     expect(hub).toContain(
-      'ExecStart="/opt/my node/node" "/p/100%% \\"x\\" $$HOME\\\\y/src/server/main.ts"',
+      'ExecStart="/opt/my node/100%%/node" "/p/100%% \\"x\\" $$HOME\\\\y/src/server/main.ts"',
     );
     expect(hub).toContain('Environment="PATH=/bin:/a%%b"');
     expect(hub).toContain("Description=president hub (a%%b @ 1)");
     expect(iconUnit(config)).toContain('Environment="PRESIDENT_BUILD=a%%b @ 1"');
     expect(parseUnit(hub)).toEqual({ repo: config.repo, build: config.build, port: 1 });
-    expect(() => hubUnit({ ...config, repo: "a\nb" })).toThrow(/line break/);
+  });
+
+  it("refuses line breaks anywhere, environment included, and node paths systemd can't run", () => {
+    const config: UnitConfig = { node: "/n", repo: "/r", port: 1, build: "b", env: {} };
+    expect(() => hubUnit({ ...config, repo: "a\nb" })).toThrow(/checkout path has a line break/);
+    expect(() => hubUnit({ ...config, env: { PATH: "/bin\nExecStartPre=/bin/sh" } })).toThrow(
+      /PATH has a line break/,
+    );
+    expect(() => iconUnit({ ...config, env: { "A\nB": "x" } })).toThrow(
+      /environment variable name has a line break/,
+    );
+    for (const node of ['/a"b/node', "/a\\b/node", "/a'b/node", "/$HOME/node"]) {
+      expect(() => hubUnit({ ...config, node })).toThrow(/node's path has a quote/);
+    }
+  });
+
+  it("install refuses a node path systemd can't run before writing anything", async () => {
+    const { deps, dir } = await fakeLinux();
+    await expect(
+      tray(["install"], output().io, { ...deps, nodePath: "/home/$me/node" }),
+    ).rejects.toThrow(/node's path has a quote, a backslash or a \$ in it/);
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  it("passes on CLAUDE_CONFIG_DIR, and not the ssh agent", async () => {
+    const { deps, hubPath } = await fakeLinux({
+      env: { CLAUDE_CONFIG_DIR: "/home/u/.claude-work", SSH_AUTH_SOCK: "/run/agent" },
+    });
+    await tray(["install", "--no-start"], output().io, deps);
+    const hub = await readFile(hubPath, "utf8");
+    expect(hub).toContain('Environment="CLAUDE_CONFIG_DIR=/home/u/.claude-work"');
+    expect(hub).not.toContain("SSH_AUTH_SOCK");
+  });
+
+  it("status says when the shell has an ssh agent that systemd doesn't", async () => {
+    const { deps, state } = await fakeLinux({ env: { SSH_AUTH_SOCK: "/run/agent" } });
+    await tray(["install"], output().io, deps);
+    const missing = output();
+    await tray(["status"], missing.io, deps);
+    expect(missing.out.join("\n")).toMatch(
+      /systemd doesn't, so Sync can't use it.*dbus-update-activation-environment --systemd SSH_AUTH_SOCK/,
+    );
+    state.manager += "SSH_AUTH_SOCK=/run/agent\n";
+    const given = output();
+    await tray(["status"], given.io, deps);
+    expect(given.out.join("\n")).not.toMatch(/ssh agent/);
   });
 
   it("is in the help, for Windows and Linux", async () => {

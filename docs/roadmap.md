@@ -1529,14 +1529,14 @@ option `count`.
   its `--self-test`.
 - Linux (pull request "Linux tray: systemd user units and a StatusNotifierItem", branch
   `feat/linux-tray`): `preside tray install` writes the systemd user units
-  `president.service` (the hub from the checkout `install` ran in; at login, restarted on
-  failure) and `president-tray.service` (`tray/linux/preside-tray.ts`, `PartOf` the hub's),
-  so installing from another checkout swaps the build served. The icon is a
-  StatusNotifierItem with a dbusmenu (Open president, Quit), drawn as the Windows one, over
-  the session bus with `dbus-native` (pure JavaScript); its tooltip names the build (branch @
-  short sha). `install` refuses a checkout without `dist/web` and warns when it looks stale.
-  Not part of the card: it was asked for directly, to check pull requests' builds from the
-  tray.
+  `president.service` (the hub from the checkout the `preside.js` run is in; at login,
+  restarted on failure) and `president-tray.service` (`tray/linux/preside-tray.ts`, pulled in
+  by the hub's but not tied to it), so installing from another checkout swaps the build
+  served. The icon is a StatusNotifierItem with a dbusmenu (Open president, Quit), drawn as
+  the Windows one, over the session bus with `dbus-native` (pure JavaScript); its tooltip
+  names the build (branch @ short sha). `install` refuses a checkout without `dist/web` or
+  `dbus-native` and warns when the UI looks older than its sources. Not part of the card: it
+  was asked for directly, to check pull requests' builds from the tray.
 
 ## Cross-card consequences
 

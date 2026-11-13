@@ -137,47 +137,84 @@ describe("the Linux tray icon's parts", () => {
       [3, { label: "Open president" }, []],
       [4, { label: "Quit" }, []],
     ]);
+    // `_` marks a mnemonic in dbusmenu, so a branch's underscores are doubled.
+    const [, , underscored] = menuLayout("fix_tray @ 1a2b3c4");
+    expect((underscored[0] as unknown as { value: unknown[] }).value[1]).toEqual({
+      label: "Serving fix__tray @ 1a2b3c4",
+      enabled: false,
+    });
   });
 
   it.skipIf(process.platform === "win32")(
-    "runs systemctl and xdg-open from PATH, with the display filled in",
+    "runs systemctl from PATH, and opens the browser in a scope of its own, the display filled in",
     async () => {
-      const bin = await tempDir();
-      const log = join(bin, "calls.log");
-      for (const name of ["systemctl", "xdg-open"]) {
-        await writeFile(
-          join(bin, name),
-          `#!/bin/sh\necho "${name} $* WAYLAND_DISPLAY=$WAYLAND_DISPLAY" >> "${log}"\n[ "$2" = show ] && echo 4242\nexit 0\n`,
-        );
-        await chmod(join(bin, name), 0o755);
-      }
-      const runtime = join(bin, "runtime");
-      await mkdir(runtime);
-      await writeFile(join(runtime, "wayland-1"), "");
-      const deps = systemIconDeps({
-        PATH: `${bin}:/usr/bin:/bin`,
-        XDG_RUNTIME_DIR: runtime,
-        PRESIDENT_PORT: "4800",
-        PRESIDENT_BUILD: "main @ 1a2b3c4",
-      });
-      expect([deps.port, deps.build]).toEqual([4800, "main @ 1a2b3c4"]);
-      expect(await deps.hubPid()).toBe(4242);
-      deps.open("http://127.0.0.1:4800");
-      deps.quit();
-      let text = "";
-      for (let i = 0; i < 100 && text.split("\n").length < 4; i++) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        text = await readFile(log, "utf8").catch(() => "");
-      }
-      const lines = text.trim().split("\n").sort();
-      expect(lines).toEqual([
+      const fake = await fakeBin({ systemdRun: 0 });
+      expect([fake.deps.port, fake.deps.build]).toEqual([4800, "main @ 1a2b3c4"]);
+      expect(await fake.deps.hubPid()).toBe(4242);
+      fake.deps.open("http://127.0.0.1:4800");
+      fake.deps.quit();
+      expect(await fake.lines(3)).toEqual([
         "systemctl --user show --property=MainPID --value president.service WAYLAND_DISPLAY=",
-        "systemctl --user stop --no-block president.service WAYLAND_DISPLAY=",
-        "xdg-open http://127.0.0.1:4800 WAYLAND_DISPLAY=wayland-1",
+        "systemctl --user stop --no-block president.service president-tray.service WAYLAND_DISPLAY=",
+        "systemd-run --user --scope --collect --quiet xdg-open http://127.0.0.1:4800 WAYLAND_DISPLAY=wayland-1",
       ]);
     },
   );
+
+  it.skipIf(process.platform === "win32")(
+    "opens the browser with xdg-open directly when systemd-run fails or isn't there",
+    async () => {
+      for (const systemdRun of [1, undefined]) {
+        const fake = await fakeBin({ systemdRun });
+        fake.deps.open("http://127.0.0.1:4800");
+        const lines = await fake.lines(systemdRun === undefined ? 1 : 2);
+        expect(lines).toContain("xdg-open http://127.0.0.1:4800 WAYLAND_DISPLAY=wayland-1");
+        expect(lines).toHaveLength(systemdRun === undefined ? 1 : 2);
+      }
+    },
+  );
 });
+
+/**
+ * systemIconDeps with fake systemctl, xdg-open and (exiting with `systemdRun`, or absent)
+ * systemd-run on a PATH of their own, each writing its arguments to a log.
+ */
+async function fakeBin(options: { systemdRun?: number }) {
+  const bin = await tempDir();
+  const log = join(bin, "calls.log");
+  const names = ["systemctl", "xdg-open"];
+  if (options.systemdRun !== undefined) names.push("systemd-run");
+  for (const name of names) {
+    const code = name === "systemd-run" ? options.systemdRun : 0;
+    await writeFile(
+      join(bin, name),
+      `#!/bin/sh\necho "${name} $* WAYLAND_DISPLAY=$WAYLAND_DISPLAY" >> "${log}"\n[ "$2" = show ] && echo 4242\nexit ${code}\n`,
+    );
+    await chmod(join(bin, name), 0o755);
+  }
+  const runtime = join(bin, "runtime");
+  await mkdir(runtime);
+  await writeFile(join(runtime, "wayland-1"), "");
+  const deps = systemIconDeps({
+    PATH: bin,
+    XDG_RUNTIME_DIR: runtime,
+    PRESIDENT_PORT: "4800",
+    PRESIDENT_BUILD: "main @ 1a2b3c4",
+  });
+  return {
+    deps,
+    /** The log's lines, sorted, once there are `count` of them (and a moment for more). */
+    async lines(count: number): Promise<string[]> {
+      let text = "";
+      for (let i = 0; i < 100 && text.trim().split("\n").length < count; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        text = await readFile(log, "utf8").catch(() => "");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      return (await readFile(log, "utf8")).trim().split("\n").sort();
+    },
+  };
+}
 
 /** A private bus and a client on it standing in for the tray host. */
 async function privateBus() {

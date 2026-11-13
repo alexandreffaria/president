@@ -152,33 +152,51 @@ again if it crashes, and puts an icon in your tray: waybar's `tray` module, KDE 
 with the AppIndicator extension (any StatusNotifierItem tray). The icon shows the same count as
 on Windows, and its tooltip names the build being served ("Serving main @ 1a2b3c4"). Click it to
 open president in your browser; its menu has **Open president** and **Quit** (which stops the
-hub; it starts again at the next login). Without a tray the hub runs all the same.
+hub and the icon; they start again at the next login only if start at login is on, which
+`install` turns on unless `--no-autostart`). Without a tray the hub runs all the same.
 
-From the president checkout, after `npm install` and `npm run build`:
+From the president checkout, after `npm ci` and `npm run build`:
 
 ```sh
 node bin/preside.js tray install     # or `preside tray install` if preside is on your PATH
 ```
 
-This writes two systemd user units into `~/.config/systemd/user/` (`$XDG_CONFIG_HOME`):
-`president.service` runs the hub (`node <checkout>/src/server/main.ts`, with the node and the
-`PATH` you ran `install` with, so it finds `claude` and `git`), and `president-tray.service` runs
-the icon, which starts and stops with it. Don't also run `npm start`: both want port 4747 (the
-icon then turns grey and says "port 4747 in use by another program").
+`install` serves the checkout that the `preside.js` you run lives in, not the folder you run it
+from: `node ~/pr/bin/preside.js tray install` serves `~/pr` wherever you are, and a `preside` on
+your PATH serves the checkout it links to.
 
-- **Serve another build:** run `install` from another checkout, a pull request's worktree for
-  example (`node <worktree>/bin/preside.js tray install`); the hub restarts from there. Run it
-  from your main checkout to put main back. `install` refuses a checkout without `dist/web`
-  (run `npm run build` there first) and warns when `dist/web` looks older than the checkout's
-  sources or its last commit.
+It writes two systemd user units into `~/.config/systemd/user/` (`$XDG_CONFIG_HOME`):
+`president.service` runs the hub (`node <checkout>/src/server/main.ts`, with the node, `PATH`
+and `CLAUDE_CONFIG_DIR` you ran `install` with, so it finds `claude` and `git`), and
+`president-tray.service` runs the icon. The hub's unit starts the icon, but a hub that crashes
+and restarts leaves the icon running (grey meanwhile); `install` restarts both, and Quit and
+`uninstall` stop both. Stopping the hub waits for a Sync in progress to finish. Don't also run
+`npm start`: both want port 4747 (the icon then turns grey and says "port 4747 in use by another
+program").
+
+- **Serve another build:** run `install` with another checkout's `preside.js`, a pull request's
+  worktree for example (`node <worktree>/bin/preside.js tray install`); the hub and the icon
+  restart from there. Run it with your main checkout's to put main back. `install` refuses a
+  checkout without `dist/web` (run `npm run build` there first) or without its dependencies
+  (run `npm ci` there), and warns when `dist/web` looks older than the checkout's sources. A
+  branch made before Linux tray support was merged doesn't have it: rebase it on main before
+  serving it this way.
 - **Status:** `preside tray status` shows the checkout, branch and short sha being served,
   whether the hub and the icon run, and says when the checkout has moved on or is gone.
 - **Logs:** `journalctl --user -u president.service -u president-tray.service`.
-- **Opening the browser** uses `xdg-open`. A systemd service only knows your display if your
-  session exports it to systemd (KDE, GNOME and uwsm do); otherwise the icon finds your Wayland
-  or X11 socket itself. If clicking does nothing, add
-  `exec-once = dbus-update-activation-environment --systemd --all` to your Hyprland config.
-- **Update:** `git pull && npm install && npm run build`, then `preside tray install` again (it
+- **Your session's environment.** A systemd service only gets what your session exports to
+  systemd. Opening the browser uses `xdg-open`, which needs your display: KDE, GNOME and uwsm
+  export it, and otherwise the icon finds your Wayland or X11 socket itself. Sync's git over
+  ssh needs your ssh agent, which `install` doesn't copy (its socket changes from login to
+  login); `preside tray status` says when the service lacks it. On Hyprland, export both from
+  your config, then `systemctl --user restart president`:
+
+  ```
+  exec-once = dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP SSH_AUTH_SOCK
+  ```
+
+  (or run `systemctl --user import-environment SSH_AUTH_SOCK` from a shell that has the agent).
+- **Update:** `git pull && npm ci && npm run build`, then `preside tray install` again (it
   restarts the hub and the icon).
 - **Remove:** `preside tray uninstall` stops both, takes them out of login and deletes the units.
 
@@ -355,7 +373,8 @@ preside tray install [--no-autostart] [--no-start]
                                                 Windows: build and start the tray icon that runs
                                                 the hub (see "On Windows" above). Linux: install
                                                 and start systemd user units for the hub and its
-                                                icon, from this checkout (see "On Linux" above)
+                                                icon, from the checkout preside.js is in (see "On
+                                                Linux" above)
 preside tray uninstall                          stop and remove them
 preside tray status                             is it installed and running, the build served
                                                 (Linux), where's the log

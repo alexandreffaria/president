@@ -81,7 +81,6 @@ async function fakeWindows(options: { csc?: boolean; env?: NodeJS.ProcessEnv } =
       launched.push([file, ...args]);
       cwds.push(cwd);
     },
-    hubAnswers: async () => false,
     healthPid: async () => undefined,
     sleep: async () => {},
   };
@@ -258,7 +257,7 @@ describe("preside tray", () => {
 
     await tray(["install"], output().io, deps);
     const { io, out } = output();
-    expect(await tray(["status"], io, { ...deps, hubAnswers: async () => true })).toBe(0);
+    expect(await tray(["status"], io, { ...deps, healthPid: async () => 1234 })).toBe(0);
     const text = out.join("\n");
     expect(text).toMatch(/^running: no$/m);
     expect(text).toMatch(/^autostart: on$/m);

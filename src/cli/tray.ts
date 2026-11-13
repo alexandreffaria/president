@@ -57,16 +57,14 @@ export interface TrayDeps {
   /** The president checkout the hub runs from. */
   repoRoot: string;
   /**
-   * Runs a program, by its absolute path, to the end, in `cwd` (the helper's folder, never
-   * the caller's: on Windows a program looks for what it starts in its cwd first). On Linux,
-   * systemctl and git by name, in the checkout.
+   * Runs a program to the end, in `cwd`. On Windows, by its absolute path, in the helper's
+   * folder, never the caller's: a program there looks for what it starts in its cwd first.
+   * On Linux, systemctl and git by name (from PATH), in the checkout.
    */
   run(file: string, args: string[], cwd: string): Promise<RunResult>;
   /** Starts a program that outlives this one, in `cwd` (as for `run`). */
   launch(file: string, args: string[], cwd: string): void;
-  /** Whether a hub answers /api/health on that port. */
-  hubAnswers(port: number): Promise<boolean>;
-  /** The pid a hub on that port gives in /api/health, if one answers (Linux). */
+  /** The pid a hub on that port gives in /api/health, or undefined if none answers. */
   healthPid(port: number): Promise<number | undefined>;
   /** Waits between tries (a file still locked by an exe that is exiting). */
   sleep(ms: number): Promise<void>;
@@ -92,16 +90,6 @@ export function systemDeps(): TrayDeps {
       }),
     launch: (file, args, cwd) => {
       spawn(file, args, { cwd, detached: true, stdio: "ignore", windowsHide: true }).unref();
-    },
-    hubAnswers: async (port) => {
-      try {
-        const response = await fetch(`http://127.0.0.1:${port}/api/health`, {
-          signal: AbortSignal.timeout(2000),
-        });
-        return response.ok;
-      } catch {
-        return false;
-      }
     },
     healthPid: async (port) => {
       try {
@@ -343,7 +331,7 @@ async function status(out: Output, deps: TrayDeps): Promise<number> {
   for (const line of asked.stdout.split(/\r?\n/)) if (line.trim()) out.log(line.trim());
   const port = config.port ?? 4747;
   out.log(
-    `hub: ${(await deps.hubAnswers(port)) ? "answering" : "not answering"} at http://127.0.0.1:${port}`,
+    `hub: ${(await deps.healthPid(port)) !== undefined ? "answering" : "not answering"} at http://127.0.0.1:${port}`,
   );
   out.log(`log: ${join(dir, "hub.log")}`);
   const repo = config.repo ?? deps.repoRoot;

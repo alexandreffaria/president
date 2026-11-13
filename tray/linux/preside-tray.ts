@@ -5,13 +5,14 @@
  *
  * `preside tray install` runs this as the systemd user unit president-tray.service, next to
  * the hub's president.service (src/cli/tray-linux.ts); systemd starts, restarts and stops
- * both, so unlike the Windows helper this doesn't run the hub. It:
+ * both, so unlike the Windows helper this doesn't run the hub, and it keeps running (grey)
+ * while the hub restarts. It:
  * - shows how many cards are in the Queue (GET /api/queue-count, polled every few seconds),
  *   drawn as the Windows helper draws it, or that the hub isn't running;
  * - says in its tooltip which build is served (branch @ short sha, PRESIDENT_BUILD), so a
  *   pull request's build can't be taken for main's;
  * - opens the hub with xdg-open on a click, and has Open president and Quit in its menu
- *   (com.canonical.dbusmenu); Quit stops president.service, which stops this too.
+ *   (com.canonical.dbusmenu); Quit stops president.service and this icon's unit.
  *
  * It talks to the session bus with dbus-native (pure JavaScript, no compiled addon). Without
  * a tray host (no StatusNotifierWatcher on the bus) it waits for one quietly: the hub is a
@@ -23,6 +24,7 @@ import { join } from "node:path";
 import { createClient, defineInterface, type MessageBus, Variant } from "dbus-native";
 
 export const HUB_UNIT = "president.service";
+const ICON_UNIT = "president-tray.service";
 /** How often the icon asks the hub for the count, as the Windows helper does. */
 const POLL_MS = 3000;
 const ITEM_PATH = "/StatusNotifierItem";
@@ -43,7 +45,7 @@ export interface IconDeps {
   hubPid(): Promise<number | undefined>;
   /** Opens a URL in the browser. */
   open(url: string): void;
-  /** Stops president.service (and with it this icon). */
+  /** Stops president.service and this icon's unit. */
   quit(): void;
   log(line: string): void;
 }
@@ -76,19 +78,43 @@ export function systemIconDeps(env: NodeJS.ProcessEnv = process.env): IconDeps {
         );
       }),
     open: (url) => {
-      const child = spawn("xdg-open", [url], {
-        detached: true,
-        stdio: "ignore",
-        env: withDisplay(env),
+      const options = { detached: true, stdio: "ignore", env: withDisplay(env) } as const;
+      const direct = () => {
+        const child = spawn("xdg-open", [url], options);
+        child.on("error", (error) => console.error(`preside-tray: xdg-open: ${error.message}`));
+        child.unref();
+      };
+      // In a scope of its own: a browser xdg-open starts would otherwise be in this unit's
+      // cgroup, and stopping the icon (Quit, a new install) would close it. Without
+      // systemd-run, or if it fails, xdg-open directly.
+      const scoped = spawn(
+        "systemd-run",
+        ["--user", "--scope", "--collect", "--quiet", "xdg-open", url],
+        options,
+      );
+      let fellBack = false;
+      const fallBack = () => {
+        if (fellBack) return;
+        fellBack = true;
+        direct();
+      };
+      scoped.on("error", fallBack);
+      scoped.on("exit", (code) => {
+        if (code !== 0) fallBack();
       });
-      child.on("error", (error) => console.error(`preside-tray: xdg-open: ${error.message}`));
-      child.unref();
+      scoped.unref();
     },
     quit: () => {
-      // --no-block: stopping the hub stops this process too, systemctl included.
-      execFile("systemctl", ["--user", "stop", "--no-block", HUB_UNIT], { env }, (error) => {
-        if (error) console.error(`preside-tray: stopping ${HUB_UNIT}: ${error.message}`);
-      });
+      // Both units (the icon isn't tied to the hub's). --no-block: stopping the icon stops
+      // this process too, systemctl included.
+      execFile(
+        "systemctl",
+        ["--user", "stop", "--no-block", HUB_UNIT, ICON_UNIT],
+        { env },
+        (error) => {
+          if (error) console.error(`preside-tray: stopping ${HUB_UNIT}: ${error.message}`);
+        },
+      );
     },
     log: (line) => console.log(`preside-tray: ${line}`),
   };
@@ -325,7 +351,8 @@ export function menuLayout(build: string): [number, Record<string, unknown>, Var
     0,
     { "children-display": "submenu" },
     [
-      item(MENU_BUILD, { label: `Serving ${build}`, enabled: false }),
+      // dbusmenu takes `_` as a mnemonic mark (feat_x would show as featx): `__` is one `_`.
+      item(MENU_BUILD, { label: `Serving ${build}`.replace(/_/g, "__"), enabled: false }),
       item(2, { type: "separator" }),
       item(MENU_OPEN, { label: "Open president" }),
       item(MENU_QUIT, { label: "Quit" }),

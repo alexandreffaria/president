@@ -61,9 +61,10 @@ Usage:
       compiler that comes with Windows) and start it. It runs the hub in the background,
       starts it again if it crashes, shows how many cards are waiting, and starts with
       Windows unless --no-autostart. Run it again after an update that changed the helper.
-      Linux: install systemd user units that run the hub from this checkout and its tray
-      icon (StatusNotifierItem), start them, and start them at login unless --no-autostart.
-      Run it from another checkout to serve that build instead (it must be built).
+      Linux: install systemd user units that run the hub and its tray icon
+      (StatusNotifierItem) from the checkout this preside.js is in (not the current folder),
+      start them, and start them at login unless --no-autostart. Run another checkout's
+      bin/preside.js to serve that build instead (it must be built, with npm ci done).
   preside tray uninstall
       Stop the icon and its hub, stop starting them at login, remove their files.
   preside tray status

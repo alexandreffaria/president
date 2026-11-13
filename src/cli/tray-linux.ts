@@ -6,14 +6,18 @@
  * - president.service runs the hub (`node <checkout>/src/server/main.ts`), starts at login,
  *   and is started again when it fails;
  * - president-tray.service runs the icon (tray/linux/preside-tray.ts, a StatusNotifierItem),
- *   pulled in by the hub's unit and stopped or restarted with it.
+ *   pulled in by the hub's unit (Wants=) but not tied to it: a hub that crashes and restarts
+ *   leaves the icon running (grey meanwhile). `install` restarts both, and Quit and
+ *   `uninstall` stop both.
  *
- * Both run from the checkout `install` ran from, so installing from another checkout (a pull
- * request's worktree) serves that build, and installing from main again puts main back. The
- * units name the build (branch @ short sha) for the icon's tooltip and `status`.
+ * Both run from the checkout this code is in (the one `bin/preside.js` was run from), so
+ * installing from another checkout (a pull request's worktree) serves that build, and
+ * installing from main again puts main back. The units name the build (branch @ short sha)
+ * for the icon's tooltip and `status`.
  */
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { isAbsolute, join } from "node:path";
 import { parseArgs } from "node:util";
 import { UserError } from "../server/errors.ts";
@@ -30,6 +34,11 @@ const HUB_SOURCE = join("src", "server", "main.ts");
 const UI_SOURCES = [join("src", "web"), join("src", "core"), "vite.config.ts"];
 /** How long `install` waits for the hub it (re)started to answer. */
 const ANSWER_TRIES = 20;
+/**
+ * How long systemd lets the hub stop. The hub waits for a Sync in progress to finish (its
+ * fetch and push have a 60 s network timeout each), so a stop doesn't leave a rebase halfway.
+ */
+const STOP_TIMEOUT_SEC = 150;
 const LOGS = `journalctl --user -u ${HUB_UNIT} -u ${ICON_UNIT}`;
 
 export async function linuxTray(
@@ -61,20 +70,26 @@ export interface UnitConfig {
   env: Record<string, string>;
 }
 
-/** The variables `install` passes on, so the hub finds `claude`, git and the registry. */
-const PASSED_ON = ["PATH", "XDG_CONFIG_HOME", "XDG_STATE_HOME"];
+/**
+ * The variables `install` passes on, so the hub finds `claude`, git, the registry and Claude
+ * Code's folder. Not SSH_AUTH_SOCK: an agent's socket changes from login to login, so the
+ * session has to give it to systemd (README).
+ */
+const PASSED_ON = ["PATH", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "CLAUDE_CONFIG_DIR"];
 
 /**
  * A quoted value in a unit file, taken literally: no specifiers (%), and in a command line
- * (ExecStart) no variables ($) either.
+ * argument no variables ($) either.
  */
-function quote(value: string, command = false): string {
+function quote(value: string, argument = false): string {
   const literal = value.replace(/[\\"]/g, "\\$&").replace(/%/g, "%%");
-  return `"${command ? literal.replace(/\$/g, "$$$$") : literal}"`;
+  return `"${argument ? literal.replace(/\$/g, "$$$$") : literal}"`;
 }
 
 function execStart(config: UnitConfig, source: string): string {
-  return `ExecStart=${quote(config.node, true)} ${quote(join(config.repo, source), true)}`;
+  // systemd unescapes arguments but not the program itself, so the node path goes in as it
+  // is (checkUnitValues refuses the characters that would need escaping).
+  return `ExecStart="${config.node.replace(/%/g, "%%")}" ${quote(join(config.repo, source), true)}`;
 }
 
 function environment(config: UnitConfig, extra: Record<string, string>): string[] {
@@ -83,12 +98,29 @@ function environment(config: UnitConfig, extra: Record<string, string>): string[
   );
 }
 
-function header(config: UnitConfig): string[] {
-  for (const [key, value] of Object.entries(config)) {
-    if (/[\r\n]/.test(typeof value === "string" ? value : JSON.stringify(value))) {
-      throw new UserError(`the ${key} has a line break in it`);
-    }
+/** Refuses what a unit file can't hold: line breaks anywhere, quotes or `$` in node's path. */
+export function checkUnitValues(config: UnitConfig): void {
+  const values: [string, string][] = [
+    ["node path", config.node],
+    ["checkout path", config.repo],
+    ["build name", config.build],
+    ...Object.entries(config.env).flatMap(([key, value]): [string, string][] => [
+      ["environment variable name", key],
+      [key, value],
+    ]),
+  ];
+  for (const [what, value] of values) {
+    if (/[\r\n]/.test(value)) throw new UserError(`the ${what} has a line break in it`);
   }
+  if (/["\\'$]/.test(config.node)) {
+    throw new UserError(
+      `node's path has a quote, a backslash or a $ in it, which a systemd unit can't run: ${config.node}. Run \`preside tray install\` with a node installed elsewhere.`,
+    );
+  }
+}
+
+function header(config: UnitConfig): string[] {
+  checkUnitValues(config);
   return [
     "# Written by `preside tray install`; run it again rather than editing this file.",
     `# repo=${config.repo}`,
@@ -108,6 +140,8 @@ export function hubUnit(config: UnitConfig): string {
     "StartLimitIntervalSec=0",
     "",
     "[Service]",
+    // exec: a node that isn't there makes `systemctl restart` fail, not start and die.
+    "Type=exec",
     `WorkingDirectory=${config.repo.replace(/%/g, "%%")}`,
     execStart(config, HUB_SOURCE),
     ...environment(config, {}),
@@ -115,6 +149,10 @@ export function hubUnit(config: UnitConfig): string {
     "RestartSec=1",
     "RestartSteps=6",
     "RestartMaxDelaySec=60",
+    // SIGTERM to the hub only: it lets a Sync's git finish, then exits. Whatever is left
+    // after that (or after the timeout) is killed.
+    "KillMode=mixed",
+    `TimeoutStopSec=${STOP_TIMEOUT_SEC}`,
     "",
     "[Install]",
     "WantedBy=default.target",
@@ -127,10 +165,10 @@ export function iconUnit(config: UnitConfig): string {
     ...header(config),
     "[Unit]",
     "Description=president tray icon",
-    `PartOf=${HUB_UNIT}`,
     `After=${HUB_UNIT}`,
     "",
     "[Service]",
+    "Type=exec",
     `WorkingDirectory=${config.repo.replace(/%/g, "%%")}`,
     execStart(config, ICON_SOURCE),
     ...environment(config, { PRESIDENT_BUILD: config.build }),
@@ -185,10 +223,11 @@ async function newest(path: string): Promise<{ time: number; file?: string }> {
 }
 
 /**
- * Refuses a checkout whose UI isn't built (the hub would serve only its API), and says when
- * the build looks older than the checkout: a source file or HEAD's commit newer than it.
+ * Refuses a checkout that can't be served: its UI isn't built (the hub would serve only its
+ * API), or the icon's dbus-native isn't installed (the icon would fail at every start). Says
+ * when the UI looks older than its sources.
  */
-async function checkBuilt(out: Output, deps: TrayDeps): Promise<void> {
+async function checkCheckout(out: Output, deps: TrayDeps): Promise<void> {
   const repo = deps.repoRoot;
   const built = await stat(join(repo, "dist", "web", "index.html")).catch(() => undefined);
   if (!built) {
@@ -196,21 +235,21 @@ async function checkBuilt(out: Output, deps: TrayDeps): Promise<void> {
       `the UI of ${repo} isn't built (no dist/web), so the hub would only serve its API: run \`npm run build\` there, then \`preside tray install\` again. Nothing was changed.`,
     );
   }
+  try {
+    createRequire(join(repo, ICON_SOURCE)).resolve("dbus-native");
+  } catch {
+    throw new UserError(
+      `the icon's dependencies aren't installed in ${repo} (no dbus-native): run \`npm ci\` there, then \`preside tray install\` again. Nothing was changed.`,
+    );
+  }
   const sources = { time: 0 } as { time: number; file?: string };
   for (const path of UI_SOURCES) {
     const found = await newest(join(repo, path));
     if (found.time > sources.time) Object.assign(sources, found);
   }
-  const commit = Number(await git(deps, repo, ["log", "-1", "--format=%ct"])) * 1000;
-  const why =
-    sources.time > built.mtimeMs && sources.file
-      ? `${sources.file.slice(repo.length + 1)} changed after it`
-      : commit > built.mtimeMs
-        ? "HEAD was committed after it"
-        : undefined;
-  if (why) {
+  if (sources.time > built.mtimeMs && sources.file) {
     out.error(
-      `preside: warning: the UI in ${join(repo, "dist", "web")} looks older than the checkout (${why}), so it may not be this build's. Run \`npm run build\` there and install again if it isn't.`,
+      `preside: warning: the UI in ${join(repo, "dist", "web")} looks older than the checkout (${sources.file.slice(repo.length + 1)} changed after it), so it may not be this build's. Run \`npm run build\` there and install again if it isn't.`,
     );
   }
 }
@@ -223,6 +262,10 @@ async function systemctl(deps: TrayDeps, args: string[]): Promise<{ ok: boolean;
 async function mustSystemctl(deps: TrayDeps, args: string[], what: string): Promise<void> {
   const result = await systemctl(deps, args);
   if (!result.ok) throw new UserError(`${what} failed: ${result.text || "systemctl failed"}`);
+}
+
+async function unitState(deps: TrayDeps, unit: string): Promise<string> {
+  return (await systemctl(deps, ["is-active", unit])).text || "unknown";
 }
 
 /** Who answers on the port: president.service's hub, nobody, or another program (its pid). */
@@ -242,7 +285,7 @@ async function install(args: string[], out: Output, deps: TrayDeps): Promise<num
   });
   const port = portFromEnv(deps.env);
   const dir = unitDir(deps.env);
-  await checkBuilt(out, deps);
+  await checkCheckout(out, deps);
   if (!(await systemctl(deps, ["show-environment"])).ok) {
     throw new UserError(
       "can't reach your systemd user manager (`systemctl --user`), which runs the hub in the background. Without it, run the hub with `preside serve`.",
@@ -260,6 +303,7 @@ async function install(args: string[], out: Output, deps: TrayDeps): Promise<num
       }),
     ),
   };
+  checkUnitValues(config);
   const hubPath = join(dir, HUB_UNIT);
   const before = parseUnit(await readFile(hubPath, "utf8").catch(() => ""));
   await mkdir(dir, { recursive: true });
@@ -278,15 +322,16 @@ async function install(args: string[], out: Output, deps: TrayDeps): Promise<num
     out.log("Starts at login (`systemctl --user disable president` turns that off).");
   }
   if (!values["no-start"]) {
-    // A restart also starts a stopped hub, and restarts the icon with it (PartOf).
-    await mustSystemctl(deps, ["restart", HUB_UNIT], "starting the hub");
+    // Both, so the icon too runs from this checkout and names this build (a restart also
+    // starts a unit that was stopped).
+    await mustSystemctl(deps, ["restart", HUB_UNIT, ICON_UNIT], "starting the hub and its icon");
     let hub: HubAnswer = "none";
     for (let i = 0; i < ANSWER_TRIES && hub === "none"; i++) {
       hub = await whoAnswers(deps, port);
       if (hub === "none") await deps.sleep(500);
     }
     const url = `http://127.0.0.1:${port}`;
-    if (hub === "ours") out.log(`Started: the hub is at ${url}, its icon in your tray.`);
+    if (hub === "ours") out.log(`Started: the hub is at ${url}.`);
     else if (hub === "none") {
       out.log(`Started, but the hub doesn't answer at ${url} yet: see \`${LOGS}\`.`);
     } else {
@@ -294,9 +339,17 @@ async function install(args: string[], out: Output, deps: TrayDeps): Promise<num
         `Started, but another program answers at ${url} (pid ${hub}), so this build isn't the one you'd see there: stop it (an \`npm start\`?) and ${HUB_UNIT} starts again on its own.`,
       );
     }
+    // The icon fails in its first moments if it fails at all (no bus, a broken checkout).
+    await deps.sleep(1000);
+    const icon = await unitState(deps, ICON_UNIT);
+    out.log(
+      icon === "active"
+        ? "The icon is running."
+        : `The icon isn't running (${icon}): see \`${LOGS}\`.`,
+    );
   } else if (before.repo !== undefined) {
     out.log(
-      `Not restarted: a hub already running keeps serving what it started with until \`systemctl --user restart ${HUB_UNIT}\`.`,
+      `Not restarted: a hub and icon already running keep serving what they started with until \`systemctl --user restart ${HUB_UNIT} ${ICON_UNIT}\`.`,
     );
   }
   out.log(
@@ -343,11 +396,9 @@ async function status(out: Output, deps: TrayDeps): Promise<number> {
       );
     }
   }
-  const state = async (name: string) =>
-    (await systemctl(deps, ["is-active", name])).text || "unknown";
   const enabled = (await systemctl(deps, ["is-enabled", HUB_UNIT])).text || "unknown";
-  out.log(`hub: ${await state(HUB_UNIT)} (${enabled} at login)`);
-  out.log(`icon: ${await state(ICON_UNIT)}`);
+  out.log(`hub: ${await unitState(deps, HUB_UNIT)} (${enabled} at login)`);
+  out.log(`icon: ${await unitState(deps, ICON_UNIT)}`);
   const port = unit.port ?? portFromEnv(deps.env);
   const hub = await whoAnswers(deps, port);
   const url = `http://127.0.0.1:${port}`;
@@ -359,5 +410,14 @@ async function status(out: Output, deps: TrayDeps): Promise<number> {
         : `hub: another program answers at ${url} (pid ${hub}), not ${HUB_UNIT}`,
   );
   out.log(`log: ${LOGS}`);
+  // git over ssh (Sync) needs the agent, which the service only has if the session gave it.
+  if (deps.env.SSH_AUTH_SOCK) {
+    const manager = await systemctl(deps, ["show-environment"]);
+    if (manager.ok && !/^SSH_AUTH_SOCK=/m.test(manager.text)) {
+      out.log(
+        "Your shell has an ssh agent (SSH_AUTH_SOCK) but systemd doesn't, so Sync can't use it for git over ssh: run `dbus-update-activation-environment --systemd SSH_AUTH_SOCK` in your session (see the README), then `systemctl --user restart president`.",
+      );
+    }
+  }
   return 0;
 }
