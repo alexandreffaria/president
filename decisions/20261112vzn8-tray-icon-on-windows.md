@@ -46,6 +46,7 @@ options:
 resolution:
   choice: count
   resolved_at: 2026-11-13T00:04:49Z
+applied_at: 2026-11-13T01:32:53Z
 ---
 
 ## Context

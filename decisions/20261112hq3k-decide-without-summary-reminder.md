@@ -49,6 +49,7 @@ options:
 resolution:
   choice: ends
   resolved_at: 2026-11-12T20:42:16Z
+applied_at: 2026-11-13T01:50:43Z
 ---
 
 ## Context
