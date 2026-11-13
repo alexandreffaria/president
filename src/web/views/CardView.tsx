@@ -133,7 +133,9 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const [deferMenu, setDeferMenu] = useState(false);
   /**
    * The agent's pick is shown (#0008, hidden until asked). Lasts until the human leaves the
-   * card (20261111nsaj, visit): the view is mounted per card, and nothing is stored.
+   * card (20261111nsaj, visit) or starts a new conversation (20261112lvbu): the view is
+   * mounted per card, and nothing is stored. On a card without a pick, r asks the chat for
+   * the agent's view instead (20261112irpn `r-asks`), and this says it was asked.
    */
   const [revealed, setRevealed] = useState(false);
   const revealButton = useRef<HTMLButtonElement>(null);
@@ -142,6 +144,11 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const focusTake = useRef(false);
   const reveal = (fromButton: boolean) => {
     focusTake.current = fromButton || document.activeElement === revealButton.current;
+    // No pick: the view comes in the chat, so the panel opens, its message box focused.
+    if (!card?.frontmatter.recommendation && chatOpen !== true) {
+      focusTake.current = false;
+      openChat();
+    }
     setRevealed(true);
   };
   useEffect(() => {
@@ -336,8 +343,13 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const seen = draft.seen;
 
   // A new pick (new options after "neither") is hidden again, even if the old one was shown
-  // during this visit (2026111272fu `reset`).
-  const pick = fm?.recommendation ? JSON.stringify(fm.recommendation) : undefined;
+  // during this visit (2026111272fu `reset`). On a card without a pick, new options end the
+  // view asked for with r, as the hub does (20261112irpn): it was asked on the old ones.
+  const pick = fm
+    ? fm.recommendation
+      ? JSON.stringify(fm.recommendation)
+      : JSON.stringify(fm.options)
+    : undefined;
   const shownPick = useRef(pick);
   useEffect(() => {
     if (shownPick.current !== pick) setRevealed(false);
@@ -779,7 +791,9 @@ export function CardView({ project, id }: { project: string; id: string }) {
       defer();
     },
     r: () => {
-      if (!fm?.recommendation || revealed) return false;
+      // On a card without a pick, r asks the chat for the agent's view (20261112irpn), once
+      // the conversation is there to ask in.
+      if (!fm || revealed || (!fm.recommendation && !chatLoaded)) return false;
       reveal(false);
     },
     escape: () => navigate("/"),
@@ -1011,6 +1025,32 @@ export function CardView({ project, id }: { project: string; id: string }) {
           </p>
         ))}
 
+      {/* No pick (20261112irpn `r-asks`): r asks the chat for the agent's own view. */}
+      {!fm.recommendation &&
+        chatLoaded &&
+        (revealed ? (
+          <p
+            className="recommendation-reveal"
+            ref={(el) => {
+              agentsTake.current = el;
+            }}
+            tabIndex={-1}
+          >
+            The agent's view is in the chat.
+          </p>
+        ) : (
+          <p className="recommendation-reveal">
+            <button
+              type="button"
+              className="button button-quiet"
+              ref={revealButton}
+              onClick={() => reveal(true)}
+            >
+              Ask for the agent's view <kbd>r</kbd>
+            </button>
+          </p>
+        ))}
+
       <Markdown className="card-appendix">{card.sections.appendix}</Markdown>
 
       <FeedbackHistory feedback={fm.feedback} seenAt={fm.seen_at} />
@@ -1039,6 +1079,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
           focusOnOpen={focusChat}
           onSaveSummary={saveSummary}
           deciding={beforeDeciding !== null}
+          onNewConversation={() => setRevealed(false)}
         />
       ) : (
         chatLoaded && (

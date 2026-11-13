@@ -295,6 +295,208 @@ describe("the conversation panel", () => {
   });
 });
 
+describe("hiding the panel only hides it (20261112m6dx hide)", () => {
+  it("leaves the conversation open and unsummarized, runs nothing, and comes back as it was", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("Does it throw?");
+    await press("c");
+    await until(() => host.querySelector(".chat") === null, "the panel to hide");
+    expect(text()).toContain("Conversation not summarized yet.");
+    await pause();
+    expect(await calls()).toHaveLength(1);
+    expect((await io(() => chatCopy())).unsummarized).toBe(true);
+    await press("c");
+    await until(() => button("Write summary") !== undefined, "Write summary");
+    expect(text()).toContain("Echo: Does it throw?");
+  });
+});
+
+describe("a card without a pick (20261112irpn r-asks)", () => {
+  it("keeps the chat's view out until r, which asks for it; the page says it's in the chat", async () => {
+    await open("/card/demo/0003");
+    expect(button("Ask for the agent's view")).toBeDefined();
+    expect(text()).not.toContain("Show the agent's pick");
+    await press("c");
+    await sendMessage("Which wording?");
+    await press("r");
+    await until(() => text().includes("The agent's view is in the chat."), "the line");
+    expect(button("Ask for the agent's view")).toBeUndefined();
+    await sendMessage("What would you write?");
+    const [first, second] = await calls();
+    expect(first?.stdin).toMatch(/^\(president: This card has no pick/);
+    expect(first?.stdin).toMatch(/keep your own view out of it so the answer is theirs/);
+    expect(first?.stdin).not.toMatch(/behind r/);
+    expect(second?.stdin).toMatch(/has just pressed r to ask for your own view: give it/);
+  });
+
+  it("r opens the panel to ask in, its message box focused", async () => {
+    await open("/card/demo/0003");
+    expect(host.querySelector(".chat")).toBeNull();
+    await press("r");
+    await until(() => host.querySelector(".chat") !== null, "the panel");
+    expect(text()).toContain("The agent's view is in the chat.");
+    await until(() => document.activeElement === messageBox(), "focus in the message box");
+  });
+});
+
+describe("a card without a pick, more (20261112irpn r-asks)", () => {
+  const withoutPick = async () => {
+    const path = join(demo, "decisions", "0002-api-errors.md");
+    const text = (await io(() => readFile(path, "utf8"))).replace(
+      /^recommendation:\n(?: {2}.*\n| {4}.*\n)+/m,
+      "",
+    );
+    await io(() => writeFile(path, text));
+    return { path, text };
+  };
+
+  it("r on an A/B card without a pick asks for the agent's view", async () => {
+    await withoutPick();
+    await open("/card/demo/0002");
+    expect(text()).not.toContain("Show the agent's pick");
+    await press("r");
+    await until(() => text().includes("The agent's view is in the chat."), "the line");
+    await sendMessage("Which one?");
+    expect((await calls())[0]?.stdin).toMatch(/has just pressed r to ask for your own view/);
+  });
+
+  it("new options hide the view again, so r asks again", async () => {
+    const { path, text: card } = await withoutPick();
+    await open("/card/demo/0002");
+    await press("r");
+    await until(() => text().includes("The agent's view is in the chat."), "the line");
+    await io(() =>
+      writeFile(path, card.replace("title: Throw typed errors", "title: Throw errors")),
+    );
+    socket()?.emit({ type: "cards", project: "demo" });
+    await until(() => button("Ask for the agent's view") !== undefined, "the button again");
+    expect(text()).not.toContain("The agent's view is in the chat.");
+    await sendMessage("And now?");
+    expect((await calls())[0]?.stdin).toMatch(/^\(president: This card has no pick/);
+    expect((await calls())[0]?.stdin).not.toMatch(/asked for your own view/);
+  });
+
+  it("New conversation after r forgets the view, and the page offers r again", async () => {
+    await open("/card/demo/0003");
+    await press("r");
+    await sendMessage("What would you write?");
+    expect(text()).toContain("The agent's view is in the chat.");
+    await click("New conversation");
+    await until(() => button("Ask for the agent's view") !== undefined, "the button again");
+    await sendMessage("And now?");
+    expect((await calls())[1]?.stdin).toMatch(/^\(president: This card has no pick/);
+    expect((await calls())[1]?.stdin).not.toMatch(/asked for your own view/);
+  });
+
+  it("r does nothing, and nothing says the view is in the chat, while there is no conversation", async () => {
+    intercept = (input, init) =>
+      !init.method && input.startsWith("/api/chats/demo/0003")
+        ? Promise.resolve(new Response("{}", { status: 500 }))
+        : undefined;
+    window.history.replaceState(null, "", "/card/demo/0003");
+    root.render(<App />);
+    await until(() => text().includes("What should the app say"), "the card");
+    await settled();
+    expect(button("Ask for the agent's view")).toBeUndefined();
+    await press("r");
+    await pause();
+    expect(text()).not.toContain("The agent's view is in the chat.");
+    expect(host.querySelector(".chat")).toBeNull();
+  });
+});
+
+describe("New conversation (20261112lvbu choose)", () => {
+  const DIVIDER = "── New conversation. It starts from the card and its summaries. ──";
+
+  it("isn't offered before there is a conversation", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await until(() => messageBox() !== null, "the panel");
+    expect(button("New conversation")).toBeUndefined();
+  });
+
+  it("ends the session below a divider, the earlier messages above it, and hides the pick again", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("One");
+    await press("r");
+    await until(() => text().includes("The agent's take"), "the pick");
+    await click("New conversation");
+    await until(() => text().includes(DIVIDER), "the divider");
+    expect(host.querySelector(".chat-divider")?.textContent).toBe(DIVIDER);
+    expect(text()).toContain("Echo: One");
+    // Neutral again: the page hides the pick, and the new session hears it isn't revealed.
+    await until(() => button("Show the agent's pick") !== undefined, "the pick hidden again");
+    expect(text()).not.toContain("The agent's take");
+    // Nothing to end until the next message.
+    expect(button("New conversation")?.disabled).toBe(true);
+
+    await sendMessage("Two");
+    const [first, second] = await calls();
+    const old = first?.args[first.args.indexOf("--session-id") + 1];
+    expect(second?.args).toContain("--session-id");
+    expect(second?.args).not.toContain(old);
+    expect(second?.stdin).toMatch(/^\(president: The human has not revealed the card's pick\./);
+    expect(second?.stdin).toMatch(/The human started a new conversation about this card/);
+    const items = [...host.querySelectorAll(".chat-messages > li")].map((li) => li.textContent);
+    expect(items.indexOf(DIVIDER)).toBe(2);
+    expect(button("New conversation")?.disabled).toBe(false);
+  });
+
+  it("is off while a reply streams in", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("One");
+    await io(() => writeFile(join(fakeDir, "script.json"), JSON.stringify([{}, { pauseMs: 400 }])));
+    await typeInto(messageBox(), "Slowly");
+    await press("Enter", messageBox() as Element);
+    await until(() => text().includes("The agent is answering"), "the reply streaming");
+    expect(button("New conversation")?.disabled).toBe(true);
+    await until(() => !text().includes("The agent is answering"), "the run to end");
+    await until(() => button("New conversation")?.disabled === false, "New conversation again");
+  });
+
+  it("is off while a summary is written, edited or waits as a draft, so saving it ends the reminder", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("One");
+    await io(() =>
+      writeFile(
+        join(fakeDir, "script.json"),
+        JSON.stringify([{}, { delayMs: 400, text: "A summary." }]),
+      ),
+    );
+    await click("Write summary");
+    await until(() => text().includes("The agent is writing a summary…"), "the status");
+    expect(button("New conversation")?.disabled).toBe(true);
+    await until(() => !!host.querySelector(".chat-summary textarea"), "the summary box");
+    expect(button("New conversation")?.disabled).toBe(true);
+    // Closed with Esc, the draft waits behind Edit summary: still off.
+    await press("Escape", host.querySelector(".chat-summary textarea") as Element);
+    await until(() => button("Edit summary") !== undefined, "the draft");
+    expect(button("New conversation")?.disabled).toBe(true);
+    await click("Edit summary");
+    await until(() => button("Save summary") !== undefined, "the box again");
+    await click("Save summary");
+    await until(() => !text().includes("Conversation not summarized yet."), "the reminder to end");
+    await until(() => button("New conversation")?.disabled === false, "New conversation again");
+    await click("New conversation");
+    await until(() => text().includes(DIVIDER), "the divider");
+    expect((await io(() => chatCopy())).unsummarized).toBe(false);
+  });
+
+  it("keeps the divider after a reload", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("One");
+    await click("New conversation");
+    await until(() => text().includes(DIVIDER), "the divider");
+    await reload("/card/demo/0002");
+    await until(() => text().includes(DIVIDER), "the divider after the reload");
+  });
+});
+
 describe("summaries", () => {
   it("are written by the agent, edited, saved on the card, and come back on undo", async () => {
     await open("/card/demo/0002");
@@ -1628,6 +1830,32 @@ describe("Neither: new options right away (#0007, 202611111gpm, 20261112160s, 20
     await Promise.allSettled([...inFlight]);
     expect(await calls()).toHaveLength(1);
     expect((await chatCopy()).newOptions?.state).toBe("failed");
+  });
+
+  it("New conversation is off while the Neither message waits, and while a message is held (20261112lvbu)", async () => {
+    await script([{}, { structured: ANSWER }, {}]);
+    await io(async () =>
+      (
+        await fetch("/api/chats/demo/0002/messages", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text: "One" }),
+        })
+      ).text(),
+    );
+    await askForNewOptions();
+    navigate("/card/demo/0002");
+    await until(() => text().includes("Sending when Undo closes"), "the pending message");
+    if (!messageBox()) await press("c");
+    await until(() => button("New conversation") !== undefined, "New conversation");
+    expect(button("New conversation")?.disabled).toBe(true);
+    await typeInto(messageBox(), "Why drop the server?");
+    await press("Enter", messageBox() as Element);
+    await until(() => text().includes("Sent after your Neither message"), "the held message");
+    expect(button("New conversation")?.disabled).toBe(true);
+    dismissToast();
+    await until(() => text().includes("Echo: Why drop the server?"), "the held message's reply");
+    await until(() => button("New conversation")?.disabled === false, "New conversation again");
   });
 
   it("holds a message sent while the Neither message waits, and sends it after", async () => {

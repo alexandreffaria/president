@@ -32,6 +32,10 @@
  *                                            "not summarized" reminder goes; the card isn't
  *                                            written (202611111ky9). Answers { chat, closed }
  *   POST   /api/chats/:project/:id/reopen    { closed }  undoes that close (its notice's Undo)
+ *   POST   /api/chats/:project/:id/new-conversation  {}  New conversation (20261112lvbu): ends
+ *                                            the card's session; the next message starts a
+ *                                            new one from the card and its summaries.
+ *                                            Answers the conversation (ChatDto)
  *   GET    /api/sync                         per project: answers not synced, card changes on
  *                                            the remote, the last Sync's result (sync.ts)
  *   POST   /api/sync                         {}  runs Sync in every project; answers when done
@@ -404,6 +408,13 @@ export function createApp(options: AppOptions): Hono {
     const project = await requireProject(registry, c.req.param("project"));
     const { closed } = parseBody(ReopenSchema, await readJson(c.req.raw));
     return c.json(await chat.reopen(project, cardId(c.req.param("id")), closed));
+  });
+
+  api.post("/chats/:project/:id/new-conversation", async (c) => {
+    const project = await requireProject(registry, c.req.param("project"));
+    // A JSON body, like every write (security.ts); nothing in it is used.
+    await readJson(c.req.raw);
+    return c.json(await chat.newConversation(project, cardId(c.req.param("id"))));
   });
 
   api.get("/sync", async (c) => c.json(await sync.status()));

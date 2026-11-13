@@ -19,6 +19,13 @@
  *   lasts "until you close the conversation, saving its summary or not"), drops the draft,
  *   and can be undone from its notice.
  *   Closing the box (Esc, Cancel) keeps the edited text as a draft, like the other panels.
+ * - Hiding the panel (× / c) only hides it (20261112m6dx `hide`); a conversation is closed
+ *   with Write summary (then Save summary) or Close without summary.
+ * - Your next message resumes the same session (20261112lvbu `choose`); New conversation, in
+ *   the panel's header, ends it: the next message starts a new session from the card and its
+ *   summaries, neutral about the pick again (the page hides it again too). The earlier
+ *   messages stay, above a divider: "── New conversation. It starts from the card and its
+ *   summaries. ──".
  * - Teach me (#0005, 20261111fauj) and More info (20261112e1ik): buttons next to the message
  *   box (#0002's sketch); the hub writes their requests.
  * - While the "Before deciding" box is open (#0019, BeforeDeciding.tsx), the summary is edited
@@ -29,7 +36,12 @@
  *   have asked for an image whose address carries project text).
  */
 import { type RefObject, useEffect, useRef, useState } from "react";
-import type { CardDetailDto, ChatAsk, ChatMessageDto } from "../../core/api.ts";
+import {
+  type CardDetailDto,
+  type ChatAsk,
+  type ChatMessageDto,
+  isNewConversation,
+} from "../../core/api.ts";
 import { newOptionsFailure } from "../../core/new-options.ts";
 import { api, type ChatContext } from "../api.ts";
 import type { CardChat as ChatState } from "../chat.ts";
@@ -68,6 +80,11 @@ export function CardChat(props: {
   onWriting?: (writing: boolean, error?: string) => void;
   /** The "Before deciding" box is open and holds the summary (#0019). */
   deciding?: boolean;
+  /**
+   * A New conversation started (20261112lvbu): the page hides the pick again, so the new
+   * session is neutral about it until r.
+   */
+  onNewConversation?: () => void;
 }) {
   const { card, chat, context, draft } = props;
   const deciding = props.deciding === true;
@@ -93,6 +110,7 @@ export function CardChat(props: {
   const remembers = chat.chat?.remembers ?? true;
   const unsummarized = chat.chat?.unsummarized === true;
   const [closing, setClosing] = useState(false);
+  const [startingNew, setStartingNew] = useState(false);
   const status = answering
     ? (live.activity ?? "The agent is answering…")
     : writing || chat.chat?.running === "summary"
@@ -295,6 +313,39 @@ export function CardChat(props: {
     }
   };
 
+  /**
+   * New conversation (20261112lvbu): off while anything is asked or waits to be, while a
+   * summary is written, edited or waits as a draft (it covers the messages before the
+   * divider; save it or close without it first), and when there is nothing to end (no
+   * messages yet, or nothing since the last divider).
+   */
+  const last = shown.at(-1);
+  const canStartNew =
+    last !== undefined &&
+    !isNewConversation(last) &&
+    !running &&
+    !deciding &&
+    pending === undefined &&
+    held === undefined &&
+    !writing &&
+    !saving &&
+    !closing &&
+    !boxOpen &&
+    !hasSummaryDraft &&
+    !startingNew;
+  const startNew = async () => {
+    if (!canStartNew) return;
+    setStartingNew(true);
+    try {
+      await chat.startNew();
+      props.onNewConversation?.();
+    } catch (error) {
+      toast((error as Error).message, { tone: "error" });
+    } finally {
+      setStartingNew(false);
+    }
+  };
+
   const save = async () => {
     const text = draft.summary.trim();
     if (!text || saving) return;
@@ -315,9 +366,26 @@ export function CardChat(props: {
         <h2 id={`chat-heading-${card.id}`} className="section-heading">
           Conversation
         </h2>
-        <button type="button" className="button button-quiet" onClick={props.onClose}>
-          Hide conversation <kbd>c</kbd>
-        </button>
+        <span className="chat-header-buttons">
+          {shown.length > 0 && (
+            <button
+              type="button"
+              className="button button-quiet"
+              disabled={!canStartNew}
+              title={
+                boxOpen || hasSummaryDraft
+                  ? "Save the summary, or close without it, first"
+                  : "Ends this session; your next message starts a new one from the card and its summaries"
+              }
+              onClick={() => void startNew()}
+            >
+              New conversation
+            </button>
+          )}
+          <button type="button" className="button button-quiet" onClick={props.onClose}>
+            Hide conversation <kbd>c</kbd>
+          </button>
+        </span>
       </header>
 
       {/* Busy while a reply streams in: it is read out once, when it is complete. */}
@@ -554,6 +622,14 @@ function Message({
 }: {
   message: Pick<ChatMessageDto, "from" | "text"> & { at: string | undefined };
 }) {
+  // New conversation's line (20261112lvbu): a divider, the earlier messages above it.
+  if (isNewConversation(message)) {
+    return (
+      <li className="chat-divider muted small" title={message.at && fullDate(message.at)}>
+        ── {message.text} ──
+      </li>
+    );
+  }
   return (
     <li className={`chat-message chat-${message.from}`}>
       <p className="chat-meta">

@@ -1094,6 +1094,13 @@ ul.broken {
   margin: 0;
 }
 
+.chat-header-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.25rem;
+}
+
 .chat-messages {
   display: flex;
   flex-direction: column;
@@ -1134,6 +1141,12 @@ ul.broken {
 .chat-hub .chat-text {
   font-style: italic;
   color: var(--text-muted);
+}
+
+/* New conversation's line (20261112lvbu): the earlier messages are above it. */
+.chat-divider {
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 
 /* Your "Neither" message before its run starts, or a message held until the run is over. */
