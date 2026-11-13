@@ -6,6 +6,23 @@ import {
 } from "../src/core/sections.ts";
 
 describe("splitSections", () => {
+  // Short cards leave the option sections out; ## Sources must still show below the options.
+  it("reads a later section as appendix in a body without option sections", () => {
+    expect(splitSections("## Context\n\nWhy.  \n\n## Sources\n\n- a link\n")).toEqual({
+      context: "## Context\n\nWhy.",
+      options: [],
+      appendix: "## Sources\n\n- a link",
+    });
+    // A first heading other than Context, and a Context heading, stay context; fences count.
+    expect(splitSections("## Background\n\nText.\n")).toMatchObject({ appendix: "" });
+    expect(splitSections("Intro.\n\n## Context\n\nWhy.\n```\n## Not one\n```\n")).toMatchObject({
+      appendix: "",
+    });
+    expect(splitSections("## Context\n\nWhy.\n\n## Notes\nA.\n\n## Sources\nB.\n").appendix).toBe(
+      "## Notes\nA.\n\n## Sources\nB.",
+    );
+  });
+
   it("splits context, option sections and appendix", () => {
     const body = [
       "",
@@ -44,12 +61,16 @@ describe("splitSections", () => {
     expect(sections.options[0]?.markdown).toContain("end");
   });
 
-  it("treats a body without option headings as context", () => {
-    const sections = splitSections("Just some words.\n\n## Notes\n\nMore.");
-    expect(sections).toEqual({
-      context: "Just some words.\n\n## Notes\n\nMore.",
+  it("treats a body without option headings as context, up to a later section", () => {
+    expect(splitSections("Just some words.\n\nMore.")).toEqual({
+      context: "Just some words.\n\nMore.",
       options: [],
       appendix: "",
+    });
+    expect(splitSections("Just some words.\n\n## Notes\n\nMore.")).toEqual({
+      context: "Just some words.",
+      options: [],
+      appendix: "## Notes\n\nMore.",
     });
   });
 
@@ -131,6 +152,14 @@ describe("replaceOptionSections (#0007's new options)", () => {
       "## Context\r\n\r\nWhy.\r\n",
     );
     expect(replaceOptionSections("## Context\n\nWhy.\n", [])).toBe("## Context\n\nWhy.\n");
+  });
+
+  it("adds the sections above the appendix of a body without any", () => {
+    const next = replaceOptionSections("## Context\n\nWhy.\n\n## Sources\n\n- a link\n", sections);
+    const split = splitSections(next);
+    expect(split.context).toBe("## Context\n\nWhy.");
+    expect(split.options.map((o) => o.id)).toEqual(["x", "y"]);
+    expect(split.appendix).toBe("## Sources\n\n- a link");
   });
 
   it("adds the sections at the end of a body without any, and keeps CRLF", () => {

@@ -241,7 +241,7 @@ function parseNamedCard(
     const where = heading === -1 ? "" : ` (line ${bodyLine(heading + 1)})`;
     errors.push(`body: the context${where} is only "..."; write the real content`);
   }
-  // Other sections from the template (## Sources) left as "...".
+  // Any other level-2 section (a ## Notes or ## Sources an agent added) left as "...".
   const bodyLines = split.body.split("\n");
   bodyLines.forEach((line, i) => {
     const heading = /^##[ \t]+(.+?)[ \t]*$/.exec(line)?.[1];

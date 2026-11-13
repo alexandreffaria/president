@@ -35,6 +35,7 @@ import { parseCardFileName } from "../../core/card-file.ts";
 import { newOptionsFailure } from "../../core/new-options.ts";
 import type { RawFrontmatter } from "../../core/schema.ts";
 import {
+  type BodySections,
   demoteSectionHeadings,
   FENCE_CLOSE,
   FENCE_OPEN,
@@ -1153,15 +1154,19 @@ function newCardContent(
   const body = replaceOptionSections(card.body, sections);
 
   // Read back: exactly the sections with details, and the rest of the body as it was. When
-  // the old option sections were removed and none written, splitSections reads what was the
-  // appendix as part of the context.
+  // the old option sections were removed and none written, a body without option sections
+  // may split its text between context and appendix at another heading (a second context
+  // section), so only the text, with the spaces at its line ends, must be the same.
   const before = splitSections(card.body);
   const after = splitSections(body);
+  const rest = (s: BodySections) =>
+    [s.context, s.appendix]
+      .filter((t) => t !== "")
+      .join("\n\n")
+      .replace(/[ \t]+$/gm, "");
   const restKept =
-    sections.length === 0 && before.options.length > 0
-      ? after.appendix === "" &&
-        after.context === [before.context, before.appendix].filter((t) => t !== "").join("\n\n")
-      : after.context === before.context && after.appendix === before.appendix;
+    (after.context === before.context && after.appendix === before.appendix) ||
+    (sections.length === 0 && before.options.length > 0 && rest(after) === rest(before));
   const same =
     restKept &&
     after.options.length === sections.length &&

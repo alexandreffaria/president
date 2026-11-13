@@ -215,8 +215,8 @@ withdrawn:
 ## Body
 
 The body is markdown. It is shown in full, so write it for a human who has not seen the code,
-and keep the whole card short: readable in under a minute (about 150 to 250 words), with only
-what the human needs to choose.
+and keep the whole card short: at most about 250 words, usually fewer, with only what the
+human needs to choose.
 
 - Start with `## Context`: at most about 3 short sentences on what is being decided and the
   constraint that matters. No history or internals.
@@ -325,20 +325,6 @@ options:
 
 On the trail most API requests fail for lack of signal, so failure is normal. We need one
 convention before more endpoints are written.
-
-## Option throw: Throw typed errors
-
-```ts
-const trip = await getTrip(id); // throws OfflineError, NotFoundError
-```
-
-## Option result: Return a result object
-
-```ts
-const result = await getTrip(id);
-if (!result.ok) return showError(result.error); // "offline" | "not_found"
-const trip = result.data;
-```
 ~~~~
 
 After the human picks `result` with a note, president rewrites only the frontmatter:

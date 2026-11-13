@@ -262,7 +262,10 @@ describe("docs/card-format.md", () => {
     expect(example).toBeDefined();
     const card = expectCard(`${example}\n`, "0002-api-errors.md");
     expect(card.frontmatter.kind).toBe("ab");
-    expect(card.sections.options.map((o) => o.id)).toEqual(["throw", "result"]);
+    expect(card.frontmatter.options.map((o) => o.id)).toEqual(["throw", "result"]);
+    // It models a short card: no option sections, no appendix.
+    expect(card.sections.options).toEqual([]);
+    expect(card.sections.appendix).toBe("");
   });
 
   // An agent copies these snippets; none may show a comment that would cut its text (A).

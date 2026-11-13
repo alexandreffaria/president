@@ -52,9 +52,8 @@ there misses the human's answers and changes only that copy.
   carries a file under `decisions/`, not even one that only writes cards. The cards you write
   or change reach the human in the main folder, and Sync (or a hand commit, in a project Sync
   skips) puts them in git:
-  - **a new card** is drafted outside `<main>/decisions/`, validated, reviewed by a fresh
-    session until nothing should-fix is left, and only then copied into `<main>/decisions/`
-    and validated there (see **Writing a card**);
+  - **a new card** is drafted outside `<main>/decisions/`, reviewed, and only then copied in
+    (see **Writing a card**);
   - **a rewrite** of an existing card (new options after "neither", adding or removing
     `withdrawn`) goes straight to the main folder with `preside update`, unreviewed (see
     **Changing a card**), so its guard compares your version with the card the human has,
@@ -101,10 +100,9 @@ there misses the human's answers and changes only that copy.
 
 ## Writing a card
 
-A new card reaches the human only once a fresh session has reviewed it: you write a draft
-where the hub doesn't read it, check and review it there, then copy it into
-`<main>/decisions/`. Nothing checks that the review ran, and the card looks the same without
-it, so don't skip it.
+A new card reaches the human only once a fresh session has reviewed it: you draft it where
+the hub doesn't read it, review it there, then copy it into `<main>/decisions/`. Nothing
+checks that the review ran, so don't skip it.
 
 1. Make the id: today's UTC date plus 4 random lowercase letters and digits, for example
    `20261110q4m8`. Don't make it up or count cards; run:
@@ -113,19 +111,16 @@ it, so don't skip it.
    echo "$(date -u +%Y%m%d)$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c4)"
    ```
 
-   Older cards in the folder may have numbered ids (`0007`); leave them as they are, and use
-   their full ids in `depends_on`. The file name is `<id>-<short-slug>.md`, e.g.
+   Older cards may have numbered ids (`0007`); leave them, and use their full ids in
+   `depends_on`. The file name is `<id>-<short-slug>.md`, e.g.
    `20261110q4m8-empty-state-copy.md`. Write the draft:
    - **in a worktree**: in the worktree's own `decisions/` (under the project's subfolder, if
-     the project is one; create the folder if the worktree has none), e.g.
-     `<worktree>/decisions/20261110q4m8-empty-state-copy.md`, and never commit it;
-   - **in the main folder itself**: outside `decisions/`, in a scratch folder outside the
-     project (for example one made with `mktemp -d`), e.g.
-     `<scratch>/20261110q4m8-empty-state-copy.md`. Not under a `.` or `_` name inside
-     `decisions/`: the hub ignores those, but `preside validate` refuses them ("is not a card
-     file").
+     the project is one; create it if needed), and never commit it;
+   - **in the main folder itself**: in a scratch folder outside the project (for example one
+     made with `mktemp -d`). Not under a `.` or `_` name inside `decisions/`: the hub ignores
+     those, but `preside validate` refuses them ("is not a card file").
 
-   Two cards almost never get the same id this way; step 7 checks for it anyway.
+   Two cards almost never get the same id this way; step 7 checks anyway.
 2. Get the current time for `created`; don't guess it or copy the example's:
 
    ```sh
@@ -137,11 +132,8 @@ it, so don't skip it.
      two wordings, two layouts). Exactly 2 options.
    - `choice`: 2 to 4 options shown one under another.
    - `open`: there is no sensible list of options ("what should the welcome text say?").
-4. Write the frontmatter and the body, **short**: the human should read the whole card in
-   under a minute (about 150 to 250 words, frontmatter text included). Give only what they
-   need to choose; leave out the history, the internals and how you found things out.
-   Template (every `...` is a placeholder you must replace; `preside validate` rejects cards
-   that still have them). The question, ids and titles are an example; replace them too:
+4. Write the card within the limits in **What makes a good card**. Template (replace every
+   `...`, which `preside validate` rejects, and the example question, ids and titles):
 
 ````markdown
 ---
@@ -177,7 +169,7 @@ options:
 ...
 ````
 
-   The same card filled in, at the right length (about 110 words a human reads):
+   Filled in, at a good length:
 
 ~~~~markdown
 ---
@@ -193,8 +185,8 @@ depends_on: []
 recommendation:
   option: action
   why: >-
-    People who open an empty list want to plan a trip, so the next step matters most. The
-    download page already makes the offline promise.
+    People with an empty list want to plan a trip, and the download page already makes the
+    offline promise.
 options:
   - id: promise
     title: Lead with the offline promise
@@ -219,23 +211,6 @@ A new user's trip list is empty: one line of text and a New trip button. Which l
 it show?
 ~~~~
 
-   What goes where:
-   - `title`: the question, in plain words.
-   - `## Context`: at most about 3 short sentences: what is being decided and the constraint
-     that matters, for someone who has not read the code. No history, no internals, no file
-     links unless the human needs to open one.
-   - `options`: each has a `title`, a one-sentence `summary` that says what the option is
-     (with the actual text, number or name when that is the choice), and at most 2 `pros`
-     and 2 `cons`, each a short phrase.
-   - `recommendation.why`: one or two sentences, saying what the pick depends on if anything.
-   - `depends_on`: other cards this one builds on. Refer to cards here, not in the prose.
-   - `## Option <id>: <title>` sections: leave them out by default; the summary, pros and cons
-     are shown without them. Add one only when the choice is about how something looks or
-     reads and the summary can't show it: then a tiny example (a few lines of copy, code or
-     a sketch), the same size for every option.
-   - No `## Sources` section, and no other extra sections. Give the sources you used to the
-     reviewer (step 6), not the human.
-
    An `open` card needs no options; the human answers in their own words:
 
    ```markdown
@@ -253,68 +228,58 @@ it show?
    The first screen is empty: one short line and a button. What tone do you want?
    ```
 
-5. Check the draft: `preside validate <draft>` (for example
-   `preside validate <worktree>/decisions/20261110q4m8-empty-state-copy.md`) must print `ok`. Fix
-   anything it reports (each problem names the field and the line). In a worktree, two things
-   it may say are not problems with the card:
-   - a note that the worktree "is not registered with the hub ... Register it: preside add
-     <worktree>": ignore it, and never register a worktree;
-   - a warning that a `depends_on` "is not a card in this project", for a card that is in
-     `<main>/decisions/`: the worktree's `decisions/` lacks the main folder's uncommitted
-     cards, so its id and dependency checks are not authoritative. Only step 7's validate in
-     the main folder is. (A draft in a scratch folder gets neither check: `validate` reads only
-     that file, so its `depends_on` is checked first at step 7.)
+5. Check the draft: `preside validate <draft>` must print `ok`; fix what it reports. In a
+   worktree, two things it may say are not problems with the card:
+   - a note that the worktree "is not registered with the hub": ignore it, and never
+     register a worktree;
+   - a warning that a `depends_on` "is not a card in this project", for a card in
+     `<main>/decisions/`: the worktree lacks the main folder's uncommitted cards, so only
+     step 7's validate checks ids and dependencies. (A draft in a scratch folder gets
+     neither check: `validate` reads only that file.)
 6. Have a fresh session review the draft: one that didn't write it, for example a subagent
-   you start for this. Give it the draft's absolute path, the sources you used and the
-   **What makes a good card** list below (paste it in; it may not have this skill), and ask
-   it to check the card against that list, to check every fact against its source, and to
-   mark each finding should-fix (a wrong or one-sided fact, a missing or straw-man option,
-   anything the human could decide wrongly from, a card over the length limits, or anything
-   in it the human doesn't need in order to choose) or nit. Ask it to cut before it adds:
-   for each sentence, would the human choose differently without it? If not, it goes. Fix what it finds, validate the draft again,
-   and have a fresh session review the fixed draft, round after round, until a review finds
-   nothing should-fix. If you can't start a fresh session, don't copy the card in: tell the
-   human where the draft is.
+   you start for this. Give it the draft's absolute path, your sources and the **What makes
+   a good card** list below (paste it in; it may not have this skill). Ask it to check the
+   card against that list and every fact against its source, and to mark each finding
+   should-fix (a wrong or one-sided fact, a missing or straw-man option, anything the human
+   could decide wrongly from, a card over the limits, anything not needed to choose) or nit.
+   Fix what it finds, validate again, and have a fresh session review the fixed draft,
+   round after round, until a review finds nothing should-fix. If you can't start a fresh
+   session, don't copy the card in: tell the human where the draft is.
 7. List `<main>/decisions/` again. If another card has your id, give the draft a new one
-   (make it as in step 1, change its `id` and rename the file to match). Check that every
-   id in the draft's `depends_on` is a card in that list; if one isn't, fix the draft. If
-   you changed the draft, validate it again. Then copy it into the main folder, by absolute
-   path (`<main>/decisions/20261110q4m8-empty-state-copy.md`), never over an existing file,
-   and run `preside validate <main>/decisions/20261110q4m8-empty-state-copy.md`: it must
-   print `ok` and no `warning` line.
+   (as in step 1: change its `id` and rename the file). Check that every id in its
+   `depends_on` is in that list, and fix the draft if not; validate it again if you changed
+   it. Then copy it into the main folder by absolute path, never over an existing file, and
+   run `preside validate <main>/decisions/<file>`: it must print `ok` and no `warning` line.
    - If it warns that a `depends_on` "is not a card in this project" (that card went away
      since you looked), the card is already in the human's queue: fix it with
      `preside update` (see **Changing a card**), not by editing it or copying over it.
    - If it reports `id "20261110q4m8" is also used by ...` (another agent copied the same id
      in since you looked), your copy is the newer card: give the file in `<main>/decisions/`
-     a new id, not the draft (it is broken, so edit its `id` directly and rename it, see
-     **Changing a card**). Then validate it and the other card's file again; if yours is
-     reported as a duplicate again, give it a new id again. Leave the other card alone.
+     a new id, not the draft (it is broken, so edit its `id` directly and rename it). Then
+     validate it and the other card's file again, and repeat if yours is still a duplicate.
+     Leave the other card alone.
 
    Then delete the draft (and the scratch folder, if you made one), so your branch never
    commits it. The card is in the human's queue now; leave it uncommitted.
 
 ### What makes a good card
 
-- **Short.** Readable in under a minute: about 150 to 250 words. Context at most about 3 short
-  sentences; each option a title, a one-sentence summary, at most 2 pros and 2 cons as short
-  phrases; the recommendation's `why` one or two sentences. No `## Sources` section, no
-  history, no internals.
-- **Only the main decision points.** Keep what would change the human's choice; cut the rest.
-- **Neutral framing.** The title is the question, in plain words, not your answer. Describe
-  every option the way its best advocate would.
-- **Options that are genuinely different.** 2 to 4 of them. Not one real option and two straw
-  men; not three variations of the same idea.
-- **Concrete, and small.** Put the real text, number or name in the summary. An `## Option`
-  section with a tiny example only when the choice is about how something looks or reads; in
-  `ab` cards the two examples are directly comparable (same scenario, same length).
+- **Short: at most about 250 words, usually fewer.** Only what would change the human's
+  choice; no history, internals or how you found out. Cut before you add: a sentence the
+  choice doesn't need goes.
+- **The limits.** `## Context`: at most about 3 short sentences. Each option: a title, a
+  one-sentence summary, at most 2 pros and 2 cons, each a short phrase. `why`: one or two
+  sentences. No `## Sources` or other extra sections; your sources go to the reviewer.
+- **Neutral framing.** The title is the question in plain words, not your answer. Describe
+  each option as its best advocate would.
+- **Options that are genuinely different.** 2 to 4, not straw men or variations of one idea.
+- **Concrete.** The real text, number or name goes in the summary. A `## Option <id>` section
+  only for a tiny example when the choice is about how something looks or reads, the same
+  size for each option.
 - **Honest tradeoffs.** Every option has a con, including the one you recommend.
-- **A recommendation with reasoning,** in `recommendation`, separate from the options, saying
-  what it depends on ("if you expect more than 1000 users...").
-- **Correct facts.** Check them yourself, and give the reviewer your sources; the card
-  doesn't list them.
-- **One decision per card.** If the answer to one question changes another, write two cards and
-  use `depends_on` (refer to other cards there, not in the prose).
+- **A recommendation** saying what it depends on ("if you expect more than 1000 users...").
+- **One decision per card.** If one answer changes another question, write two cards and use
+  `depends_on`; refer to other cards there, not in the prose.
 - `priority: high` only when work is blocked on it.
 
 YAML pitfalls: quote ids (`id: "20261110q4m8"`, `depends_on: ["0003"]`); quote any text
@@ -379,8 +344,8 @@ still set (the hub's run failed or hasn't run). For each such card:
 2. Do any research it calls for.
 3. Change the card with `preside update` (see **Changing a card** below): replace `options`
    with new ones that answer the feedback (new ids are fine), rewrite or remove the
-   `## Option <id>` sections in the body to match, keep the card short (see **What makes a
-   good card**), update `recommendation`, and remove `needs_new_options`.
+   `## Option <id>` sections to match, within **What makes a good card**'s limits, update
+   `recommendation`, and remove `needs_new_options`.
    Keep `feedback`, `id`, `created`, `status` and `defer_until` as they are.
 4. Once `preside update` has replaced the card, run the card's `done:` line from `pending`.
 
@@ -407,19 +372,20 @@ edited: read it as a note from them about a conversation you didn't see. Three o
   for you. Don't answer the note again with options of your own. Read the hub's options
   against the code and your current work. If one of them states a fact that is wrong or
   leaves out one that matters, or clashes with what you are building, change only that, with
-  `preside update` (see **Changing a card**), and add a line to the card's `## Context`
-  saying what you changed, for example "Edited by the project's agent: noted that SQLite is
-  already in the app (`src/db.ts`)." Otherwise change nothing. Then run the `done:` line.
+  `preside update` (see **Changing a card**), and rewrite the card's `## Context`, within its
+  limit (not appending to it), so it says what you changed, for example "Edited by the
+  project's agent: SQLite is already in the app." Otherwise change nothing. Then run the
+  `done:` line.
 
 For each:
 
 1. Read the new entries. They may ask a question, add a constraint, ask for research, or say
    why the card is on hold.
 2. Act on them (on a `neither` entry, only as its item above says): update the context or the
-   options (and `recommendation`), do the research and put what changes the choice in the
-   card, briefly, or change the code if the
-   note is about work already done. If a note needs an
-   answer, put it in the card's body where the human will read it. Change the card only with
+   options (and `recommendation`), do the research it asks for, or change the code if the
+   note is about work already done. If a note needs an answer, put it in the card's body
+   where the human will read it, rewriting the context rather than adding to it, so the card
+   stays within **What makes a good card**'s limits. Change the card only with
    `preside update` (see **Changing a card**).
 3. Run the card's `done:` line from `pending` (`preside seen <file> --token <token>`). Don't
    edit or remove `feedback`.
@@ -485,10 +451,8 @@ what the human added since, without any sign. Instead:
    After a refused `update`, the `done:` line you have is from before the new entries: once
    your update went through, run `preside pending <main>` again and use its new `done:` line.
 
-Every rewrite is made this way, straight in the main folder, with no review first. A new
-card is not: it is drafted and reviewed outside `<main>/decisions/` and then copied in (see
-**Writing a card**). Once it is in `<main>/decisions/`, the human can add to it, so change it
-only this way.
+Every rewrite is made this way, straight in the main folder, with no review first. Once a
+new card is in `<main>/decisions/`, the human can add to it, so change it only this way.
 
 A card `preside validate` reports as broken (a YAML error, a duplicate id) is the one
 exception: president never writes a broken card, so neither the human nor `preside update`

@@ -1094,6 +1094,15 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
     const schema = JSON.parse(call.args[call.args.indexOf("--json-schema") + 1] as string);
     expect(schema.required).toEqual(["message", "options", "recommendation"]);
     expect(schema.properties.options).toMatchObject({ minItems: 2, maxItems: 2 });
+    // Short cards: an option's own section (details) is optional.
+    expect(schema.properties.options.items.required).toEqual([
+      "id",
+      "title",
+      "summary",
+      "pros",
+      "cons",
+    ]);
+    expect(schema.properties.options.items.properties.details).toBeDefined();
     // The run gets the pick line: this conversation had revealed the pick it replaces.
     expect(call.stdin).toMatch(/^\(president: The human has revealed the card's pick;/);
     expect(call.stdin).toContain(NOTE);
@@ -1462,10 +1471,31 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
       expect(card.sections.options).toEqual([]);
       const text = await readFile(cardPath(t), "utf8");
       expect(text).not.toMatch(/^## Option /m);
-      // The old sections are gone; the context and the old appendix (now read as context) stay.
-      expect(card.sections.context).toBe(
-        `${before.sections.context}\n\n${before.sections.appendix}`,
-      );
+      // The old sections are gone; the context and the appendix (## Sources) stay where they
+      // were, so the change summary says nothing about them.
+      expect(card.sections.context).toBe(before.sections.context);
+      expect(card.sections.appendix).toBe(before.sections.appendix);
+      expect(card.sections.appendix).toMatch(/^## Sources/);
+    });
+
+    // A context whose last line ends in spaces (a markdown hard break) is kept, not refused.
+    it("writes options without details under a context ending in spaces", async () => {
+      const t = await setup();
+      const original = await readFile(cardPath(t), "utf8");
+      expect(original).toContain("\n\n## Option ");
+      await writeFile(cardPath(t), original.replace("\n\n## Option ", "  \n\n## Option "));
+      const before = await t.card();
+      const { at } = await neither(t);
+      const { details: _a, ...bareFirst } = first;
+      const { details: _b, ...bareSecond } = second;
+      await t.script([{ structured: { ...ANSWER, options: [bareFirst, bareSecond] } }]);
+      await start(t, at);
+      expect((await settled(t)).newOptions?.state).toBe("written");
+      const card = await t.card();
+      expect(card.sections.options).toEqual([]);
+      expect(card.sections.context).toBe(before.sections.context);
+      expect(card.sections.appendix).toBe(before.sections.appendix);
+      expect(await readFile(cardPath(t), "utf8")).toMatch(/ {2}\n\n## Sources/);
     });
 
     it("writes sections only for the options with details", async () => {
