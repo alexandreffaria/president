@@ -57,6 +57,7 @@ options:
 resolution:
   choice: findings
   resolved_at: 2026-11-12T20:41:59Z
+applied_at: 2026-11-13T01:50:45Z
 ---
 
 ## Context
