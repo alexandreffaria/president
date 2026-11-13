@@ -124,6 +124,15 @@ describe("replaceOptionSections (#0007's new options)", () => {
     expect(next).not.toContain("Blue.");
   });
 
+  it("removes the option sections when there are no new ones, and keeps the rest", () => {
+    const body = "## Context\n\nWhy.\n\n## Option a\n\nRed.\n\n## Sources\n\n- a link\n";
+    expect(replaceOptionSections(body, [])).toBe("## Context\n\nWhy.\n\n## Sources\n\n- a link\n");
+    expect(replaceOptionSections("## Context\r\n\r\nWhy.\r\n\r\n## Option a\r\nRed.\r\n", [])).toBe(
+      "## Context\r\n\r\nWhy.\r\n",
+    );
+    expect(replaceOptionSections("## Context\n\nWhy.\n", [])).toBe("## Context\n\nWhy.\n");
+  });
+
   it("adds the sections at the end of a body without any, and keeps CRLF", () => {
     const next = replaceOptionSections("## Context\r\n\r\nWhy.\r\n", sections);
     expect(next).toMatch(/^## Context\r\n\r\nWhy\.\r\n\r\n## Option x: Ex\r\n/);

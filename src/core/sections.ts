@@ -111,7 +111,8 @@ export interface NewOptionSection {
 /**
  * The body with its `## Option` sections replaced by `sections` (new options after
  * "neither", #0007): the context before them and the appendix after them (sources, notes)
- * stay as they are. A body without option sections gets the new ones at its end.
+ * stay as they are. A body without option sections gets the new ones at its end. With no
+ * `sections` (no new option has details), the old option sections are removed, none added.
  */
 export function replaceOptionSections(body: string, sections: NewOptionSection[]): string {
   const newline = body.includes("\r\n") ? "\r\n" : "\n";
@@ -123,6 +124,13 @@ export function replaceOptionSections(body: string, sections: NewOptionSection[]
     .split("\n");
   const first = options[0];
   const last = options.at(-1);
+  if (sections.length === 0) {
+    if (!first || !last) return body;
+    const before = lines.slice(0, first.line - 1);
+    const after = lines.slice(sectionEnd(lines, last.line - 1));
+    while (before.length > 0 && before.at(-1)?.trim() === "") before.pop();
+    return [...before, ...(after.length > 0 ? ["", ...after] : [""])].join(newline);
+  }
   if (!first || !last) {
     const kept = [...lines];
     while (kept.length > 0 && kept.at(-1)?.trim() === "") kept.pop();

@@ -1445,6 +1445,44 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
       expect(card.sections.appendix).toBe(before.sections.appendix);
       expect(card.sections.appendix).toMatch(/^## Sources/);
     });
+
+    // Short cards: details are optional, and an option without them gets no section.
+    it("writes no section for an option without details", async () => {
+      const t = await setup();
+      const before = await t.card();
+      const { at } = await neither(t);
+      const { details: _left, ...bare } = first;
+      await t.script([
+        { structured: { ...ANSWER, options: [bare, { ...second, details: " \n" }] } },
+      ]);
+      await start(t, at);
+      expect((await settled(t)).newOptions?.state).toBe("written");
+      const card = await t.card();
+      expect(card.frontmatter.options.map((o) => o.id)).toEqual(["indexeddb", "files"]);
+      expect(card.sections.options).toEqual([]);
+      const text = await readFile(cardPath(t), "utf8");
+      expect(text).not.toMatch(/^## Option /m);
+      // The old sections are gone; the context and the old appendix (now read as context) stay.
+      expect(card.sections.context).toBe(
+        `${before.sections.context}\n\n${before.sections.appendix}`,
+      );
+    });
+
+    it("writes sections only for the options with details", async () => {
+      const t = await setup();
+      const before = await t.card();
+      const { at } = await neither(t);
+      const { details: _left, ...bare } = first;
+      await t.script([{ structured: { ...ANSWER, options: [bare, second] } }]);
+      await start(t, at);
+      expect((await settled(t)).newOptions?.state).toBe("written");
+      const card = await t.card();
+      expect(card.sections.options.map((o) => [o.id, o.markdown])).toEqual([
+        ["files", second.details],
+      ]);
+      expect(card.sections.context).toBe(before.sections.context);
+      expect(card.sections.appendix).toBe(before.sections.appendix);
+    });
   });
 
   it("holds a message sent during the run until the run is over", async () => {

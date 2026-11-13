@@ -97,7 +97,7 @@ const NewOptionsAnswer = z.object({
         summary: z.string(),
         pros: z.array(z.string()),
         cons: z.array(z.string()),
-        details: z.string(),
+        details: z.string().optional(),
       }),
     )
     .min(1),
@@ -1097,8 +1097,9 @@ function unclosedHtmlComment(markdown: string): boolean {
  * `recommendation` replaced, `needs_new_options` removed; everything else as the run read it.
  * The answer is model-written, so it must stay inside its sections: ids, titles and summaries
  * on one line, the option count the card's kind takes, and `details` that neither end their
- * section (its level-2 headings become level 3) nor run past it (an unclosed code fence). The
- * new body is read back to check that: exactly the answer's sections, and the context and the
+ * section (its level-2 headings become level 3) nor run past it (an unclosed code fence). An
+ * option without details (left out or blank) gets no section, so cards stay short. The new
+ * body is read back to check that: exactly the sections with details, and the context and the
  * appendix (`## Sources`, notes) as they were. Otherwise a UserError says what was wrong.
  */
 function newCardContent(
@@ -1139,22 +1140,30 @@ function newCardContent(
   delete raw.needs_new_options;
   // Every line ending as "\n", so no lone "\r" (or U+2028/U+2029) hides a heading or a fence.
   const details = answer.options.map((option) =>
-    option.details.replace(/\r\n?|[\u2028\u2029]/g, "\n"),
+    (option.details ?? "").replace(/\r\n?|[\u2028\u2029]/g, "\n"),
   );
   if (details.some(unclosedHtmlComment)) refuse("an option's details open an HTML comment");
-  const sections = answer.options.map((option, i) => ({
-    id: option.id,
-    title: option.title.trim(),
-    markdown: demoteSectionHeadings(details[i] ?? "").trim(),
-  }));
+  const sections = answer.options
+    .map((option, i) => ({
+      id: option.id,
+      title: option.title.trim(),
+      markdown: demoteSectionHeadings(details[i] ?? "").trim(),
+    }))
+    .filter((section) => section.markdown !== "");
   const body = replaceOptionSections(card.body, sections);
 
-  // Read back: exactly the answer's sections, and the rest of the body as it was.
+  // Read back: exactly the sections with details, and the rest of the body as it was. When
+  // the old option sections were removed and none written, splitSections reads what was the
+  // appendix as part of the context.
   const before = splitSections(card.body);
   const after = splitSections(body);
+  const restKept =
+    sections.length === 0 && before.options.length > 0
+      ? after.appendix === "" &&
+        after.context === [before.context, before.appendix].filter((t) => t !== "").join("\n\n")
+      : after.context === before.context && after.appendix === before.appendix;
   const same =
-    after.context === before.context &&
-    after.appendix === before.appendix &&
+    restKept &&
     after.options.length === sections.length &&
     after.options.every((written, i) => {
       const wanted = sections[i];
