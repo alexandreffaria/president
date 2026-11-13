@@ -253,43 +253,46 @@ describe("preside CLI", () => {
   // A path through a file or a loop of links is one line, not a stack trace (R10-1, R10-2),
   // and validate says the same, not "does not exist" (R11-3).
   // Windows says a path through a file doesn't exist (ENOENT, not ENOTDIR), and has no
-  // error of its own for a loop of links.
-  it.skipIf(process.platform === "win32")(
-    "says a path goes through a file or a link loop, in one line",
-    async () => {
-      const scratch = await tempDir();
-      await writeFile(join(scratch, "file.txt"), "notes");
-      const throughFile = join(scratch, "file.txt", "x");
-      const loop = join(scratch, "loop");
-      await symlink("loop", loop);
-      const notFolder = (path: string) =>
-        `preside: cannot open ${path}: a part of the path is a file, not a folder`;
-      const looped = (path: string) =>
-        `preside: cannot open ${path}: the path goes through a loop of links`;
-      for (const command of ["pending", "add", "validate"]) {
-        expect(await cli(command, throughFile)).toEqual({
-          code: 1,
-          out: "",
-          err: notFolder(throughFile),
-        });
-        expect(await cli(command, loop)).toEqual({ code: 1, out: "", err: looped(loop) });
-      }
-      // decisions -> decisions: add explains it (with or without --create), pending says what it is.
-      const dir = join(scratch, "project");
-      const decisions = join(dir, "decisions");
-      await mkdir(dir);
-      await symlink("decisions", decisions);
-      expect(await cli("add", dir)).toEqual({ code: 1, out: "", err: looped(decisions) });
-      expect(await cli("add", dir, "--create")).toEqual({
+  // error of its own for a loop of links: there the reason isn't checked, only that it is
+  // one line, not a stack trace.
+  it("says a path goes through a file or a link loop, in one line", async () => {
+    const windows = process.platform === "win32";
+    const oneLine = (
+      result: { code: number; out: string; err: string },
+      expected: { code: number; out: string; err: string },
+    ) => {
+      if (!windows) return expect(result).toEqual(expected);
+      expect(result).toMatchObject({ code: expected.code, out: expected.out });
+      expect(result.err).toMatch(/^preside: [^\n]+$/);
+    };
+    const scratch = await tempDir();
+    await writeFile(join(scratch, "file.txt"), "notes");
+    const throughFile = join(scratch, "file.txt", "x");
+    const loop = join(scratch, "loop");
+    await symlink("loop", loop);
+    const notFolder = (path: string) =>
+      `preside: cannot open ${path}: a part of the path is a file, not a folder`;
+    const looped = (path: string) =>
+      `preside: cannot open ${path}: the path goes through a loop of links`;
+    for (const command of ["pending", "add", "validate"]) {
+      oneLine(await cli(command, throughFile), {
         code: 1,
         out: "",
-        err: looped(decisions),
+        err: notFolder(throughFile),
       });
-      expect(await cli("list", "--json")).toMatchObject({ code: 0, out: "[]" });
-      const notAFolder = `preside: "${decisions}" is not a folder`;
-      expect(await cli("pending", dir)).toEqual({ code: 1, out: "", err: notAFolder });
-    },
-  );
+      oneLine(await cli(command, loop), { code: 1, out: "", err: looped(loop) });
+    }
+    // decisions -> decisions: add explains it (with or without --create), pending says what it is.
+    const dir = join(scratch, "project");
+    const decisions = join(dir, "decisions");
+    await mkdir(dir);
+    await symlink("decisions", decisions);
+    oneLine(await cli("add", dir), { code: 1, out: "", err: looped(decisions) });
+    oneLine(await cli("add", dir, "--create"), { code: 1, out: "", err: looped(decisions) });
+    expect(await cli("list", "--json")).toMatchObject({ code: 0, out: "[]" });
+    const notAFolder = `preside: "${decisions}" is not a folder`;
+    oneLine(await cli("pending", dir), { code: 1, out: "", err: notAFolder });
+  });
 
   it("validates cards and fails on broken ones", async () => {
     const demo = await copyDemoProject();
