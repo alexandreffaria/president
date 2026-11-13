@@ -1,7 +1,8 @@
 /**
  * Runs git for Sync (see sync.ts). Every call:
  *
- * - spawns `git` with an argument array, never a shell string;
+ * - spawns git by its absolute path, found on PATH and never in the folder it runs in (see
+ *   executable.ts), with an argument array, never a shell string;
  * - runs in the given folder, without the inherited variables that point git at another
  *   repository: the ones `git rev-parse --local-env-vars` lists (GIT_DIR, GIT_WORK_TREE,
  *   GIT_INDEX_FILE, GIT_CONFIG_PARAMETERS, ...; git removes the same ones before it runs a
@@ -21,6 +22,8 @@
  * so the hub's status checks never make an agent's own git command fail.
  */
 import { execFileSync, spawn } from "node:child_process";
+import { join } from "node:path";
+import { findExecutable } from "./executable.ts";
 
 export interface GitOptions {
   /** Extra variables for git, set after the GIT_* ones are removed (tests use this). */
@@ -49,6 +52,8 @@ export const DEFAULT_NETWORK_TIMEOUT_MS = 60_000;
 const KILL_GRACE_MS = 2000;
 /** Output beyond this is dropped, and the result says so (`truncated`). */
 const MAX_OUTPUT = 4 * 1024 * 1024;
+
+const NO_GIT = "git is not installed, or not on the PATH of the president server";
 
 const NETWORK_COMMANDS = new Set(["fetch", "pull", "push", "ls-remote"]);
 
@@ -86,7 +91,9 @@ export function localEnvVars(): ReadonlySet<string> {
       const env = Object.fromEntries(
         Object.entries(process.env).filter(([key]) => !isLocalEnvVar(key, known)),
       );
-      installed = execFileSync("git", ["rev-parse", "--local-env-vars"], {
+      const git = findExecutable("git", env);
+      if (git === undefined) throw new Error("no git");
+      installed = execFileSync(git, ["rev-parse", "--local-env-vars"], {
         env,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
@@ -152,9 +159,15 @@ export function runGit(cwd: string, args: string[], options: GitOptions = {}): P
     let truncated = false;
     const maxOutput = options.maxOutput ?? MAX_OUTPUT;
     let settled = false;
-    const child = spawn("git", args, {
+    const env = gitEnv(options.env);
+    const git = findExecutable("git", env);
+    if (git === undefined) {
+      resolve({ code: null, stdout, stderr: NO_GIT, timedOut: false, truncated });
+      return;
+    }
+    const child = spawn(git, args, {
       cwd,
-      env: gitEnv(options.env),
+      env,
       stdio: ["ignore", "pipe", "pipe"],
       // Its own session: no controlling terminal for ssh to prompt on, and a process group
       // that can be stopped as a whole.
@@ -162,7 +175,35 @@ export function runGit(cwd: string, args: string[], options: GitOptions = {}): P
       shell: false,
       windowsHide: true,
     });
+    // Whether git itself has exited (`close` comes later, once its pipes are closed too).
+    let exited = false;
+    child.on("exit", () => {
+      exited = true;
+    });
     const killGroup = (signal: NodeJS.Signals) => {
+      if (process.platform === "win32") {
+        // No process groups: taskkill /T stops git with everything it started (a hook, an
+        // alias's shell, ssh or git-remote-https), whose open pipes would otherwise keep the
+        // run from ending until they exit on their own. Never once git has exited: /T can't
+        // find the tree of a process that is gone, and Windows soon gives its PID to another
+        // process, which /T /F would kill with everything it started.
+        if (child.pid === undefined || exited) return;
+        // By its full path: a taskkill.exe in the hub's cwd (a project folder) would come first.
+        const taskkill = spawn(
+          join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe"),
+          ["/pid", String(child.pid), "/t", "/f"],
+          { stdio: "ignore", windowsHide: true },
+        );
+        const fallback = () => {
+          if (!exited) child.kill(signal);
+        };
+        taskkill.on("error", fallback);
+        // Access denied, say: git is still running, so at least git itself goes.
+        taskkill.on("exit", (code) => {
+          if (code !== 0) fallback();
+        });
+        return;
+      }
       try {
         if (child.pid !== undefined) process.kill(-child.pid, signal);
       } catch {
@@ -200,10 +241,7 @@ export function runGit(cwd: string, args: string[], options: GitOptions = {}): P
       finish({
         code: null,
         stdout,
-        stderr:
-          error.code === "ENOENT"
-            ? "git is not installed, or not on the PATH of the president server"
-            : error.message,
+        stderr: error.code === "ENOENT" ? NO_GIT : error.message,
         timedOut: false,
         truncated,
       });

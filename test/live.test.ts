@@ -252,6 +252,20 @@ describe("HubWatcher", () => {
     }
   });
 
+  // Moved away, the old folder still exists and its watch still works, on it: the folder made
+  // in its place must be watched instead. Without the inode fake below, so that it runs on
+  // Windows too, where the poll is what sees the new folder (by its file ID).
+  it("keeps reporting changes after decisions/ is moved away and made again, twice", async () => {
+    const { demo, log } = await watched();
+    const dir = join(demo, "decisions");
+    for (let round = 0; round < 2; round++) {
+      log.splice(0);
+      await rename(dir, `${dir}-${round}`);
+      await mkdir(dir);
+      await untilNewCardSeen(log, "demo", dir);
+    }
+  });
+
   // Where the folder made again gets the old inode and there is no birth time (ext4 with
   // small inodes, most FUSE filesystems), only the old watch's raw event tells (P2b-1).
   // Two signals tell: the folder's raw `rename`, and chokidar's unlinkDir when it notices
@@ -261,11 +275,17 @@ describe("HubWatcher", () => {
   // folder still exists and its watch still works, on it: only a watch dropped first and
   // made again watches the new folder.
   const deleted = (dir: string) => rm(dir, { recursive: true });
-  it.each([
+  const removals: [string, (dir: string) => Promise<void>, boolean][] = [
     ["deleted", deleted, false],
     ["deleted (chokidar's unlinkDir alone telling)", deleted, true],
-    ["moved away", (dir: string) => rename(dir, `${dir}-${Math.random()}`), false],
-  ])(
+  ];
+  // Not on Windows: there a watched folder moved away raises no event, and the poll is what
+  // sees the folder made in its place, by its new file ID (NTFS doesn't reuse one at once,
+  // unlike ext4's inodes, which this case fakes).
+  if (process.platform !== "win32") {
+    removals.push(["moved away", (dir) => rename(dir, `${dir}-${Math.random()}`), false]);
+  }
+  it.each(removals)(
     "keeps reporting changes after decisions/ is %s and made again with the same inode, twice",
     async (_, remove, unlinkDirOnly) => {
       let chokidar: FSWatcher | undefined;

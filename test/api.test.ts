@@ -105,6 +105,8 @@ describe("projects API", () => {
   });
 
   // A typo through a file, or a link loop, is the user's to fix: a 422 that says so (R10-2).
+  // Windows says a path through a file doesn't exist (ENOENT, not ENOTDIR): a 400. A loop of
+  // links is ELOOP there too (libuv maps ERROR_CANT_RESOLVE_FILENAME to it): the same 422.
   it("answers a path through a file or a link loop with what is wrong, not a 500", async () => {
     const { post } = await setup();
     const scratch = await tempDir();
@@ -113,15 +115,21 @@ describe("projects API", () => {
     const project = join(scratch, "project");
     await mkdir(project);
     await symlink("decisions", join(project, "decisions"));
+    const windows = process.platform === "win32";
     const cases: [object, string][] = [
-      [{ path: join(scratch, "file.txt", "x") }, "a part of the path is a file, not a folder"],
+      [
+        { path: join(scratch, "file.txt", "x") },
+        windows ? "does not exist" : "a part of the path is a file, not a folder",
+      ],
       [{ path: join(scratch, "loop") }, "the path goes through a loop of links"],
       [{ path: project, createDecisions: true }, "the path goes through a loop of links"],
     ];
     for (const [body, reason] of cases) {
       const res = await post("/api/projects", body);
-      expect(res.status).toBe(422);
-      expect((await json(res)).error).toMatch(`: ${reason}`);
+      const { error } = await json(res);
+      expect(res.status, error).toBe(reason === "does not exist" ? 400 : 422);
+      expect(error).toMatch(reason === "does not exist" ? reason : `: ${reason}`);
+      expect(error).toMatch(/^[^\n]+$/);
     }
   });
 
@@ -509,7 +517,8 @@ describe("card actions API", () => {
     await writeFile(file, (await readFile(file, "utf8")).replaceAll("\n", "\r\n"));
     await chmod(file, 0o600);
     expect((await act("0002", { type: "note", note: "Private." })).status).toBe(200);
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    // Windows has no POSIX file modes (chmod there only sets read-only).
+    if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600);
     const text = await readFile(file, "utf8");
     expect(text.replaceAll("\r\n", "")).not.toContain("\n");
     expect(text).toContain("note: Private.\r\n");
