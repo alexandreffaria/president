@@ -88,6 +88,10 @@ namespace President.Tray
         static int RunTray(string dir)
         {
             bool createdNew;
+            // Opened before the mutex is taken, so whoever sees the mutex (--quit) finds the
+            // event already held here: a --quit sent while the helper is still starting up
+            // stays signalled (auto-reset) until the tray or the config dialog listens for it.
+            using (EventWaitHandle quit = new EventWaitHandle(false, EventResetMode.AutoReset, QuitEventName))
             using (Mutex mutex = new Mutex(true, MutexName, out createdNew))
             {
                 // One helper per session: a second start (a logon after a manual start) leaves.
@@ -101,14 +105,13 @@ namespace President.Tray
                 catch (Exception e)
                 {
                     log.Write("tray: " + e.Message);
-                    ShowConfigError(e.Message);
+                    ShowConfigError(e.Message, quit);
                     mutex.ReleaseMutex();
                     return 1;
                 }
                 try { SetProcessDPIAware(); } catch (Exception) { }
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
-                using (EventWaitHandle quit = new EventWaitHandle(false, EventResetMode.AutoReset, QuitEventName))
                 using (TrayApp app = new TrayApp(config, log))
                 {
                     ThreadPool.RegisterWaitForSingleObject(quit, delegate { app.QuitFromAnywhere(); }, null, -1, true);
@@ -123,9 +126,8 @@ namespace President.Tray
         /// on its own thread, and this one (which owns the mutex) returns when it is closed or
         /// when `preside tray install`/`uninstall` asks the helper to quit, whichever comes
         /// first. Returning ends the process, dialog and all.
-        static void ShowConfigError(string message)
+        static void ShowConfigError(string message, EventWaitHandle quit)
         {
-            using (EventWaitHandle quit = new EventWaitHandle(false, EventResetMode.AutoReset, QuitEventName))
             using (ManualResetEvent closed = new ManualResetEvent(false))
             {
                 Thread dialog = new Thread(delegate()
@@ -135,9 +137,10 @@ namespace President.Tray
                         MessageBox.Show(
                             "president's tray helper can't start: " + message + "\n\nRun `preside tray install` again.",
                             "president", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        // Inside the try: after a --quit, `closed` may already be disposed.
+                        closed.Set();
                     }
                     catch (Exception) { }
-                    closed.Set();
                 });
                 dialog.IsBackground = true;
                 dialog.SetApartmentState(ApartmentState.STA);
@@ -516,7 +519,9 @@ namespace President.Tray
             if (status == 0) return Unreachable;
             if (status != 200 || body == null) return NoCount;
             Match match = Regex.Match(body, "\"pid\"\\s*:\\s*(\\d+)");
-            return match.Success ? int.Parse(match.Groups[1].Value) : NoCount;
+            int value;
+            // TryParse: whatever answers on the port may send a number too big for an int.
+            return match.Success && int.TryParse(match.Groups[1].Value, out value) ? value : NoCount;
         }
 
         /// What the icon shows: the count of the hub `ownPid()` says the helper is running,
@@ -538,7 +543,9 @@ namespace President.Tray
             if (status == 0) return Unreachable;
             if (status != 200 || body == null) return NoCount;
             Match match = Regex.Match(body, "\"count\"\\s*:\\s*(\\d+)");
-            return match.Success ? int.Parse(match.Groups[1].Value) : NoCount;
+            int value;
+            // TryParse: whatever answers on the port may send a number too big for an int.
+            return match.Success && int.TryParse(match.Groups[1].Value, out value) ? value : NoCount;
         }
 
         static string Get(int port, string path, out int status)
@@ -778,8 +785,20 @@ namespace President.Tray
         {
             while (true)
             {
-                int count = Hub.Read(config.Port, delegate { return supervisor.ChildPid; });
-                string problem = config.Problem();
+                int count;
+                string problem;
+                try
+                {
+                    count = Hub.Read(config.Port, delegate { return supervisor.ChildPid; });
+                    problem = config.Problem();
+                }
+                catch (Exception e)
+                {
+                    // A broken or hostile answer on the port mustn't end the helper.
+                    log.Write("tray: poll: " + e.Message);
+                    pollNow.WaitOne(PollMs);
+                    continue;
+                }
                 try
                 {
                     invoker.BeginInvoke(new MethodInvoker(delegate { Show(count, problem); }));
