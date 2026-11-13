@@ -129,7 +129,10 @@ node bin/preside.js tray install     # or `preside tray install` if preside is o
 This compiles a small helper on your machine with the C# compiler that comes with Windows
 (.NET Framework 4, nothing is downloaded) into `%LOCALAPPDATA%\president\`, remembers which
 `node.exe` and which checkout run the hub, adds it to Start with Windows and starts it. Don't
-also run `npm start`: both would want port 4747.
+also run `npm start`: both would want port 4747 (when another program has it, the icon is grey
+and the tooltip says "port 4747 in use by another program"). If a Node upgrade moves
+`node.exe`, or you move the checkout, the tooltip and `preside tray status` say so: run
+`preside tray install` again.
 
 - **Show the icon (once, Windows 11).** New tray icons hide behind the `^` arrow. To see the
   number: Settings > Personalization > Taskbar > Other system tray icons > president: On (or

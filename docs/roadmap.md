@@ -1488,7 +1488,9 @@ option `count`.
   user's machine by `preside tray install` with the .NET Framework 4 C# compiler that ships
   with Windows, into `%LOCALAPPDATA%\president\` with a config naming `node.exe` and the
   checkout. It reads `GET /api/queue-count` every 3 seconds; it stops the hub by closing its
-  stdin (`PRESIDENT_STOP_ON_STDIN_END`), then `taskkill /T` if it hasn't stopped; Start with
+  stdin (`PRESIDENT_STOP_ON_STDIN_END`, which the hub takes out of its environment so its
+  children don't inherit it), then `taskkill /T` (by full path) if it hasn't stopped. It tells
+  its own hub from another program on the port by the pid `/api/health` gives; Start with
   Windows is the `HKCU\...\Run` value `president`. CI compiles it on windows-latest and runs
   its `--self-test`.
 

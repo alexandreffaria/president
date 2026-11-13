@@ -16,9 +16,11 @@ import {
   parseConfig,
   type RunResult,
   TRAY_SOURCE,
+  type TrayConfig,
   type TrayDeps,
   tray,
 } from "../src/cli/tray.ts";
+import { takeStopOnStdinEnd } from "../src/server/server.ts";
 import { tempDir } from "./helpers.ts";
 
 const ROOT = join(import.meta.dirname, "..");
@@ -45,6 +47,8 @@ async function fakeWindows(options: { csc?: boolean; env?: NodeJS.ProcessEnv } =
   }
   const calls: string[][] = [];
   const launched: string[][] = [];
+  /** The cwd of every run and launch, in order. */
+  const cwds: string[] = [];
   let autostart = false;
   const state = { compileFails: false };
   const deps: TrayDeps = {
@@ -52,8 +56,9 @@ async function fakeWindows(options: { csc?: boolean; env?: NodeJS.ProcessEnv } =
     env: { LOCALAPPDATA: localAppData, WINDIR: windir, ...options.env },
     nodePath: "C:\\Program Files\\nodejs\\node.exe",
     repoRoot: ROOT,
-    async run(file, args): Promise<RunResult> {
+    async run(file, args, cwd): Promise<RunResult> {
       calls.push([file, ...args]);
+      cwds.push(cwd);
       if (file === csc) {
         if (state.compileFails) {
           return { code: 1, stdout: "PresideTray.cs(1,1): error CS1002: ; expected", stderr: "" };
@@ -72,8 +77,9 @@ async function fakeWindows(options: { csc?: boolean; env?: NodeJS.ProcessEnv } =
       }
       return { code: 0, stdout: "", stderr: "" };
     },
-    launch(file, args) {
+    launch(file, args, cwd) {
       launched.push([file, ...args]);
+      cwds.push(cwd);
     },
     hubAnswers: async () => false,
     sleep: async () => {},
@@ -83,6 +89,8 @@ async function fakeWindows(options: { csc?: boolean; env?: NodeJS.ProcessEnv } =
     deps,
     calls,
     launched,
+    cwds,
+    windir,
     csc,
     dir,
     exe: join(dir, EXE_NAME),
@@ -127,9 +135,11 @@ describe("preside tray", () => {
   });
 
   it("install compiles the helper, records node and the repo, turns on autostart and starts it", async () => {
-    const { deps, calls, launched, csc, dir, exe } = await fakeWindows();
+    const { deps, calls, launched, cwds, csc, dir, exe } = await fakeWindows();
     const { io, out } = output();
     expect(await tray(["install"], io, deps)).toBe(0);
+    // csc, the helper and what it starts never run in the caller's folder.
+    expect(cwds).toEqual([dir, dir, dir]);
     expect(calls[0]).toEqual([
       csc,
       "/nologo",
@@ -215,14 +225,16 @@ describe("preside tray", () => {
   });
 
   it("uninstall keeps files it didn't write, and clears the Run value with reg when the exe is gone", async () => {
-    const { deps, calls, dir } = await fakeWindows();
+    const { deps, calls, cwds, windir, dir } = await fakeWindows();
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, CONFIG_NAME), "node=x\n");
     await writeFile(join(dir, "notes.txt"), "mine\n");
     expect(await tray(["uninstall"], output().io, deps)).toBe(0);
+    // By its full path, in System32: never a reg.exe in the folder preside runs from.
+    expect(cwds).toEqual([join(windir, "System32")]);
     expect(calls).toEqual([
       [
-        "reg",
+        join(windir, "System32", "reg.exe"),
         "delete",
         "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
         "/v",
@@ -259,6 +271,37 @@ describe("preside tray", () => {
     expect(stale.out.join("\n")).toMatch(/source changed since it was built/);
   });
 
+  it("status says to install again when node.exe or the checkout moved", async () => {
+    const { deps, dir } = await fakeWindows();
+    await tray(["install"], output().io, { ...deps, nodePath: process.execPath });
+    const fine = output();
+    await tray(["status"], fine.io, deps);
+    expect(fine.out.join("\n")).not.toMatch(/no longer where/);
+
+    const config = parseConfig(await readFile(join(dir, CONFIG_NAME), "utf8"));
+    await writeFile(
+      join(dir, CONFIG_NAME),
+      formatConfig({ ...(config as TrayConfig), node: join(dir, "gone", "node.exe") }),
+    );
+    const node = output();
+    expect(await tray(["status"], node.io, deps)).toBe(0);
+    expect(node.out.join("\n")).toMatch(
+      /^node\.exe is no longer where the helper was told, so it can't start the hub: run `preside tray install` again/m,
+    );
+
+    await writeFile(
+      join(dir, CONFIG_NAME),
+      formatConfig({
+        ...(config as TrayConfig),
+        node: join(dir, "gone", "node.exe"),
+        repo: join(dir, "moved"),
+      }),
+    );
+    const both = output();
+    await tray(["status"], both.io, deps);
+    expect(both.out.join("\n")).toMatch(/^node\.exe and the president checkout are no longer/m);
+  });
+
   it("writes a config the helper can read: CRLF key=value lines, no line breaks in values", () => {
     const text = formatConfig({ node: "C:\\n\\node.exe", repo: "D:\\p r", port: 1, source: "ab" });
     expect(text).toContain("\r\nnode=C:\\n\\node.exe\r\nrepo=D:\\p r\r\nport=1\r\nsource=ab\r\n");
@@ -274,39 +317,78 @@ describe("preside tray", () => {
   });
 });
 
+/** Starts the hub as the helper does, with `env` added; resolves once it listens. */
+async function startHub(env: NodeJS.ProcessEnv) {
+  const home = await tempDir();
+  const child = spawn(process.execPath, [join(ROOT, "src", "server", "main.ts")], {
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      PRESIDENT_PORT: "0",
+      XDG_CONFIG_HOME: join(home, "config"),
+      XDG_STATE_HOME: join(home, "state"),
+      ...env,
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
+  });
+  let stdout = "";
+  const stderr = { text: "" };
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderr.text += chunk.toString();
+  });
+  const exited = new Promise<number | null>((resolve) => child.once("exit", resolve));
+  const url = await new Promise<string>((resolve, reject) => {
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+      const match = /running at (http:\/\/\S+)/.exec(stdout);
+      if (match?.[1]) resolve(match[1]);
+    });
+    child.once("exit", () => reject(new Error(`the hub exited: ${stdout}${stderr.text}`)));
+  });
+  return { child, url, exited, stderr };
+}
+
 describe("the hub under the tray helper", () => {
+  it("takes PRESIDENT_STOP_ON_STDIN_END out of its environment, so its children don't inherit it", () => {
+    const env: NodeJS.ProcessEnv = { PRESIDENT_STOP_ON_STDIN_END: "1" };
+    process.env.PRESIDENT_STOP_ON_STDIN_END = "1";
+    expect(takeStopOnStdinEnd(env)).toBe(true);
+    expect(env).toEqual({});
+    expect(process.env.PRESIDENT_STOP_ON_STDIN_END).toBeUndefined();
+    // Only the exact value "1" turns it on.
+    expect(takeStopOnStdinEnd({ PRESIDENT_STOP_ON_STDIN_END: "true" })).toBe(false);
+    expect(takeStopOnStdinEnd({})).toBe(false);
+  });
+
+  it("keeps running after its stdin closes when the variable isn't set", {
+    timeout: 30_000,
+  }, async () => {
+    const { child, url, exited, stderr } = await startHub({});
+    let gone = false;
+    void exited.then(() => {
+      gone = true;
+    });
+    child.stdin.end();
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    try {
+      expect(gone).toBe(false);
+      const health = (await (await fetch(`${url}/api/health`)).json()) as { pid: number };
+      expect(health.pid).toBe(child.pid);
+    } finally {
+      child.kill();
+      await exited;
+    }
+    expect(stderr.text).toBe("");
+  });
+
   it("shuts down cleanly when its stdin closes (PRESIDENT_STOP_ON_STDIN_END)", {
     timeout: 30_000,
   }, async () => {
-    const home = await tempDir();
-    const child = spawn(process.execPath, [join(ROOT, "src", "server", "main.ts")], {
-      cwd: ROOT,
-      env: {
-        ...process.env,
-        PRESIDENT_PORT: "0",
-        PRESIDENT_STOP_ON_STDIN_END: "1",
-        XDG_CONFIG_HOME: join(home, "config"),
-      },
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-    const exited = new Promise<number | null>((resolve) => child.once("exit", resolve));
-    const url = await new Promise<string>((resolve, reject) => {
-      child.stdout.on("data", (chunk: Buffer) => {
-        stdout += chunk.toString();
-        const match = /running at (http:\/\/\S+)/.exec(stdout);
-        if (match?.[1]) resolve(match[1]);
-      });
-      child.once("exit", () => reject(new Error(`the hub exited: ${stdout}${stderr}`)));
-    });
+    const { child, url, exited, stderr } = await startHub({ PRESIDENT_STOP_ON_STDIN_END: "1" });
     expect((await fetch(`${url}/api/queue-count`)).status).toBe(200);
     child.stdin.end();
     expect(await exited).toBe(0);
-    expect(stderr).toBe("");
+    expect(stderr.text).toBe("");
   });
 });

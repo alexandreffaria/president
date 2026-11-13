@@ -51,6 +51,9 @@ namespace President.Tray
         static int Main(string[] args)
         {
             string dir = Path.GetDirectoryName(Application.ExecutablePath);
+            // Its own folder, whatever folder it was started from: Windows looks for a program
+            // started by name in the cwd first, so nothing the helper starts may depend on it.
+            try { Environment.CurrentDirectory = dir; } catch (Exception) { }
             string command = args.Length > 0 ? args[0] : "";
             try
             {
@@ -98,9 +101,8 @@ namespace President.Tray
                 catch (Exception e)
                 {
                     log.Write("tray: " + e.Message);
-                    MessageBox.Show(
-                        "president's tray helper can't start: " + e.Message + "\n\nRun `preside tray install` again.",
-                        "president", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    ShowConfigError(e.Message);
+                    mutex.ReleaseMutex();
                     return 1;
                 }
                 try { SetProcessDPIAware(); } catch (Exception) { }
@@ -114,6 +116,33 @@ namespace President.Tray
                 }
                 mutex.ReleaseMutex();
                 return 0;
+            }
+        }
+
+        /// Says once what's wrong with tray.config, while still answering --quit: the dialog is
+        /// on its own thread, and this one (which owns the mutex) returns when it is closed or
+        /// when `preside tray install`/`uninstall` asks the helper to quit, whichever comes
+        /// first. Returning ends the process, dialog and all.
+        static void ShowConfigError(string message)
+        {
+            using (EventWaitHandle quit = new EventWaitHandle(false, EventResetMode.AutoReset, QuitEventName))
+            using (ManualResetEvent closed = new ManualResetEvent(false))
+            {
+                Thread dialog = new Thread(delegate()
+                {
+                    try
+                    {
+                        MessageBox.Show(
+                            "president's tray helper can't start: " + message + "\n\nRun `preside tray install` again.",
+                            "president", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                    catch (Exception) { }
+                    closed.Set();
+                });
+                dialog.IsBackground = true;
+                dialog.SetApartmentState(ApartmentState.STA);
+                dialog.Start();
+                WaitHandle.WaitAny(new WaitHandle[] { quit, closed });
             }
         }
 
@@ -207,7 +236,19 @@ namespace President.Tray
             }
             if (string.IsNullOrEmpty(config.Node)) throw new Exception(path + " has no node= line");
             if (string.IsNullOrEmpty(config.Repo)) throw new Exception(path + " has no repo= line");
+            // Full paths only: a bare "node" would be looked for in the cwd and on PATH.
+            if (!Path.IsPathRooted(config.Node)) throw new Exception(path + ": node= isn't a full path");
+            if (!Path.IsPathRooted(config.Repo)) throw new Exception(path + ": repo= isn't a full path");
             return config;
+        }
+
+        /// Why the hub can't start (node.exe or the checkout moved since the install), or null.
+        /// Short: it goes in the tooltip, at most 63 characters with "president: ".
+        public string Problem()
+        {
+            if (!File.Exists(Node)) return "node.exe moved; run preside tray install";
+            if (!File.Exists(HubScript)) return "checkout moved; run preside tray install";
+            return null;
         }
     }
 
@@ -408,7 +449,7 @@ namespace President.Tray
             if (!clean)
             {
                 log.Write("tray: the hub didn't stop within " + (graceMs / 1000) + " s; ending it");
-                KillTree(child);
+                KillTree(child, exited);
                 exited.WaitOne(ForcedKillWaitMs);
             }
             lastStopClean = clean;
@@ -416,19 +457,30 @@ namespace President.Tray
             log.Write("tray: hub stopped");
         }
 
-        /// taskkill /T: the hub with everything it started (git, a card's chat).
-        static void KillTree(Process child)
+        /// taskkill /T: the hub with everything it started (git, a card's chat). Never once the
+        /// hub has exited: its PID could then belong to another process, which /T /F would kill
+        /// with everything it started.
+        static void KillTree(Process child, ManualResetEvent exited)
         {
+            if (exited.WaitOne(0)) return;
             try
             {
-                ProcessStartInfo info = new ProcessStartInfo("taskkill", "/pid " + child.Id + " /t /f");
+                if (child.HasExited) return;
+            }
+            catch (Exception) { }
+            try
+            {
+                // By its full path: by name, Windows would look in the exe's folder and the cwd
+                // before System32.
+                string taskkillExe = Path.Combine(Environment.SystemDirectory, "taskkill.exe");
+                ProcessStartInfo info = new ProcessStartInfo(taskkillExe, "/pid " + child.Id + " /t /f");
                 info.UseShellExecute = false;
                 info.CreateNoWindow = true;
                 using (Process taskkill = Process.Start(info)) taskkill.WaitForExit(ForcedKillWaitMs);
             }
             catch (Exception)
             {
-                try { child.Kill(); } catch (Exception) { }
+                try { if (!exited.WaitOne(0)) child.Kill(); } catch (Exception) { }
             }
         }
 
@@ -441,15 +493,42 @@ namespace President.Tray
     /// The hub's HTTP API, as the helper reads it.
     static class Hub
     {
-        /// -1: the hub doesn't answer; -2: it answers but gave no count (an older hub).
+        /// -1: the hub doesn't answer; -2: it answers but gave no count (an older hub); -3:
+        /// what answers on the port isn't the hub the helper started (`npm start`, another
+        /// program).
         public const int Unreachable = -1;
         public const int NoCount = -2;
+        public const int Foreign = -3;
 
         public static bool Healthy(int port)
         {
             int status;
             Get(port, "/api/health", out status);
             return status == 200;
+        }
+
+        /// The pid /api/health gives, Unreachable when nothing answers, NoCount when what
+        /// answers gives none.
+        public static int HealthPid(int port)
+        {
+            int status;
+            string body = Get(port, "/api/health", out status);
+            if (status == 0) return Unreachable;
+            if (status != 200 || body == null) return NoCount;
+            Match match = Regex.Match(body, "\"pid\"\\s*:\\s*(\\d+)");
+            return match.Success ? int.Parse(match.Groups[1].Value) : NoCount;
+        }
+
+        /// What the icon shows: the count of the hub `ownPid()` says the helper is running,
+        /// Foreign when another process holds the port.
+        public static int Read(int port, Func<int> ownPid)
+        {
+            int before = ownPid();
+            int pid = HealthPid(port);
+            if (pid == Unreachable) return Unreachable;
+            // Asked again after the request: a restart in between isn't another program.
+            if (pid != before && pid != ownPid()) return Foreign;
+            return QueueCount(port);
         }
 
         public static int QueueCount(int port)
@@ -554,13 +633,13 @@ namespace President.Tray
             return count > 9 ? "9+" : count.ToString();
         }
 
-        /// `count`: cards waiting, or Hub.Unreachable for the hub-down icon.
+        /// `count`: cards waiting, or Hub.Unreachable / Hub.Foreign for the hub-down icon.
         public static Icon Make(int count)
         {
             int size = SystemInformation.SmallIconSize.Width;
             if (size < 16) size = 16;
             float s = size / 32f;
-            bool down = count == Hub.Unreachable;
+            bool down = count == Hub.Unreachable || count == Hub.Foreign;
             string badge = BadgeText(count);
             using (Bitmap bitmap = new Bitmap(size, size, PixelFormat.Format32bppArgb))
             {
@@ -628,9 +707,12 @@ namespace President.Tray
             return path;
         }
 
-        /// What the tooltip says (at most 63 characters, Windows' limit).
-        public static string Tooltip(int count, HubState state)
+        /// What the tooltip says (at most 63 characters, Windows' limit). `problem`: why the
+        /// hub can't start (Config.Problem), or null.
+        public static string Tooltip(int count, HubState state, int port, string problem)
         {
+            if (count == Hub.Foreign) return "president: port " + port + " in use by another program";
+            if (count == Hub.Unreachable && problem != null) return "president: " + problem;
             if (count == Hub.Unreachable)
             {
                 if (state == HubState.Running || state == HubState.Starting) return "president: starting the hub";
@@ -680,7 +762,7 @@ namespace President.Tray
 
             icon.ContextMenuStrip = menu;
             icon.DoubleClick += delegate { OpenHub(); };
-            Show(Hub.Unreachable);
+            Show(Hub.Unreachable, null);
             icon.Visible = true;
 
             supervisor.Changed += delegate { pollNow.Set(); };
@@ -696,10 +778,11 @@ namespace President.Tray
         {
             while (true)
             {
-                int count = Hub.QueueCount(config.Port);
+                int count = Hub.Read(config.Port, delegate { return supervisor.ChildPid; });
+                string problem = config.Problem();
                 try
                 {
-                    invoker.BeginInvoke(new MethodInvoker(delegate { Show(count); }));
+                    invoker.BeginInvoke(new MethodInvoker(delegate { Show(count, problem); }));
                 }
                 catch (Exception)
                 {
@@ -709,10 +792,10 @@ namespace President.Tray
             }
         }
 
-        void Show(int count)
+        void Show(int count, string problem)
         {
             if (quitting) return;
-            string text = Icons.Tooltip(count, supervisor.State);
+            string text = Icons.Tooltip(count, supervisor.State, config.Port, problem);
             if (text != shownText) icon.Text = shownText = text;
             int iconCount = count == Hub.NoCount ? 0 : count;
             if (iconCount == shownCount) return;
@@ -813,11 +896,23 @@ namespace President.Tray
             {
                 if (!WaitUntil(delegate { return Hub.Healthy(port); }, 60000)) return Fail("the hub never answered /api/health");
                 Step("health ok");
-                int count = Hub.QueueCount(port);
+                int count = Hub.Read(port, delegate { return supervisor.ChildPid; });
+                if (count == Hub.Foreign) return Fail("its own hub was taken for another program (pid " + Hub.HealthPid(port) + " vs " + supervisor.ChildPid + ")");
                 if (count < 0) return Fail("no count from /api/queue-count");
                 Program.Out("count=" + count);
-                Step("tooltip: " + Icons.Tooltip(count, supervisor.State));
-                foreach (int n in new int[] { 0, 1, 9, 10, 250, Hub.Unreachable })
+                Step("tooltip: " + Icons.Tooltip(count, supervisor.State, port, config.Problem()));
+                if (Hub.Read(port, delegate { return 1; }) != Hub.Foreign) return Fail("another program on the port wasn't noticed");
+                string foreign = Icons.Tooltip(Hub.Foreign, supervisor.State, 4747, null);
+                if (foreign != "president: port 4747 in use by another program") return Fail("tooltip: " + foreign);
+                Step("tooltip with another program on the port: " + foreign);
+                if (config.Problem() != null) return Fail("config problem: " + config.Problem());
+                Config moved = new Config();
+                moved.Node = Path.Combine(dir, "gone", "node.exe");
+                moved.Repo = config.Repo;
+                string movedText = Icons.Tooltip(Hub.Unreachable, HubState.Waiting, port, moved.Problem());
+                if (movedText != "president: node.exe moved; run preside tray install") return Fail("tooltip: " + movedText);
+                Step("tooltip with node.exe moved: " + movedText);
+                foreach (int n in new int[] { 0, 1, 9, 10, 250, Hub.Unreachable, Hub.Foreign })
                     using (Icon drawn = Icons.Make(n)) { }
                 if (Icons.BadgeText(12) != "9+" || Icons.BadgeText(3) != "3" || Icons.BadgeText(0) != null) return Fail("badge text");
                 Step("icons drawn");

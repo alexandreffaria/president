@@ -140,7 +140,8 @@ export function createApp(options: AppOptions): Hono {
 
   const api = new Hono();
 
-  api.get("/health", (c) => c.json({ ok: true }));
+  // The pid lets the tray helper tell the hub it started from another program on the port.
+  api.get("/health", (c) => c.json({ ok: true, pid: process.pid }));
 
   api.get("/projects", async (c) => {
     const projects = await registry.list();

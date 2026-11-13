@@ -11,7 +11,7 @@ import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rename, rm, rmdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { UserError } from "../server/errors.ts";
@@ -55,10 +55,13 @@ export interface TrayDeps {
   nodePath: string;
   /** The president checkout the hub runs from. */
   repoRoot: string;
-  /** Runs a program to the end. */
-  run(file: string, args: string[]): Promise<RunResult>;
-  /** Starts a program that outlives this one. */
-  launch(file: string, args: string[]): void;
+  /**
+   * Runs a program, by its absolute path, to the end, in `cwd` (the helper's folder, never
+   * the caller's: on Windows a program looks for what it starts in its cwd first).
+   */
+  run(file: string, args: string[], cwd: string): Promise<RunResult>;
+  /** Starts a program that outlives this one, in `cwd` (as for `run`). */
+  launch(file: string, args: string[], cwd: string): void;
   /** Whether a hub answers /api/health on that port. */
   hubAnswers(port: number): Promise<boolean>;
   /** Waits between tries (a file still locked by an exe that is exiting). */
@@ -71,15 +74,20 @@ export function systemDeps(): TrayDeps {
     env: process.env,
     nodePath: process.execPath,
     repoRoot: REPO_ROOT,
-    run: (file, args) =>
+    run: (file, args, cwd) =>
       new Promise((resolve) => {
-        execFile(file, args, { windowsHide: true, timeout: 120_000 }, (error, stdout, stderr) => {
-          const code = error ? (typeof error.code === "number" ? error.code : 1) : 0;
-          resolve({ code, stdout, stderr: stderr || (error && code === 1 ? error.message : "") });
-        });
+        execFile(
+          file,
+          args,
+          { cwd, windowsHide: true, timeout: 120_000 },
+          (error, stdout, stderr) => {
+            const code = error ? (typeof error.code === "number" ? error.code : 1) : 0;
+            resolve({ code, stdout, stderr: stderr || (error && code === 1 ? error.message : "") });
+          },
+        );
       }),
-    launch: (file, args) => {
-      spawn(file, args, { detached: true, stdio: "ignore", windowsHide: true }).unref();
+    launch: (file, args, cwd) => {
+      spawn(file, args, { cwd, detached: true, stdio: "ignore", windowsHide: true }).unref();
     },
     hubAnswers: async (port) => {
       try {
@@ -122,14 +130,27 @@ export async function tray(
 export function trayDir(env: NodeJS.ProcessEnv): string {
   const base = env.LOCALAPPDATA;
   if (!base) throw new UserError("LOCALAPPDATA is not set, so there is nowhere to put the helper");
+  if (!isAbsolute(base)) throw new UserError(`LOCALAPPDATA isn't an absolute path: ${base}`);
   return join(base, "president");
+}
+
+/** Windows' own folder (%SystemRoot%). */
+function windowsDir(env: NodeJS.ProcessEnv): string {
+  return env.SystemRoot ?? env.WINDIR ?? "C:\\Windows";
+}
+
+/**
+ * reg.exe by its full path: `execFile("reg")` would look in the cwd before PATH on Windows
+ * (libuv's search_path), so a reg.exe in the folder `preside` runs from would come first.
+ */
+export function regExe(env: NodeJS.ProcessEnv): string {
+  return join(windowsDir(env), "System32", "reg.exe");
 }
 
 /** The C# compiler of .NET Framework 4, part of Windows; the 64-bit one first. */
 export function findCsc(env: NodeJS.ProcessEnv): string | undefined {
-  const windows = env.WINDIR ?? env.SystemRoot ?? "C:\\Windows";
   return ["Framework64", "Framework"]
-    .map((bits) => join(windows, "Microsoft.NET", bits, "v4.0.30319", "csc.exe"))
+    .map((bits) => join(windowsDir(env), "Microsoft.NET", bits, "v4.0.30319", "csc.exe"))
     .find((path) => existsSync(path));
 }
 
@@ -198,16 +219,20 @@ async function install(args: string[], out: Output, deps: TrayDeps): Promise<num
 
   // Built next to the old one first: a failed build leaves a working install running.
   const built = join(dir, NEW_EXE_NAME);
-  const compiled = await deps.run(csc, [
-    "/nologo",
-    "/target:winexe",
-    "/optimize+",
-    `/out:${built}`,
-    "/reference:System.dll",
-    "/reference:System.Drawing.dll",
-    "/reference:System.Windows.Forms.dll",
-    source,
-  ]);
+  const compiled = await deps.run(
+    csc,
+    [
+      "/nologo",
+      "/target:winexe",
+      "/optimize+",
+      `/out:${built}`,
+      "/reference:System.dll",
+      "/reference:System.Drawing.dll",
+      "/reference:System.Windows.Forms.dll",
+      source,
+    ],
+    dir,
+  );
   if (compiled.code !== 0 || !existsSync(built)) {
     await rm(built, { force: true });
     throw new UserError("compiling the tray helper failed", {
@@ -239,7 +264,7 @@ async function install(args: string[], out: Output, deps: TrayDeps): Promise<num
     out.log("Starts with Windows (turn it off from the icon's menu).");
   }
   if (!values["no-start"]) {
-    deps.launch(exe, []);
+    deps.launch(exe, [], dir);
     out.log(
       `Started: president's icon is in the notification area, the hub at http://127.0.0.1:${port}.`,
     );
@@ -258,7 +283,9 @@ async function uninstall(out: Output, deps: TrayDeps): Promise<number> {
     await runExe(exe, ["--autostart", "off"], deps, "turning off Start with Windows");
   } else {
     // Nothing to ask: remove the Run value directly, if one was left (not there is fine).
-    await deps.run("reg", ["delete", RUN_KEY, "/v", RUN_VALUE, "/f"]);
+    // In System32: the folder may be gone already, and the cwd must not be the caller's.
+    const reg = regExe(deps.env);
+    await deps.run(reg, ["delete", RUN_KEY, "/v", RUN_VALUE, "/f"], dirname(reg));
   }
   for (const name of OWN_FILES) await removeFile(join(dir, name), deps);
   const left = await readdir(dir).catch(() => undefined);
@@ -281,7 +308,20 @@ async function status(out: Output, deps: TrayDeps): Promise<number> {
   out.log(`helper: ${exe}`);
   out.log(`node: ${config.node ?? "(missing)"}`);
   out.log(`repo: ${config.repo ?? "(missing)"}`);
-  const asked = await deps.run(exe, ["--status"]);
+  // A Node upgrade can move node.exe (nvm-windows, a new installer), and a checkout can move:
+  // the helper then can't start the hub, and only a new install fixes it.
+  const gone = [
+    config.node === undefined || !existsSync(config.node) ? "node.exe" : undefined,
+    config.repo === undefined || !existsSync(join(config.repo, "src", "server", "main.ts"))
+      ? "the president checkout"
+      : undefined,
+  ].filter((what) => what !== undefined);
+  if (gone.length > 0) {
+    out.log(
+      `${gone.join(" and ")} ${gone.length > 1 ? "are" : "is"} no longer where the helper was told, so it can't start the hub: run \`preside tray install\` again (from the checkout, with the node you use).`,
+    );
+  }
+  const asked = await deps.run(exe, ["--status"], dir);
   for (const line of asked.stdout.split(/\r?\n/)) if (line.trim()) out.log(line.trim());
   const port = config.port ?? 4747;
   out.log(
@@ -304,7 +344,7 @@ async function stopRunning(exe: string, deps: TrayDeps): Promise<void> {
 }
 
 async function runExe(exe: string, args: string[], deps: TrayDeps, what: string): Promise<void> {
-  const result = await deps.run(exe, args);
+  const result = await deps.run(exe, args, dirname(exe));
   if (result.code !== 0) {
     throw new UserError(
       `${what} failed: ${(result.stdout + result.stderr).trim() || `exit code ${result.code}`}`,
