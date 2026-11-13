@@ -61,8 +61,8 @@ jobs:
         # the demo project, reads the count, kills the hub to see it come back, uses Restart
         # hub, and stops it cleanly. Scratch folders, so nothing of the runner's user is
         # touched, and --no-autostart leaves its Run key alone. The icon and the menu are
-        # checked by hand.
-        if: runner.os == 'Windows'
+        # checked by hand. It runs even when a step above failed: it says something else.
+        if: ${{ !cancelled() && runner.os == 'Windows' }}
         shell: pwsh
         env:
           LOCALAPPDATA: ${{ runner.temp }}\tray\local
