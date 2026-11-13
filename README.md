@@ -172,7 +172,7 @@ It writes two systemd user units into `~/.config/systemd/user/` (`$XDG_CONFIG_HO
 and `CLAUDE_CONFIG_DIR` you ran `install` with, so it finds `claude` and `git`), and
 `president-tray.service` runs the icon. The hub's unit starts the icon, but a hub that crashes
 and restarts leaves the icon running (grey meanwhile); `install` restarts both, and Quit and
-`uninstall` stop both. Stopping the hub waits for a Sync in progress to finish (systemd gives it
+`uninstall` stop both; stopping the icon never closes a browser it opened. Stopping the hub waits for a Sync in progress to finish (systemd gives it
 up to 5 minutes, room for a Sync whose fetch, pull and push each run to git's 60-second network
 timeout). Don't also run
 `npm start`: both want port 4747 (the icon then turns grey and says "port 4747 in use by another

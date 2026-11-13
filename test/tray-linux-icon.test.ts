@@ -146,54 +146,30 @@ describe("the Linux tray icon's parts", () => {
   });
 
   it.skipIf(process.platform === "win32")(
-    "runs systemctl from PATH, and opens the browser as a service of its own, the display filled in",
+    "runs systemctl and xdg-open from PATH, the display filled in",
     async () => {
-      const fake = await fakeBin({ systemdRun: 0 });
+      const fake = await fakeBin();
       expect([fake.deps.port, fake.deps.build]).toEqual([4800, "main @ 1a2b3c4"]);
       expect(await fake.deps.hubPid()).toBe(4242);
       fake.deps.open("http://127.0.0.1:4800");
       fake.deps.quit();
-      const [show, stop, opened] = await fake.lines(3);
-      expect([show, stop]).toEqual([
+      expect(await fake.lines(3)).toEqual([
         "systemctl --user show --property=MainPID --value president.service WAYLAND_DISPLAY=",
         "systemctl --user stop --no-block president.service president-tray.service WAYLAND_DISPLAY=",
+        "xdg-open http://127.0.0.1:4800 WAYLAND_DISPLAY=wayland-1",
       ]);
-      // Not a --scope, and the service is given the display it needs (DISPLAY too when this
-      // machine has an X11 socket); xdg-open itself never ran here.
-      expect(opened).toMatch(/^systemd-run --user --collect --quiet -E WAYLAND_DISPLAY=wayland-1 /);
-      expect(opened).toContain(` -E XDG_RUNTIME_DIR=${fake.runtime} -E PATH=${fake.bin} `);
-      expect(opened).toMatch(/ xdg-open http:\/\/127\.0\.0\.1:4800 WAYLAND_DISPLAY=wayland-1$/);
-    },
-  );
-
-  it.skipIf(process.platform === "win32")(
-    "opens the browser with xdg-open directly when systemd-run fails or isn't there",
-    async () => {
-      for (const systemdRun of [1, undefined]) {
-        const fake = await fakeBin({ systemdRun });
-        fake.deps.open("http://127.0.0.1:4800");
-        const lines = await fake.lines(systemdRun === undefined ? 1 : 2);
-        expect(lines).toContain("xdg-open http://127.0.0.1:4800 WAYLAND_DISPLAY=wayland-1");
-        expect(lines).toHaveLength(systemdRun === undefined ? 1 : 2);
-      }
     },
   );
 });
 
-/**
- * systemIconDeps with fake systemctl, xdg-open and (exiting with `systemdRun`, or absent)
- * systemd-run on a PATH of their own, each writing its arguments to a log.
- */
-async function fakeBin(options: { systemdRun?: number }) {
+/** systemIconDeps with fake systemctl and xdg-open on a PATH of their own, logging their calls. */
+async function fakeBin() {
   const bin = await tempDir();
   const log = join(bin, "calls.log");
-  const names = ["systemctl", "xdg-open"];
-  if (options.systemdRun !== undefined) names.push("systemd-run");
-  for (const name of names) {
-    const code = name === "systemd-run" ? options.systemdRun : 0;
+  for (const name of ["systemctl", "xdg-open"]) {
     await writeFile(
       join(bin, name),
-      `#!/bin/sh\necho "${name} $* WAYLAND_DISPLAY=$WAYLAND_DISPLAY" >> "${log}"\n[ "$2" = show ] && echo 4242\nexit ${code}\n`,
+      `#!/bin/sh\necho "${name} $* WAYLAND_DISPLAY=$WAYLAND_DISPLAY" >> "${log}"\n[ "$2" = show ] && echo 4242\nexit 0\n`,
     );
     await chmod(join(bin, name), 0o755);
   }
@@ -208,8 +184,6 @@ async function fakeBin(options: { systemdRun?: number }) {
   });
   return {
     deps,
-    bin,
-    runtime,
     /** The log's lines, sorted, once there are `count` of them (and a moment for more). */
     async lines(count: number): Promise<string[]> {
       let text = "";

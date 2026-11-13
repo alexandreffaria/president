@@ -25,15 +25,6 @@ import { createClient, defineInterface, type MessageBus, Variant } from "dbus-na
 
 export const HUB_UNIT = "president.service";
 const ICON_UNIT = "president-tray.service";
-/** What xdg-open's transient service gets from this one (it starts with systemd's own). */
-const OPEN_ENV = [
-  "WAYLAND_DISPLAY",
-  "DISPLAY",
-  "XDG_RUNTIME_DIR",
-  "XDG_CURRENT_DESKTOP",
-  "DBUS_SESSION_BUS_ADDRESS",
-  "PATH",
-];
 /** How often the icon asks the hub for the count, as the Windows helper does. */
 const POLL_MS = 3000;
 const ITEM_PATH = "/StatusNotifierItem";
@@ -87,38 +78,15 @@ export function systemIconDeps(env: NodeJS.ProcessEnv = process.env): IconDeps {
         );
       }),
     open: (url) => {
-      const display = withDisplay(env);
-      const options = { detached: true, stdio: "ignore", env: display } as const;
-      const direct = () => {
-        const child = spawn("xdg-open", [url], options);
-        child.on("error", (error) => console.error(`preside-tray: xdg-open: ${error.message}`));
-        child.unref();
-      };
-      // As a transient service of its own: a browser xdg-open starts would otherwise be in
-      // this unit's cgroup, and stopping the icon (Quit, a new install) would close it. Not a
-      // --scope: systemd-run would then wait for xdg-open (which can stay in the foreground
-      // with the browser) and exit with its code. A service's systemd-run returns once the
-      // unit has started, so a failure is systemd-run's own; only then, xdg-open directly.
-      const passed = OPEN_ENV.flatMap((key) => {
-        const value = display[key];
-        return value ? ["-E", `${key}=${value}`] : [];
+      // A browser this starts stays in the icon unit's cgroup; the unit's KillMode=process
+      // (tray-linux.ts) keeps stopping the icon from closing it.
+      const child = spawn("xdg-open", [url], {
+        detached: true,
+        stdio: "ignore",
+        env: withDisplay(env),
       });
-      const service = spawn(
-        "systemd-run",
-        ["--user", "--collect", "--quiet", ...passed, "xdg-open", url],
-        options,
-      );
-      let fellBack = false;
-      const fallBack = () => {
-        if (fellBack) return;
-        fellBack = true;
-        direct();
-      };
-      service.on("error", fallBack);
-      service.on("exit", (code) => {
-        if (code !== 0) fallBack();
-      });
-      service.unref();
+      child.on("error", (error) => console.error(`preside-tray: xdg-open: ${error.message}`));
+      child.unref();
     },
     quit: () => {
       // Both units (the icon isn't tied to the hub's). --no-block: stopping the icon stops

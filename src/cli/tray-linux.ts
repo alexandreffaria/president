@@ -176,6 +176,10 @@ export function iconUnit(config: UnitConfig): string {
     ...environment(config, { PRESIDENT_BUILD: config.build }),
     "Restart=on-failure",
     "RestartSec=10",
+    // Stopping the icon (Quit, a new install, uninstall) ends the icon only, never a browser
+    // it opened with xdg-open, which runs in this unit's cgroup. Helpers xdg-open leaves
+    // behind may linger in the unit until they exit; that is harmless.
+    "KillMode=process",
     "",
   ].join("\n");
 }

@@ -165,6 +165,9 @@ describe.skipIf(process.platform === "win32")("preside tray on Linux", () => {
     // Not tied to the hub: a hub restarting (or crash-looping) leaves the icon running.
     expect(icon).not.toMatch(/PartOf|BindsTo/);
     expect(icon).toContain("Type=exec");
+    // Stopping the icon ends only its process, never a browser it opened; not the hub's mode.
+    expect(icon).toContain("KillMode=process");
+    expect(hub).not.toContain("KillMode=process");
     expect(icon).toContain('Environment="PRESIDENT_BUILD=main @ 1a2b3c4"');
 
     expect(systemctlCalls(calls)).toEqual([
