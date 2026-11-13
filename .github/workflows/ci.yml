@@ -38,6 +38,17 @@ jobs:
         # president's own cards in decisions/ (only that folder: examples/ and test fixtures
         # are not checked here). A broken card fails CI.
         run: node bin/preside.js validate .
+      - name: TEMP registry race loop (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $fail = 0
+          for ($i = 1; $i -le 60; $i++) {
+            npx vitest run test/registry.test.ts -t "race" --reporter=dot *> "$env:RUNNER_TEMP\r.txt"
+            if ($LASTEXITCODE -ne 0) { $fail++; Select-String -Path "$env:RUNNER_TEMP\r.txt" -Pattern 'Error' | Select-Object -First 3 }
+          }
+          Write-Output "RACE LOOP: $fail failures out of 60"
+          if ($fail -ne 0) { exit 1 }
       - name: Test
         if: runner.os != 'Windows'
         run: npm test
