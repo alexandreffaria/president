@@ -172,11 +172,10 @@ It writes two systemd user units into `~/.config/systemd/user/` (`$XDG_CONFIG_HO
 and `CLAUDE_CONFIG_DIR` you ran `install` with, so it finds `claude` and `git`), and
 `president-tray.service` runs the icon. The hub's unit starts the icon, but a hub that crashes
 and restarts leaves the icon running (grey meanwhile); `install` restarts both, and Quit and
-`uninstall` stop both; stopping the icon never closes a browser it opened. Stopping the hub waits for a Sync in progress to finish (systemd gives it
-up to 5 minutes, room for a Sync whose fetch, pull and push each run to git's 60-second network
-timeout). Don't also run
-`npm start`: both want port 4747 (the icon then turns grey and says "port 4747 in use by another
-program").
+`uninstall` stop both; stopping the icon never closes a browser it opened. Stopping the hub
+waits for a Sync in progress to finish (systemd gives it up to 5 minutes, room for a Sync whose
+fetch, pull and push each run to git's 60-second network timeout). Don't also run `npm start`:
+both want port 4747 (the icon then turns grey and says "port 4747 in use by another program").
 
 - **Serve another build:** run `install` with another checkout's `preside.js`, a pull request's
   worktree for example (`node <worktree>/bin/preside.js tray install`); the hub and the icon
@@ -187,13 +186,17 @@ program").
   serving it this way.
 - **Status:** `preside tray status` shows the checkout, branch and short sha being served,
   whether the hub and the icon run, and says when the checkout has moved on or is gone.
-- **Logs:** `journalctl --user -u president.service -u president-tray.service`.
+- **Logs:** `journalctl --user -u president.service -u president-tray.service`. In the icon's,
+  "Found left-over process … in control group … Ignoring" (and browser processes listed under
+  its CGroup in `systemctl --user status`) are harmless: browsers it opened, which its stop
+  leaves running.
 - **Your session's environment.** A systemd service only gets what your session exports to
   systemd. Opening the browser uses `xdg-open`, which needs your display: KDE, GNOME and uwsm
   export it, and otherwise the icon finds your Wayland or X11 socket itself. Sync's git over
   ssh needs your ssh agent, which `install` doesn't copy (its socket changes from login to
   login); `preside tray status` says when the service lacks it. On Hyprland, export both from
-  your config, then `systemctl --user restart president`:
+  your config, then `systemctl --user restart president president-tray` (the icon doesn't
+  restart with the hub, and would keep its old environment):
 
   ```
   exec-once = dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP SSH_AUTH_SOCK
