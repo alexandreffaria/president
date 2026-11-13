@@ -106,7 +106,8 @@ describe("projects API", () => {
 
   // A typo through a file, or a link loop, is the user's to fix: a 422 that says so (R10-2).
   // Windows says a path through a file doesn't exist (ENOENT, not ENOTDIR), and has no
-  // error of its own for a loop of links: there only the 422 is checked, not the reason.
+  // error of its own for a loop of links: there it is checked to be the user's error (a 400
+  // "does not exist" or a 422), in one line, not a 500, whatever the reason says.
   it("answers a path through a file or a link loop with what is wrong, not a 500", async () => {
     const { post } = await setup();
     const scratch = await tempDir();
@@ -122,10 +123,14 @@ describe("projects API", () => {
     ];
     for (const [body, reason] of cases) {
       const res = await post("/api/projects", body);
-      expect(res.status).toBe(422);
       const { error } = await json(res);
-      if (process.platform !== "win32") expect(error).toMatch(`: ${reason}`);
-      else expect(error).toMatch(/^[^\n]+$/);
+      if (process.platform !== "win32") {
+        expect(res.status).toBe(422);
+        expect(error).toMatch(`: ${reason}`);
+      } else {
+        expect([400, 422], error).toContain(res.status);
+        expect(error).toMatch(/^[^\n]+$/);
+      }
     }
   });
 
