@@ -222,7 +222,7 @@ describe("the Sync control", () => {
     ];
     await render();
     await until(() => text().includes("Couldn't fetch from the remote of shop"), "the notice");
-    expect(text()).toContain("Sync fetches again when you press it.");
+    expect(text()).toContain("The hub tries again for a few minutes; Sync fetches now.");
     expect(text()).toContain("Could not resolve host");
   });
 

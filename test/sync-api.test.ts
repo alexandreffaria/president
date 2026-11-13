@@ -315,6 +315,59 @@ describe("the hub at start", () => {
     }
   });
 
+  /** A project whose remote is out of reach, and a SyncService that retries every `wait` ms. */
+  async function unreachable(wait: number) {
+    const s = await gitSandbox();
+    s.git(s.laptop, "remote", "set-url", "origin", join(s.root, "gone.git"));
+    const registry = new Registry(join(await tempDir(), "config"));
+    await registry.add({ path: s.laptop, name: "shop" });
+    const bus = new EventBus();
+    const events: HubEvent[] = [];
+    bus.subscribe((event) => events.push(event));
+    const sync = new SyncService(registry, bus, s.options, [wait, wait, wait]);
+    const fetchError = async () => (await sync.status()).projects[0]?.fetchError;
+    await sync.fetchAll();
+    expect(await fetchError()).toMatch(/gone\.git/);
+    const reachable = () => s.git(s.laptop, "remote", "set-url", "origin", "../remote.git");
+    return { sync, events, fetchError, reachable };
+  }
+
+  it("retries a failed fetch until it works, then clears the error", async () => {
+    const { sync, events, fetchError, reachable } = await unreachable(200);
+    try {
+      // The warning stays while the retries wait.
+      expect(await fetchError()).toMatch(/gone\.git/);
+      events.length = 0;
+      reachable();
+      await until(async () => (await fetchError()) === undefined, "a retry to fetch");
+      expect(events).toContainEqual({ type: "sync" });
+    } finally {
+      await sync.close();
+    }
+  });
+
+  it("stops retrying once a Sync ran in the project", async () => {
+    const { sync, fetchError } = await unreachable(300);
+    try {
+      expect((await sync.sync()).results[0]?.outcome).not.toBe("synced");
+      expect(await fetchError()).toBeUndefined();
+      // A retry would fail again and bring the error back.
+      await new Promise((resolve) => setTimeout(resolve, 1_200));
+      expect(await fetchError()).toBeUndefined();
+    } finally {
+      await sync.close();
+    }
+  });
+
+  it("cancels the waiting retries on close", async () => {
+    const { sync, fetchError, reachable } = await unreachable(300);
+    await sync.close();
+    reachable();
+    // A retry would now work and clear the error.
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    expect(await fetchError()).toMatch(/gone\.git/);
+  });
+
   it("shows a rebase a Sync cut short left behind, with the files it set aside (S-8)", async () => {
     const s = await gitSandbox();
     await s.write(s.desktop, "decisions/0001-colour.md", "status: resolved\nnote: desktop\n");

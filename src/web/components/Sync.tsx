@@ -159,7 +159,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           project: project.project,
           tone: "warn",
           message: `Couldn't fetch from the remote of ${project.project} when the hub started, so its count of card changes on the remote may be out of date`,
-          action: "Sync fetches again when you press it.",
+          action: "The hub tries again for a few minutes; Sync fetches now.",
           gitError: project.fetchError,
         });
       }
