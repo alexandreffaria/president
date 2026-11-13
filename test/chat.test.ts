@@ -1374,6 +1374,25 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
       );
     });
 
+    it("refuses an HTML comment after a line the splitter doesn't take as a fence", async () => {
+      const t = await setup();
+      await refused(
+        t,
+        [{ ...first, details: "```a`b\n<!-- hides the rest" }, second],
+        /HTML comment/,
+      );
+    });
+
+    it("keeps a fence open past a line with text after its backticks, and inline-code <!--", async () => {
+      for (const details of ["```\n``` x\n<!-- not a comment\n```", "Type `<!--` to open one."]) {
+        const t = await setup();
+        const { at } = await neither(t);
+        await t.script([{ structured: { ...ANSWER, options: [{ ...first, details }, second] } }]);
+        await start(t, at);
+        expect((await settled(t)).newOptions?.state).toBe("written");
+      }
+    });
+
     it("refuses a fence opened after a lone carriage return", async () => {
       const t = await setup();
       await refused(t, [{ ...first, details: "text\r```" }, second], /runs outside its section/);

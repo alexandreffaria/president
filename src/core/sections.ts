@@ -31,9 +31,9 @@ export interface BodySections {
 const H2 = /^ {0,3}##(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
 const OPTION_HEADING = /^option\s+`?([^\s`:]+)`?\s*(?:[:—–-]\s*(.*))?$/i;
 /** An opening fence; a backtick fence's info string can't contain backticks. */
-const FENCE_OPEN = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/;
+export const FENCE_OPEN = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/;
 /** A closing fence: only the fence characters, then optional spaces. */
-const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
+export const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
 
 export function splitSections(body: string): BodySections {
   const lines = body.split(/\r?\n/);

@@ -36,6 +36,8 @@ import { newOptionsFailure } from "../../core/new-options.ts";
 import type { RawFrontmatter } from "../../core/schema.ts";
 import {
   demoteSectionHeadings,
+  FENCE_CLOSE,
+  FENCE_OPEN,
   replaceOptionSections,
   splitSections,
 } from "../../core/sections.ts";
@@ -1044,26 +1046,47 @@ async function cardIds(project: Project): Promise<Set<string> | "unknown" | unde
 
 /** Whether `markdown` has a `<!--` with no later `-->`, outside code fences. */
 function unclosedHtmlComment(markdown: string): boolean {
-  let fence: string | undefined;
+  // Fences follow the section splitter's rules (FENCE_OPEN/FENCE_CLOSE), so the two agree.
+  let fence: string | null = null;
   let open = false;
   for (const line of markdown.split("\n")) {
-    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-    if (fence !== undefined) {
-      if (marker !== undefined && marker[0] === fence[0] && marker.length >= fence.length) {
-        fence = undefined;
+    if (fence !== null) {
+      const close = FENCE_CLOSE.exec(line)?.[1];
+      if (close && close[0] === fence[0] && close.length >= fence.length) fence = null;
+      continue;
+    }
+    if (!open) {
+      const marker = FENCE_OPEN.exec(line)?.[1];
+      if (marker) {
+        fence = marker;
+        continue;
       }
-      continue;
     }
-    if (marker !== undefined && !open) {
-      fence = marker;
-      continue;
-    }
-    let rest = line;
-    for (;;) {
-      const at = rest.indexOf(open ? "-->" : "<!--");
-      if (at < 0) break;
-      rest = rest.slice(at + (open ? 3 : 4));
-      open = !open;
+    let at = 0;
+    while (at < line.length) {
+      if (open) {
+        const end = line.indexOf("-->", at);
+        if (end < 0) break;
+        at = end + 3;
+        open = false;
+        continue;
+      }
+      const comment = line.indexOf("<!--", at);
+      if (comment < 0) break;
+      // An inline code span (a backtick run closed by an equal run on the line) before the
+      // comment hides what it holds; an unmatched run is literal text.
+      const tick = /`+/g;
+      tick.lastIndex = at;
+      const run = tick.exec(line);
+      if (run && run.index < comment) {
+        const closer = new RegExp(`(?<!\`)${run[0]}(?!\`)`, "g");
+        closer.lastIndex = run.index + run[0].length;
+        const shut = closer.exec(line);
+        at = shut ? shut.index + run[0].length : run.index + run[0].length;
+        continue;
+      }
+      at = comment + 4;
+      open = true;
     }
   }
   return open;
