@@ -1042,6 +1042,33 @@ async function cardIds(project: Project): Promise<Set<string> | "unknown" | unde
   }
 }
 
+/** Whether `markdown` has a `<!--` with no later `-->`, outside code fences. */
+function unclosedHtmlComment(markdown: string): boolean {
+  let fence: string | undefined;
+  let open = false;
+  for (const line of markdown.split("\n")) {
+    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence !== undefined) {
+      if (marker !== undefined && marker[0] === fence[0] && marker.length >= fence.length) {
+        fence = undefined;
+      }
+      continue;
+    }
+    if (marker !== undefined && !open) {
+      fence = marker;
+      continue;
+    }
+    let rest = line;
+    for (;;) {
+      const at = rest.indexOf(open ? "-->" : "<!--");
+      if (at < 0) break;
+      rest = rest.slice(at + (open ? 3 : 4));
+      open = !open;
+    }
+  }
+  return open;
+}
+
 /**
  * The card with the run's options (#0007): `options`, their `## Option` sections and
  * `recommendation` replaced, `needs_new_options` removed; everything else as the run read it.
@@ -1067,7 +1094,7 @@ function newCardContent(
     const takes = min === max ? `${min}` : `${min} to ${max}`;
     refuse(`it wrote ${count} option${count === 1 ? "" : "s"}; this card takes ${takes}`);
   }
-  const multiline = (text: string) => /[\r\n]/.test(text);
+  const multiline = (text: string) => /[\r\n\u2028\u2029]/.test(text);
   for (const option of answer.options) {
     if (multiline(option.id) || multiline(option.title) || multiline(option.summary)) {
       refuse("an option's id, title or summary has a line break in it");
@@ -1087,10 +1114,15 @@ function newCardContent(
     recommendation: answer.recommendation,
   };
   delete raw.needs_new_options;
-  const sections = answer.options.map((option) => ({
+  // Every line ending as "\n", so no lone "\r" (or U+2028/U+2029) hides a heading or a fence.
+  const details = answer.options.map((option) =>
+    option.details.replace(/\r\n?|[\u2028\u2029]/g, "\n"),
+  );
+  if (details.some(unclosedHtmlComment)) refuse("an option's details open an HTML comment");
+  const sections = answer.options.map((option, i) => ({
     id: option.id,
     title: option.title.trim(),
-    markdown: demoteSectionHeadings(option.details.replace(/\r\n/g, "\n")).trim(),
+    markdown: demoteSectionHeadings(details[i] ?? "").trim(),
   }));
   const body = replaceOptionSections(card.body, sections);
 

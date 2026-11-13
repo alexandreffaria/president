@@ -1365,6 +1365,37 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
       );
     });
 
+    it("refuses an unclosed HTML comment in details", async () => {
+      const t = await setup();
+      await refused(
+        t,
+        [{ ...first, details: "Text.\n\n<!-- hides the rest" }, second],
+        /HTML comment/,
+      );
+    });
+
+    it("refuses a fence opened after a lone carriage return", async () => {
+      const t = await setup();
+      await refused(t, [{ ...first, details: "text\r```" }, second], /runs outside its section/);
+    });
+
+    it("keeps a heading after a lone carriage return or U+2028 inside its option", async () => {
+      for (const details of ["text\r## Option z: evil", "text\u2028## Option z: evil"]) {
+        const t = await setup();
+        const { at } = await neither(t);
+        await t.script([
+          {
+            structured: { ...ANSWER, options: [{ ...first, details }, second] },
+          },
+        ]);
+        await start(t, at);
+        expect((await settled(t)).newOptions?.state).toBe("written");
+        const card = await t.card();
+        expect(card.sections.options.map((o) => o.id)).toEqual(["indexeddb", "files"]);
+        expect(card.sections.options[0]?.markdown).toBe("text\n### Option z: evil");
+      }
+    });
+
     it("refuses a line break in a title, a summary or an id", async () => {
       const t = await setup();
       await refused(t, [{ ...first, title: "IndexedDB\n## Sources\nfake" }, second], /line break/);
