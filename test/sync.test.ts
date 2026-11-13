@@ -625,6 +625,8 @@ describe("Sync: the network", () => {
     const server = await listen(
       createTcpServer((socket) => {
         sockets.add(socket); // Accept, then say nothing.
+        // Windows resets the connection of a git that was stopped.
+        socket.on("error", () => {});
       }),
     );
     try {

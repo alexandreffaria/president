@@ -261,11 +261,17 @@ describe("HubWatcher", () => {
   // folder still exists and its watch still works, on it: only a watch dropped first and
   // made again watches the new folder.
   const deleted = (dir: string) => rm(dir, { recursive: true });
-  it.each([
+  const removals: [string, (dir: string) => Promise<void>, boolean][] = [
     ["deleted", deleted, false],
     ["deleted (chokidar's unlinkDir alone telling)", deleted, true],
-    ["moved away", (dir: string) => rename(dir, `${dir}-${Math.random()}`), false],
-  ])(
+  ];
+  // Not on Windows: there a watched folder moved away raises no event, and the poll is what
+  // sees the folder made in its place, by its new file ID (NTFS doesn't reuse one at once,
+  // unlike ext4's inodes, which this case fakes).
+  if (process.platform !== "win32") {
+    removals.push(["moved away", (dir) => rename(dir, `${dir}-${Math.random()}`), false]);
+  }
+  it.each(removals)(
     "keeps reporting changes after decisions/ is %s and made again with the same inode, twice",
     async (_, remove, unlinkDirOnly) => {
       let chokidar: FSWatcher | undefined;
