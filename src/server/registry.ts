@@ -269,7 +269,7 @@ export class Registry {
     if (this.#migrated) return;
     let text: string;
     try {
-      text = await readFile(this.legacyFile, "utf8");
+      text = await retryTransientWindows(() => readFile(this.legacyFile, "utf8"));
     } catch (error) {
       if (!isNotFound(error)) {
         throw configError(

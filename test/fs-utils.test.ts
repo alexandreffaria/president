@@ -15,14 +15,14 @@ describe("retryTransientWindows", () => {
   it("retries EPERM, EBUSY and EACCES on Windows until the operation succeeds", async () => {
     for (const code of ["EPERM", "EBUSY", "EACCES"]) {
       const f = failing(code, 3);
-      await expect(retryTransientWindows(f.op, "win32")).resolves.toBe("done");
+      await expect(retryTransientWindows(f.op, { platform: "win32" })).resolves.toBe("done");
       expect(f.calls()).toBe(4);
     }
   });
 
   it("gives up after a while, with the error as it was", async () => {
     const f = failing("EPERM", Infinity);
-    await expect(retryTransientWindows(f.op, "win32")).rejects.toMatchObject({
+    await expect(retryTransientWindows(f.op, { platform: "win32" })).rejects.toMatchObject({
       code: "EPERM",
     });
     expect(f.calls()).toBe(11);
@@ -30,14 +30,37 @@ describe("retryTransientWindows", () => {
 
   it("doesn't retry elsewhere, or other errors", async () => {
     const elsewhere = failing("EPERM", 1);
-    await expect(retryTransientWindows(elsewhere.op, "linux")).rejects.toMatchObject({
+    await expect(retryTransientWindows(elsewhere.op, { platform: "linux" })).rejects.toMatchObject({
       code: "EPERM",
     });
     expect(elsewhere.calls()).toBe(1);
     const other = failing("ENOENT", 1);
-    await expect(retryTransientWindows(other.op, "win32")).rejects.toMatchObject({
+    await expect(retryTransientWindows(other.op, { platform: "win32" })).rejects.toMatchObject({
       code: "ENOENT",
     });
     expect(other.calls()).toBe(1);
+  });
+
+  it("doesn't retry EEXIST on Windows", async () => {
+    const f = failing("EEXIST", 1);
+    await expect(retryTransientWindows(f.op, { platform: "win32" })).rejects.toMatchObject({
+      code: "EEXIST",
+    });
+    expect(f.calls()).toBe(1);
+  });
+
+  it("takes a custom number of tries, delay and sleep", async () => {
+    const waits: number[] = [];
+    const f = failing("EBUSY", Infinity);
+    await expect(
+      retryTransientWindows(f.op, {
+        platform: "win32",
+        tries: 3,
+        delayMs: () => 250,
+        sleep: async (ms) => void waits.push(ms),
+      }),
+    ).rejects.toMatchObject({ code: "EBUSY" });
+    expect(f.calls()).toBe(3);
+    expect(waits).toEqual([250, 250]);
   });
 });
