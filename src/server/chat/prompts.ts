@@ -180,12 +180,12 @@ export function newOptionsSchema(card: Pick<LoadedCard, "frontmatter">): object 
             },
             title: { ...text, description: "One line." },
             summary: { ...text, description: "One sentence, on one line." },
-            pros: { type: "array", items: text },
-            cons: { type: "array", items: text },
+            pros: { type: "array", items: text, description: "At most 2, each a short phrase." },
+            cons: { type: "array", items: text, description: "At most 2, each a short phrase." },
             details: {
               ...text,
               description:
-                "Markdown for the option's own section on the card: what choosing it looks like in practice (an example, code, a sketch). Use ### or smaller headings, and close every code fence.",
+                "Markdown for the option's own section on the card. Keep it to a sentence or two; add a tiny example (a few lines of copy, code or a sketch) only when the choice is about how something looks or reads. Use ### or smaller headings, and close every code fence.",
             },
           },
           required: ["id", "title", "summary", "pros", "cons", "details"],
@@ -196,7 +196,7 @@ export function newOptionsSchema(card: Pick<LoadedCard, "frontmatter">): object 
         type: "object",
         properties: {
           option: { type: "string", description: "The id of the option you recommend." },
-          why: { ...text, description: "Why, in a few sentences." },
+          why: { ...text, description: "Why, in one or two sentences." },
         },
         required: ["option", "why"],
         additionalProperties: false,
@@ -227,7 +227,7 @@ export function newOptionsRequest(card: LoadedCard, note: FeedbackEntry, retry?:
     ...(retry
       ? [`Your previous answer couldn't be written to the card: ${retry}. Fix that this time.`]
       : []),
-    `Read the card again (decisions/${card.fileName}), research what you need, and write new options that answer the note: ${count} options (the card's kind is "${card.frontmatter.kind}"), each with its own section, and your pick among them. They replace the card's options, their sections and its recommendation. president writes them to the card; you change nothing yourself.`,
+    `Read the card again (decisions/${card.fileName}), research what you need, and write new options that answer the note: ${count} options (the card's kind is "${card.frontmatter.kind}"), each with its own section, and your pick among them. Keep the card short: only what the human needs to choose. They replace the card's options, their sections and its recommendation. president writes them to the card; you change nothing yourself.`,
     "Your `message` is shown to the human in this conversation: explain how the new options answer the note; don't say which you recommend. Your pick goes only in `recommendation`, which the human sees only when they ask for it.",
   ].join("\n\n");
 }

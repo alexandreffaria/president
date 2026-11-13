@@ -137,9 +137,11 @@ it, so don't skip it.
      two wordings, two layouts). Exactly 2 options.
    - `choice`: 2 to 4 options shown one under another.
    - `open`: there is no sensible list of options ("what should the welcome text say?").
-4. Write the frontmatter and the body. Template (every `...` is a placeholder you must replace;
-   `preside validate` rejects cards that still have them). The question, ids and titles are
-   an example; replace them too:
+4. Write the frontmatter and the body, **short**: the human should read the whole card in
+   under a minute (about 150 to 250 words, frontmatter text included). Give only what they
+   need to choose; leave out the history, the internals and how you found things out.
+   Template (every `...` is a placeholder you must replace; `preside validate` rejects cards
+   that still have them). The question, ids and titles are an example; replace them too:
 
 ````markdown
 ---
@@ -173,31 +175,66 @@ options:
 ## Context
 
 ...
-
-## Option promise: Lead with the offline promise
-
-...
-
-## Option action: Lead with the next action
-
-...
-
-## Sources
-
-- ...
 ````
 
+   The same card filled in, at the right length (about 110 words a human reads):
+
+~~~~markdown
+---
+id: "20261110q4m8"
+title: What should the empty trip list say?
+status: open
+kind: choice
+priority: normal
+created: 2026-11-10T14:03:00Z
+created_by: claude-code
+tags: [copy, onboarding]
+depends_on: []
+recommendation:
+  option: action
+  why: >-
+    People who open an empty list want to plan a trip, so the next step matters most. The
+    download page already makes the offline promise.
+options:
+  - id: promise
+    title: Lead with the offline promise
+    summary: The list says "Your trips, even without signal" above a New trip button.
+    pros:
+      - Says what sets the app apart
+    cons:
+      - The next step is less obvious
+  - id: action
+    title: Lead with the next action
+    summary: The list says "Plan your first trip" above a New trip button.
+    pros:
+      - Clear next step
+      - Shortest text
+    cons:
+      - Doesn't mention offline use
+---
+
+## Context
+
+A new user's trip list is empty: one line of text and a New trip button. Which line should
+it show?
+~~~~
+
    What goes where:
-   - `recommendation.why`: a sentence or two on why you would pick that option, based on what
-     you know about this project.
-   - `summary`: one sentence that says what the option is. `pros` and `cons`: concrete
-     advantages and costs, one per item.
-   - `## Context`: what is being decided, why now, and what constrains it, written for someone
-     who has not read the code. Link the files and docs you relied on.
-   - `## Option <id>: <title>`: the concrete example: the actual text, a code snippet, a sketch
-     of the screen.
-   - `## Sources`: where facts came from, with links and short quotes. Leave the section out if
-     you looked nothing up.
+   - `title`: the question, in plain words.
+   - `## Context`: at most about 3 short sentences: what is being decided and the constraint
+     that matters, for someone who has not read the code. No history, no internals, no file
+     links unless the human needs to open one.
+   - `options`: each has a `title`, a one-sentence `summary` that says what the option is
+     (with the actual text, number or name when that is the choice), and at most 2 `pros`
+     and 2 `cons`, each a short phrase.
+   - `recommendation.why`: one or two sentences, saying what the pick depends on if anything.
+   - `depends_on`: other cards this one builds on. Refer to cards here, not in the prose.
+   - `## Option <id>: <title>` sections: leave them out by default; the summary, pros and cons
+     are shown without them. Add one only when the choice is about how something looks or
+     reads and the summary can't show it: then a tiny example (a few lines of copy, code or
+     a sketch), the same size for every option.
+   - No `## Sources` section, and no other extra sections. Give the sources you used to the
+     reviewer (step 6), not the human.
 
    An `open` card needs no options; the human answers in their own words:
 
@@ -228,11 +265,13 @@ options:
      the main folder is. (A draft in a scratch folder gets neither check: `validate` reads only
      that file, so its `depends_on` is checked first at step 7.)
 6. Have a fresh session review the draft: one that didn't write it, for example a subagent
-   you start for this. Give it the draft's absolute path and the **What makes a good card**
-   list below (paste it in; it may not have this skill), and ask it to check the card
-   against that list, to check every fact and quote against its source, and to mark each
-   finding should-fix (a wrong or one-sided fact, a missing or straw-man option, anything
-   the human could decide wrongly from) or nit. Fix what it finds, validate the draft again,
+   you start for this. Give it the draft's absolute path, the sources you used and the
+   **What makes a good card** list below (paste it in; it may not have this skill), and ask
+   it to check the card against that list, to check every fact against its source, and to
+   mark each finding should-fix (a wrong or one-sided fact, a missing or straw-man option,
+   anything the human could decide wrongly from, a card over the length limits, or anything
+   in it the human doesn't need in order to choose) or nit. Ask it to cut before it adds:
+   for each sentence, would the human choose differently without it? If not, it goes. Fix what it finds, validate the draft again,
    and have a fresh session review the fixed draft, round after round, until a review finds
    nothing should-fix. If you can't start a fresh session, don't copy the card in: tell the
    human where the draft is.
@@ -257,18 +296,25 @@ options:
 
 ### What makes a good card
 
-- **Neutral framing.** The title is the question, not your answer. Describe every option the way
-  its best advocate would.
+- **Short.** Readable in under a minute: about 150 to 250 words. Context at most about 3 short
+  sentences; each option a title, a one-sentence summary, at most 2 pros and 2 cons as short
+  phrases; the recommendation's `why` one or two sentences. No `## Sources` section, no
+  history, no internals.
+- **Only the main decision points.** Keep what would change the human's choice; cut the rest.
+- **Neutral framing.** The title is the question, in plain words, not your answer. Describe
+  every option the way its best advocate would.
 - **Options that are genuinely different.** 2 to 4 of them. Not one real option and two straw
   men; not three variations of the same idea.
-- **Concrete examples.** Show, don't describe: real code, real copy, real numbers. In `ab`
-  cards the two examples should be directly comparable (same scenario, same length).
-- **Honest tradeoffs.** Every option has cons, including the one you recommend.
-- **A recommendation with reasoning,** in `recommendation`, separate from the options. Keep it
-  short and say what it depends on ("if you expect more than 1000 users...").
-- **Sources.** When you looked things up, link the primary source and quote the relevant line.
+- **Concrete, and small.** Put the real text, number or name in the summary. An `## Option`
+  section with a tiny example only when the choice is about how something looks or reads; in
+  `ab` cards the two examples are directly comparable (same scenario, same length).
+- **Honest tradeoffs.** Every option has a con, including the one you recommend.
+- **A recommendation with reasoning,** in `recommendation`, separate from the options, saying
+  what it depends on ("if you expect more than 1000 users...").
+- **Correct facts.** Check them yourself, and give the reviewer your sources; the card
+  doesn't list them.
 - **One decision per card.** If the answer to one question changes another, write two cards and
-  use `depends_on`.
+  use `depends_on` (refer to other cards there, not in the prose).
 - `priority: high` only when work is blocked on it.
 
 YAML pitfalls: quote ids (`id: "20261110q4m8"`, `depends_on: ["0003"]`); quote any text
@@ -332,8 +378,9 @@ still set (the hub's run failed or hasn't run). For each such card:
    only the latest `neither`). It says what was wrong or what they want instead.
 2. Do any research it calls for.
 3. Change the card with `preside update` (see **Changing a card** below): replace `options`
-   with new ones that answer the feedback (new ids are fine), rewrite the `## Option <id>`
-   sections in the body to match, update `recommendation`, and remove `needs_new_options`.
+   with new ones that answer the feedback (new ids are fine), rewrite or remove the
+   `## Option <id>` sections in the body to match, keep the card short (see **What makes a
+   good card**), update `recommendation`, and remove `needs_new_options`.
    Keep `feedback`, `id`, `created`, `status` and `defer_until` as they are.
 4. Once `preside update` has replaced the card, run the card's `done:` line from `pending`.
 
@@ -369,7 +416,8 @@ For each:
 1. Read the new entries. They may ask a question, add a constraint, ask for research, or say
    why the card is on hold.
 2. Act on them (on a `neither` entry, only as its item above says): update the context or the
-   options (and `recommendation`), do the research and add sources, or change the code if the
+   options (and `recommendation`), do the research and put what changes the choice in the
+   card, briefly, or change the code if the
    note is about work already done. If a note needs an
    answer, put it in the card's body where the human will read it. Change the card only with
    `preside update` (see **Changing a card**).
