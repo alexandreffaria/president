@@ -5,7 +5,9 @@
  * and a title) starts the section for that option. The section runs until the next
  * level-2 heading. Everything else is context: what comes before the first option
  * section is `context`, what comes after the last one (sources, notes) is `appendix`.
- * Headings inside fenced code blocks are ignored.
+ * A body without option sections (short cards leave them out) has its appendix start at
+ * the first level-2 heading that isn't `## Context` and has text before it, so `## Sources`
+ * stays below the options. Headings inside fenced code blocks are ignored.
  *
  * Headings and fences follow CommonMark, so the sections match what the markdown renderer
  * shows: a heading may be indented up to 3 spaces and needs a space after `##`; a fence
@@ -36,13 +38,19 @@ export const FENCE_OPEN = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/;
 export const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
 
 export function splitSections(body: string): BodySections {
-  const lines = body.split(/\r?\n/);
+  return splitLines(body.split(/\r?\n/)).sections;
+}
+
+/** splitSections, plus where a body without option sections has its appendix (line index). */
+function splitLines(lines: string[]): { sections: BodySections; appendixAt: number | null } {
   const context: string[] = [];
   const appendix: string[] = [];
   const options: OptionSection[] = [];
   let current: { section: OptionSection; lines: string[] } | null = null;
   let target: string[] = context;
   let fence: string | null = null;
+  let appendixAt: number | null = null;
+  let text = false;
 
   const flush = () => {
     if (current) {
@@ -84,16 +92,26 @@ export function splitSections(body: string): BodySections {
       if (current || options.length > 0) {
         flush();
         target = appendix;
+      } else if (appendixAt === null && text && !/^context$/i.test(heading[1]?.trim() ?? "")) {
+        appendixAt = index;
       }
     }
+    if (line.trim() !== "") text = true;
     target.push(line);
   });
   flush();
 
+  if (options.length > 0) appendixAt = null;
+  // Without option sections every line went to `context`, so it splits at appendixAt.
+  const contextLines = appendixAt === null ? context : context.slice(0, appendixAt);
+  const appendixLines = appendixAt === null ? appendix : context.slice(appendixAt);
   return {
-    context: trimBlankLines(context.join("\n")),
-    options,
-    appendix: trimBlankLines(appendix.join("\n")),
+    sections: {
+      context: trimBlankLines(contextLines.join("\n")),
+      options,
+      appendix: trimBlankLines(appendixLines.join("\n")),
+    },
+    appendixAt,
   };
 }
 
@@ -111,22 +129,38 @@ export interface NewOptionSection {
 /**
  * The body with its `## Option` sections replaced by `sections` (new options after
  * "neither", #0007): the context before them and the appendix after them (sources, notes)
- * stay as they are. A body without option sections gets the new ones at its end.
+ * stay as they are. A body without option sections gets the new ones between its context and
+ * its appendix. With no `sections` (no new option has details), the old option sections are
+ * removed and none added.
  */
 export function replaceOptionSections(body: string, sections: NewOptionSection[]): string {
   const newline = body.includes("\r\n") ? "\r\n" : "\n";
   const lines = body.split(/\r?\n/);
-  const { options } = splitSections(body);
+  const split = splitLines(lines);
+  const { options } = split.sections;
   const written = sections
     .map((s) => [`## Option ${s.id}: ${s.title}`, "", s.markdown.trim()].join("\n").trim())
     .join("\n\n")
     .split("\n");
   const first = options[0];
   const last = options.at(-1);
+  if (sections.length === 0) {
+    if (!first || !last) return body;
+    const before = lines.slice(0, first.line - 1);
+    const after = lines.slice(sectionEnd(lines, last.line - 1));
+    while (before.length > 0 && before.at(-1)?.trim() === "") before.pop();
+    return [...before, ...(after.length > 0 ? ["", ...after] : [""])].join(newline);
+  }
   if (!first || !last) {
-    const kept = [...lines];
+    const kept = lines.slice(0, split.appendixAt ?? lines.length);
+    const after = split.appendixAt === null ? [] : lines.slice(split.appendixAt);
     while (kept.length > 0 && kept.at(-1)?.trim() === "") kept.pop();
-    return [...kept, ...(kept.length > 0 ? [""] : []), ...written, ""].join(newline);
+    return [
+      ...kept,
+      ...(kept.length > 0 ? [""] : []),
+      ...written,
+      ...(after.length > 0 ? ["", ...after] : [""]),
+    ].join(newline);
   }
   // The appendix starts at the first level-2 heading after the last option section that
   // isn't one (splitSections ends a section there); fences are skipped the same way.

@@ -116,7 +116,8 @@ options:
       - More code at each call site
 ```
 
-`id` and `title` are required. `summary`, `pros` and `cons` are optional but expected.
+`id` and `title` are required. `summary`, `pros` and `cons` are optional but expected: a
+one-sentence summary and at most 2 pros and 2 cons, each a short phrase.
 
 ### Feedback entries
 
@@ -213,13 +214,20 @@ withdrawn:
 
 ## Body
 
-The body is markdown. It is shown in full, so write it for a human who has not seen the code:
+The body is markdown. It is shown in full, so write it for a human who has not seen the code,
+and keep the whole card short: at most about 250 words, usually fewer, with only what the
+human needs to choose.
 
-- Start with `## Context`: what the question is about, why it matters now, constraints.
-- Then one section per option, introduced by a level-2 heading **`## Option <id>`**, optionally
-  followed by `:` and a title. Everything up to the next level-2 heading belongs to that option and
-  is shown inside that option's card. Put the concrete example (code, copy, a sketch) here.
-- Any level-2 section after the options (for example `## Sources`) is shown below the options.
+- Start with `## Context`: at most about 3 short sentences on what is being decided and the
+  constraint that matters. No history or internals.
+- Then, optionally, one section per option, introduced by a level-2 heading
+  **`## Option <id>`**, optionally followed by `:` and a title. Everything up to the next level-2
+  heading belongs to that option and is shown inside that option's card. Add one only for a
+  tiny example (a few lines of copy, code or a sketch) when the choice is about how something
+  looks or reads.
+- Any level-2 section after the options is shown below the options. In a body without option
+  sections, every level-2 section from the first one after `## Context` on is shown there too,
+  so keep the whole context under `## Context`. Cards don't need one: no `## Sources` list.
 - A `## Option <id>` heading whose id is not in `options` is an error. An option without a body
   section is fine; its summary, pros and cons are still shown.
 - Headings inside fenced code blocks are ignored, so examples can contain markdown.
@@ -293,63 +301,31 @@ depends_on: []
 recommendation:
   option: result
   why: >-
-    Most of our calls fail in expected ways (offline, timed out, not found), and the
-    UI has to handle each of them. Returning a result makes the compiler remind us.
+    Most of our calls fail in expected ways (offline, not found), and returning a result
+    makes the compiler remind us to handle each one.
 options:
   - id: throw
     title: Throw typed errors
     summary: Functions return data on success and throw an ApiError subclass on failure.
     pros:
       - Familiar to every TypeScript developer
-      - Call sites stay short when the caller doesn't care about failures
+      - Short call sites
     cons:
-      - Nothing forces a caller to handle "offline", so it's easy to forget
+      - Easy to forget to handle "offline"
   - id: result
     title: Return a result object
     summary: "Functions return { ok: true, data } or { ok: false, error } and never throw for expected failures."
     pros:
-      - The compiler makes every caller look at the failure case
+      - The compiler makes callers handle failures
     cons:
       - More code at each call site
-      - Unexpected bugs still throw, so there are two error paths
+      - Bugs still throw, so two error paths
 ---
 
 ## Context
 
-The app talks to a small HTTP API. On the trail most requests fail because there is no
-signal, so failure is normal, not exceptional. We need one convention before more
-endpoints are written.
-
-## Option throw: Throw typed errors
-
-```ts
-export async function getTrip(id: string): Promise<Trip> {
-  const res = await fetch(`/api/trips/${id}`).catch(() => {
-    throw new OfflineError();
-  });
-  if (res.status === 404) throw new NotFoundError(id);
-  return res.json();
-}
-```
-
-## Option result: Return a result object
-
-```ts
-type ApiResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; error: "offline" | "not_found" | "server" };
-
-export async function getTrip(id: string): Promise<ApiResult<Trip>> {
-  const res = await fetch(`/api/trips/${id}`).catch(() => null);
-  if (!res) return { ok: false, error: "offline" };
-  if (res.status === 404) return { ok: false, error: "not_found" };
-  return { ok: true, data: await res.json() };
-}
-```
-
-## Sources
-
-- TypeScript handbook, discriminated unions: https://www.typescriptlang.org/docs/handbook/2/narrowing.html
+On the trail most API requests fail for lack of signal, so failure is normal. We need one
+convention before more endpoints are written.
 ~~~~
 
 After the human picks `result` with a note, president rewrites only the frontmatter:

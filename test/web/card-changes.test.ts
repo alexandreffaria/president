@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { CardDetailDto } from "../../src/core/api.ts";
 import { parseCard } from "../../src/core/card-file.ts";
+import { replaceOptionSections } from "../../src/core/sections.ts";
 import { describeChanges } from "../../src/web/card-changes.ts";
 import { DEMO_PROJECT } from "../helpers.ts";
 
@@ -82,5 +83,21 @@ describe("describeChanges", () => {
     expect(describeChanges(card(original), card(decided))).toContain(
       'It was decided: "Throw typed errors".',
     );
+  });
+});
+
+// Short cards: a new-options run whose options have no details removes the option sections.
+// The context and ## Sources stay where they were, so only the options' details changed.
+describe("describeChanges when the option sections are removed", () => {
+  it("doesn't say the context or the notes below the options changed", () => {
+    const before = card(original);
+    expect(before.sections.appendix).toMatch(/^## Sources/);
+    const after = card(original.replace(before.body, replaceOptionSections(before.body, [])));
+    expect(after.sections.options).toEqual([]);
+    const changes = describeChanges(before, after);
+    expect(changes).not.toContain("The context changed.");
+    expect(changes).not.toContain("The notes below the options changed.");
+    expect(changes.length).toBe(2);
+    expect(changes.every((c) => /changed: details\.$/.test(c))).toBe(true);
   });
 });

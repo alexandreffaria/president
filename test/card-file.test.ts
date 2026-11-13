@@ -262,7 +262,10 @@ describe("docs/card-format.md", () => {
     expect(example).toBeDefined();
     const card = expectCard(`${example}\n`, "0002-api-errors.md");
     expect(card.frontmatter.kind).toBe("ab");
-    expect(card.sections.options.map((o) => o.id)).toEqual(["throw", "result"]);
+    expect(card.frontmatter.options.map((o) => o.id)).toEqual(["throw", "result"]);
+    // It models a short card: no option sections, no appendix.
+    expect(card.sections.options).toEqual([]);
+    expect(card.sections.appendix).toBe("");
   });
 
   // An agent copies these snippets; none may show a comment that would cut its text (A).
@@ -815,7 +818,22 @@ describe("skills/decision-cards/SKILL.md", async () => {
       .split(/^## .*$/m)
       .slice(1)
       .map((text) => text.trim());
-    expect(sectionTexts).toEqual(["...", "...", "...", "- ..."]);
+    // Only Context: option sections are optional and there is no Sources list (short cards).
+    expect(sectionTexts).toEqual(["..."]);
+  });
+
+  // The filled-in example models a short card: valid, every option with a con, at most 2 pros
+  // and 2 cons, and well under the skill's 250-word budget.
+  it("has a filled-in example that is a valid, short card", () => {
+    const example = /^~~~~markdown\n([\s\S]*?)\n~~~~$/m.exec(skill)?.[1];
+    expect(example).toBeDefined();
+    const card = expectCard(`${example}\n`, "20261110q4m8-empty-state-copy.md");
+    for (const option of card.frontmatter.options) {
+      expect(option.pros.length).toBeLessThanOrEqual(2);
+      expect(option.cons.length).toBeGreaterThanOrEqual(1);
+      expect(option.cons.length).toBeLessThanOrEqual(2);
+    }
+    expect(example?.split(/\s+/).length).toBeLessThan(250);
   });
 
   // A rewrite made again from a card deferred meanwhile keeps "deferred" (R8-5).
