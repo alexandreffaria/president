@@ -298,8 +298,14 @@ export interface ProjectSyncStatus {
    * behind, say): what it set aside and how to get it back. Sync waits until it is done.
    */
   rebase?: { message: string; action: string };
-  /** Set when the fetch at hub start failed (offline, no remote). Not fatal. */
+  /**
+   * Set when the fetch at hub start failed (offline, no remote). Not fatal. The hub retries
+   * it after 5 s, 15 s, 30 s, 1 min, 2 min and 5 min, until one works or a Sync runs (a
+   * Sync fetches too, and clears it).
+   */
   fetchError?: string;
+  /** The hub is still retrying the failed fetch at hub start on its own. */
+  fetchRetrying: boolean;
   /** A Sync is running in this project right now. */
   running: boolean;
   /** How the last Sync of this project ended (since the hub started). */

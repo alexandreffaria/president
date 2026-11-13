@@ -89,7 +89,7 @@ describe("the Sync API", () => {
     const s = await cardsSandbox();
     const { status, post, act, events } = await setup(s);
     expect((await status()).projects).toEqual([
-      { project: "shop", unsynced: 0, remoteChanges: 0, running: false },
+      { project: "shop", unsynced: 0, remoteChanges: 0, fetchRetrying: false, running: false },
     ]);
 
     expect((await act("0001", { type: "resolve", choice: "dexie" })).status).toBe(200);
@@ -120,13 +120,14 @@ describe("the Sync API", () => {
     const { registry, status } = await setup(s);
     await registry.add({ path: web, name: "web" });
     expect((await status()).projects).toEqual([
-      { project: "shop", unsynced: 0, remoteChanges: 0, running: false },
+      { project: "shop", unsynced: 0, remoteChanges: 0, fetchRetrying: false, running: false },
       {
         project: "web",
         unavailable: "it isn't the top folder of a git repository",
         unsynced: 0,
         skippedUnsynced: 1,
         remoteChanges: 0,
+        fetchRetrying: false,
         running: false,
       },
     ]);
@@ -305,6 +306,7 @@ describe("the hub at start", () => {
         project: "shop",
         unsynced: 0,
         remoteChanges: 1,
+        fetchRetrying: false,
         running: false,
       });
       expect(projects.find((p) => p.project === "offline")?.fetchError).toMatch(/gone\.git/);
@@ -315,8 +317,8 @@ describe("the hub at start", () => {
     }
   });
 
-  /** A project whose remote is out of reach, and a SyncService that retries every `wait` ms. */
-  async function unreachable(wait: number) {
+  /** A project whose remote is out of reach, and a SyncService that retries after `waits`. */
+  async function unreachable(waits: number[]) {
     const s = await gitSandbox();
     s.git(s.laptop, "remote", "set-url", "origin", join(s.root, "gone.git"));
     const registry = new Registry(join(await tempDir(), "config"));
@@ -324,48 +326,84 @@ describe("the hub at start", () => {
     const bus = new EventBus();
     const events: HubEvent[] = [];
     bus.subscribe((event) => events.push(event));
-    const sync = new SyncService(registry, bus, s.options, [wait, wait, wait]);
-    const fetchError = async () => (await sync.status()).projects[0]?.fetchError;
+    const sync = new SyncService(registry, bus, { ...s.options, fetchRetryMs: waits });
+    const shop = async () => (await sync.status()).projects[0];
     await sync.fetchAll();
-    expect(await fetchError()).toMatch(/gone\.git/);
+    expect(await shop()).toMatchObject({ fetchError: expect.stringMatching(/gone\.git/) });
     const reachable = () => s.git(s.laptop, "remote", "set-url", "origin", "../remote.git");
-    return { sync, events, fetchError, reachable };
+    return { laptop: s.laptop, registry, sync, events, shop, reachable };
   }
 
+  /** Long enough for several retries 100 ms apart (each a fetch from a missing folder). */
+  const severalRetries = () => new Promise((resolve) => setTimeout(resolve, 500));
+
   it("retries a failed fetch until it works, then clears the error", async () => {
-    const { sync, events, fetchError, reachable } = await unreachable(200);
+    // More retries than the test could ever use up.
+    const { sync, events, shop, reachable } = await unreachable(Array(50).fill(100));
     try {
-      // The warning stays while the retries wait.
-      expect(await fetchError()).toMatch(/gone\.git/);
+      // The warning stays while the hub retries.
+      expect(await shop()).toMatchObject({ fetchError: expect.any(String), fetchRetrying: true });
       events.length = 0;
       reachable();
-      await until(async () => (await fetchError()) === undefined, "a retry to fetch");
+      await until(async () => (await shop())?.fetchError === undefined, "a retry to fetch");
+      expect((await shop())?.fetchRetrying).toBe(false);
       expect(events).toContainEqual({ type: "sync" });
     } finally {
       await sync.close();
     }
   });
 
+  it("keeps the error once the retries run out", async () => {
+    const { sync, shop } = await unreachable([50, 50]);
+    try {
+      await until(async () => (await shop())?.fetchRetrying === false, "the retries to end");
+      expect((await shop())?.fetchError).toMatch(/gone\.git/);
+    } finally {
+      await sync.close();
+    }
+  });
+
   it("stops retrying once a Sync ran in the project", async () => {
-    const { sync, fetchError } = await unreachable(300);
+    const { sync, shop } = await unreachable([100, 100, 100, 100, 100]);
     try {
       expect((await sync.sync()).results[0]?.outcome).not.toBe("synced");
-      expect(await fetchError()).toBeUndefined();
+      expect(await shop()).toMatchObject({ fetchRetrying: false });
+      expect((await shop())?.fetchError).toBeUndefined();
       // A retry would fail again and bring the error back.
-      await new Promise((resolve) => setTimeout(resolve, 1_200));
-      expect(await fetchError()).toBeUndefined();
+      await severalRetries();
+      expect((await shop())?.fetchError).toBeUndefined();
+    } finally {
+      await sync.close();
+    }
+  });
+
+  it("stops retrying for a project that was removed", async () => {
+    const { laptop, registry, sync, events, shop, reachable } = await unreachable([
+      100, 100, 100, 100, 100,
+    ]);
+    try {
+      await registry.remove("shop");
+      // Were it still retried, this fetch would work and say so.
+      reachable();
+      events.length = 0;
+      await severalRetries();
+      expect(events).toEqual([]);
+      // Added again, it starts with no error and no retry.
+      await registry.add({ path: laptop, name: "shop" });
+      expect(await shop()).toMatchObject({ fetchRetrying: false });
+      expect((await shop())?.fetchError).toBeUndefined();
     } finally {
       await sync.close();
     }
   });
 
   it("cancels the waiting retries on close", async () => {
-    const { sync, fetchError, reachable } = await unreachable(300);
+    const { sync, shop, reachable } = await unreachable([100, 100, 100]);
     await sync.close();
     reachable();
     // A retry would now work and clear the error.
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-    expect(await fetchError()).toMatch(/gone\.git/);
+    await severalRetries();
+    expect((await shop())?.fetchError).toMatch(/gone\.git/);
   });
 
   it("shows a rebase a Sync cut short left behind, with the files it set aside (S-8)", async () => {

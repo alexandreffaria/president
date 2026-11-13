@@ -1001,12 +1001,17 @@ export const FETCH_RETRY_DELAYS: readonly number[] = [
   5_000, 15_000, 30_000, 60_000, 120_000, 300_000,
 ];
 
+export interface SyncServiceOptions extends SyncOptions {
+  /** The waits before each retry of a failed start-up fetch (ms); {@link FETCH_RETRY_DELAYS}. */
+  fetchRetryMs?: readonly number[];
+}
+
 /** Sync for every registered project: what the API and the hub start call. */
 export class SyncService {
   readonly #registry: Registry;
   readonly #bus: EventBus;
   readonly #options: SyncOptions;
-  readonly #retryDelays: readonly number[];
+  readonly #fetchRetryMs: readonly number[];
   /** One git sequence (Sync, the start-up fetch or its retry) per project at a time. */
   readonly #lock = new KeyedMutex();
   readonly #gate = new WriteGate();
@@ -1015,6 +1020,8 @@ export class SyncService {
   readonly #inFlight = new Set<Promise<unknown>>();
   /** The start-up fetch's retries waiting to run, by project folder. */
   readonly #retries = new Map<string, NodeJS.Timeout>();
+  /** Projects whose start-up fetch is being retried: a wait, or a retry at or in the lock. */
+  readonly #retrying = new Set<string>();
   /** Projects a Sync ran in: it fetched, so the start-up fetch isn't retried there. */
   readonly #synced = new Set<string>();
   #closed = false;
@@ -1024,16 +1031,12 @@ export class SyncService {
    */
   readonly #broughtIn = new Map<string, string[]>();
 
-  constructor(
-    registry: Registry,
-    bus: EventBus,
-    options: SyncOptions = {},
-    retryDelays: readonly number[] = FETCH_RETRY_DELAYS,
-  ) {
+  constructor(registry: Registry, bus: EventBus, options: SyncServiceOptions = {}) {
     this.#registry = registry;
     this.#bus = bus;
-    this.#options = options;
-    this.#retryDelays = retryDelays;
+    const { fetchRetryMs, ...git } = options;
+    this.#options = git;
+    this.#fetchRetryMs = fetchRetryMs ?? FETCH_RETRY_DELAYS;
   }
 
   #stateOf(project: Project): ProjectState {
@@ -1113,6 +1116,7 @@ export class SyncService {
           remoteChanges: counts.remoteChanges,
           ...(counts.rebase ? { rebase: counts.rebase } : {}),
           ...(state.fetchError ? { fetchError: state.fetchError } : {}),
+          fetchRetrying: this.#retrying.has(project.path),
           running,
           ...(state.last ? { last: state.last } : {}),
         };
@@ -1133,8 +1137,7 @@ export class SyncService {
       const outcome = await this.#lock.run(project.path, () => {
         // This Sync fetches: no more retries of the start-up fetch here.
         this.#synced.add(project.path);
-        clearTimeout(this.#retries.get(project.path));
-        this.#retries.delete(project.path);
+        this.#stopRetrying(project.path);
         return this.#gate.exclusive(project.path, async () => {
           this.#running.add(project.path);
           this.#bus.emit({ type: "sync" });
@@ -1187,6 +1190,8 @@ export class SyncService {
         await Promise.all(
           projects.map((project) =>
             this.#lock.run(project.path, async () => {
+              // A Sync that took the lock first fetched later than this would: its result stands.
+              if (this.#synced.has(project.path)) return;
               await this.#fetch(project);
               if (this.#stateOf(project).fetchError) this.#retryFetch(project, 0);
             }),
@@ -1216,23 +1221,50 @@ export class SyncService {
    * out, a Sync runs there or the hub closes. The error stays shown meanwhile.
    */
   #retryFetch(project: Project, attempt: number): void {
-    const delay = this.#retryDelays[attempt];
-    if (delay === undefined || this.#closed || this.#synced.has(project.path)) return;
+    const { path } = project;
+    const delay = this.#fetchRetryMs[attempt];
+    if (delay === undefined || this.#closed || this.#synced.has(path)) {
+      this.#stopRetrying(path);
+      return;
+    }
     const timer = setTimeout(() => {
-      this.#retries.delete(project.path);
+      this.#retries.delete(path);
       void this.#track(
-        this.#lock.run(project.path, async () => {
+        this.#lock.run(path, async () => {
           // A Sync that ran while this waited for the lock already fetched.
-          if (this.#closed || this.#synced.has(project.path)) return;
-          if (await this.#fetch(project)) this.#bus.emit({ type: "sync" });
+          if (this.#closed || this.#synced.has(path)) return;
+          // A project removed meanwhile: nothing left to show the error for.
+          let projects: Project[];
+          try {
+            projects = await this.#registry.list();
+          } catch {
+            projects = [project]; // A broken registry may well be fixed; keep trying.
+          }
+          if (!projects.some((p) => p.path === path)) {
+            this.#stopRetrying(path);
+            this.#state.delete(path);
+            return;
+          }
+          const changed = await this.#fetch(project);
           if (this.#stateOf(project).fetchError) this.#retryFetch(project, attempt + 1);
+          else this.#stopRetrying(path);
+          // The error, or whether the hub keeps trying, changed.
+          if (changed || !this.#retrying.has(path)) this.#bus.emit({ type: "sync" });
         }),
       );
     }, delay);
     // A wait never keeps the process alive; close() cancels it.
     timer.unref();
-    clearTimeout(this.#retries.get(project.path));
-    this.#retries.set(project.path, timer);
+    clearTimeout(this.#retries.get(path));
+    this.#retries.set(path, timer);
+    this.#retrying.add(path);
+  }
+
+  /** Cancels the waiting retry of the start-up fetch in the project at `path`, if any. */
+  #stopRetrying(path: string): void {
+    clearTimeout(this.#retries.get(path));
+    this.#retries.delete(path);
+    this.#retrying.delete(path);
   }
 
   /**
@@ -1241,8 +1273,8 @@ export class SyncService {
    */
   async close(): Promise<void> {
     this.#closed = true;
-    for (const timer of this.#retries.values()) clearTimeout(timer);
-    this.#retries.clear();
+    for (const path of [...this.#retries.keys()]) this.#stopRetrying(path);
+    this.#retrying.clear();
     await Promise.allSettled([...this.#inFlight]);
   }
 }
