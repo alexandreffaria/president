@@ -27,7 +27,7 @@ import { type RefObject, useEffect, useRef, useState } from "react";
 import type { CardDetailDto, ChatAsk, ChatMessageDto } from "../../core/api.ts";
 import type { ChatContext } from "../api.ts";
 import type { CardChat as ChatState } from "../chat.ts";
-import { type Draft, fillSummaryIfEmpty } from "../drafts.ts";
+import { clearSummaryIf, type Draft, fillSummaryIfEmpty, putBack } from "../drafts.ts";
 import { fullDate, timeAgo } from "../format.ts";
 import { useKeyLayer } from "../keyboard.ts";
 import { useToast } from "../toast.tsx";
@@ -54,8 +54,11 @@ export function CardChat(props: {
    * replaces text already in the summary box); true when it was used.
    */
   onAgentSummary: (summary: string) => boolean;
-  /** Told when this panel's Write summary starts and ends, before the hub's copy says so. */
-  onWriting?: (writing: boolean) => void;
+  /**
+   * Told when this panel's Write summary starts and ends, before the hub's copy says so;
+   * at the end, with why no summary was written when the run failed.
+   */
+  onWriting?: (writing: boolean, error?: string) => void;
   /** The "Before deciding" box is open and holds the summary (#0019). */
   deciding?: boolean;
 }) {
@@ -134,7 +137,9 @@ export function CardChat(props: {
       toast(failure.error, { tone: "error" });
       // Refused before the hub saved it (the agent was busy, the hub unreachable): keep the
       // text. Once saved, it is in the conversation; sending it again would send it twice.
-      if (failure.notSent) props.onDraft({ chat: text });
+      // Into the stored draft, ahead of what was typed since (here, or in a new view of the
+      // card if the human left and came back), which stays.
+      if (failure.notSent) putBack(card.project, card.id, "chat", text);
     }
   };
 
@@ -148,6 +153,7 @@ export function CardChat(props: {
   const writeSummary = async () => {
     setWriting(true);
     props.onWriting?.(true);
+    let failed: string | undefined;
     try {
       const { summary } = await chat.summarize(context);
       // Text typed while the agent wrote (here or in the "Before deciding" box) wins.
@@ -156,10 +162,11 @@ export function CardChat(props: {
         setBoxOpen(true);
       }
     } catch (error) {
-      toast((error as Error).message, { tone: "error" });
+      failed = (error as Error).message;
+      toast(failed, { tone: "error" });
     } finally {
       setWriting(false);
-      props.onWriting?.(false);
+      props.onWriting?.(false, failed);
     }
   };
 
@@ -188,7 +195,9 @@ export function CardChat(props: {
     const dropped = draft.summary;
     try {
       const closed = await chat.close();
-      props.onDraft({ summary: "" });
+      // Only while the box still holds what was dropped, and no other field: this view may
+      // have gone (the human left the card and came back), and what was typed since stays.
+      clearSummaryIf(card.project, card.id, dropped);
       setBoxOpen(false);
       toast("Conversation closed without a summary. Nothing was added to the card.", {
         action: {

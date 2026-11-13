@@ -1308,3 +1308,158 @@ describe("a result for a view of the card that has gone writes only into an empt
     expect(deciding()?.value).toBe("My own summary.");
   });
 });
+
+describe("a request that ends after its view of the card has gone changes only what it sent (PR #28 R5)", () => {
+  const panelBox = () => host.querySelector(".chat-summary textarea") as HTMLTextAreaElement | null;
+  const deciding = () =>
+    host.querySelector("#before-deciding-summary") as HTMLTextAreaElement | null;
+  const script = (steps: object[]) =>
+    io(() => writeFile(join(fakeDir, "script.json"), JSON.stringify(steps)));
+  /** Holds back the first request `matches` picks, by `ms`. */
+  const delay = (matches: (input: string, method: string) => boolean, ms: number) => {
+    let held = false;
+    intercept = (input, init, hub) => {
+      if (held || !matches(input, init.method ?? "GET")) return undefined;
+      held = true;
+      return new Promise((resolve) => setTimeout(resolve, ms)).then(hub);
+    };
+  };
+
+  /** Leaves #0002 for #0003 and comes back: a new view of the card. */
+  async function leaveAndComeBack() {
+    navigate("/card/demo/0003");
+    await until(() => window.location.pathname === "/card/demo/0003", "#0003");
+    await pause();
+    await pause();
+    navigate("/card/demo/0002");
+    await until(
+      () => messageBox() !== null || button("Ask about this card") !== undefined,
+      "the card again",
+    );
+    await pause();
+    await pause();
+    // A card without a conversation shows the panel closed: open it again.
+    if (messageBox() === null) await press("c");
+    await until(() => messageBox() !== null, "the conversation again");
+  }
+
+  async function writeSummaryThenClose() {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("Does it throw?");
+    await script([{ text: "It throws." }]);
+    await click("Write summary");
+    await until(() => panelBox()?.value === "It throws.", "the summary");
+    await until(() => button("Close without summary")?.disabled === false, "the button");
+    delay((input, method) => method === "POST" && input === "/api/chats/demo/0002/close", 1500);
+    await click("Close without summary");
+  }
+
+  it("Close without summary that lands after leaving and coming back keeps a message typed since (R5-1)", async () => {
+    await writeSummaryThenClose();
+    await leaveAndComeBack();
+    await typeInto(messageBox(), "Unsent message.");
+    await until(() => text().includes("Conversation closed without a summary."), "the close");
+    await pause();
+    expect((messageBox() as HTMLTextAreaElement).value).toBe("Unsent message.");
+    await leaveAndComeBack();
+    expect((messageBox() as HTMLTextAreaElement).value).toBe("Unsent message.");
+    // The summary it dropped is gone.
+    expect(button("Edit summary")).toBeUndefined();
+  });
+
+  it("Close without summary that lands later doesn't clear a summary edited since (R5-1)", async () => {
+    await writeSummaryThenClose();
+    await leaveAndComeBack();
+    await click("Edit summary");
+    await until(() => panelBox() !== null, "the summary box");
+    await typeInto(panelBox(), "My own summary.");
+    await until(() => text().includes("Conversation closed without a summary."), "the close");
+    await pause();
+    expect(panelBox()?.value).toBe("My own summary.");
+    await leaveAndComeBack();
+    await click("Edit summary");
+    await until(() => panelBox() !== null, "the summary box");
+    expect(panelBox()?.value).toBe("My own summary.");
+  });
+
+  it("a refused message put back after leaving and coming back keeps what was typed since (R5-2 send)", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await until(() => messageBox() !== null, "the message box");
+    // Refused at once; the conversation read again after it is slow, so the human has left
+    // and come back by the time the text is put back.
+    let reread = false;
+    intercept = (input, init, hub) => {
+      if (input === "/api/chats/demo/0002/messages" && init.method === "POST") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              error: "the agent is still answering on this card",
+              code: "chat_busy",
+            }),
+            { status: 409, headers: { "content-type": "application/json" } },
+          ),
+        );
+      }
+      if (reread || input !== "/api/chats/demo/0002" || (init.method ?? "GET") !== "GET") {
+        return undefined;
+      }
+      reread = true;
+      return new Promise((resolve) => setTimeout(resolve, 1500)).then(hub);
+    };
+    await typeInto(messageBox(), "First message.");
+    await press("Enter", messageBox() as Element);
+    await until(() => (messageBox() as HTMLTextAreaElement).value === "", "the box to empty");
+    await leaveAndComeBack();
+    await typeInto(messageBox(), "Second message.");
+    await until(
+      () => (messageBox() as HTMLTextAreaElement).value === "First message.\n\nSecond message.",
+      "the refused message put back, ahead of the new one",
+    );
+  });
+
+  it("a decision that lands after leaving and coming back keeps a message typed since and doesn't move on (R5-2 act)", async () => {
+    await open("/card/demo/0002");
+    await press("2");
+    delay((input, method) => method === "POST" && input === "/api/cards/demo/0002/actions", 1500);
+    await click("Decide");
+    await leaveAndComeBack();
+    await typeInto(messageBox(), "Unsent message.");
+    await until(() => text().includes("Decided #0002"), "the decision");
+    await settled();
+    // The view that decided has gone: it doesn't take the human on to the next card.
+    expect(window.location.pathname).toBe("/card/demo/0002");
+    expect((messageBox() as HTMLTextAreaElement).value).toBe("Unsent message.");
+    await leaveAndComeBack();
+    expect((messageBox() as HTMLTextAreaElement).value).toBe("Unsent message.");
+  });
+
+  it("the Before deciding box stops promising the panel's summary once its run fails (R5-3)", async () => {
+    await open("/card/demo/0002");
+    await press("c");
+    await sendMessage("Does it throw?");
+    // The hub refuses the panel's run, late; the page doesn't know from the hub it is going.
+    intercept = (input, init, hub) => {
+      if (input === "/api/chats/demo/0002/summary" && init.method === "POST") {
+        return new Promise((resolve) => setTimeout(resolve, 1000)).then(
+          () =>
+            new Response(JSON.stringify({ error: "the hub broke", code: "internal" }), {
+              status: 500,
+              headers: { "content-type": "application/json" },
+            }),
+        );
+      }
+      return input === "/api/chats/demo/0002" && (init.method ?? "GET") === "GET"
+        ? new Promise((resolve) => setTimeout(resolve, 2000)).then(hub)
+        : undefined;
+    };
+    await click("Write summary");
+    await press("2");
+    await click("Decide");
+    await until(() => text().includes("The agent is already writing a summary"), "the box");
+    await until(() => text().includes("Couldn't write the summary"), "the failure in the box");
+    expect(text()).not.toContain("it appears here when it's done");
+    expect(deciding()?.value).toBe("");
+  });
+});

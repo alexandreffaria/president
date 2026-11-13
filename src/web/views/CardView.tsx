@@ -27,6 +27,7 @@ import {
   type Draft,
   type Panel as DraftPanel,
   fillSummaryIfEmpty,
+  patchDraftIf,
   restoreDraft,
   takePanel,
   unsentText,
@@ -260,7 +261,10 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const load = useCallback(async (): Promise<boolean> => {
     try {
       const seen = latest.current.seen;
+      const generation = viewGeneration.current;
       const res = await api.card(project, id, seen?.revision);
+      // The view left this card while it loaded: the new view loads it itself.
+      if (generation !== viewGeneration.current) return false;
       if (!res.ok) {
         setLoaded({ state: "broken", broken: res.broken });
         return false;
@@ -379,6 +383,13 @@ export function CardView({ project, id }: { project: string; id: string }) {
     const next = afterThis();
     // A new action on this card makes an older undo for it meaningless.
     dismissToasts(undoGroup);
+    const generation = viewGeneration.current;
+    // What the action sends, read now (this view is the card's current one): it is cleared
+    // once sent only while the draft still holds it, and put back if the action is undone.
+    const sent = options.sent ?? {};
+    const wasSent = Object.fromEntries(
+      Object.keys(sent).map((field) => [field, latest.current[field as keyof Draft]]),
+    ) as Partial<Draft>;
     try {
       // The revision the human read, not the newest one: if the card changed since, the
       // server refuses, and they see what changed first.
@@ -392,12 +403,9 @@ export function CardView({ project, id }: { project: string; id: string }) {
       if (action.type !== "resolve") forgetDecision(project, id);
       setLoaded({ state: "ok", card: res.card });
       acknowledge(res.card);
-      // What the action sent, to put back as a draft if it is undone.
-      const sent = options.sent ?? {};
-      const wasSent = Object.fromEntries(
-        Object.keys(sent).map((field) => [field, latest.current[field as keyof Draft]]),
-      ) as Partial<Draft>;
-      if (options.sent) updateDraft(options.sent);
+      // Through the store, field by field: this view may have gone (the human left the card
+      // and came back), and what was typed or picked since, here or there, stays.
+      if (options.sent) patchDraftIf(project, id, wasSent, options.sent);
       void hub.refresh();
       if (options.done) {
         const after = res.card.revision;
@@ -444,7 +452,8 @@ export function CardView({ project, id }: { project: string; id: string }) {
         const done = typeof options.done === "string" ? options.done : options.done(res.card);
         toast(done, { action: undo, group: undoGroup });
       }
-      if (options.leave) {
+      // A view that has gone doesn't move the human on: they are wherever they went since.
+      if (options.leave && generation === viewGeneration.current) {
         if (next) goTo(next);
         else {
           navigate("/");
@@ -517,6 +526,10 @@ export function CardView({ project, id }: { project: string; id: string }) {
    */
   const takeAgentSummary = (summary: string): boolean => {
     if (fillSummaryIfEmpty(project, id, summary)) return true;
+    if (!summary.trim()) {
+      toast("The agent's summary came back empty; write one yourself.", { tone: "error" });
+      return false;
+    }
     toast("The agent's summary wasn't used: the summary box already has text.");
     return false;
   };
@@ -961,8 +974,17 @@ export function CardView({ project, id }: { project: string; id: string }) {
           draft={draft}
           onDraft={updateDraft}
           onAgentSummary={takeAgentSummary}
-          onWriting={(writing) => {
+          onWriting={(writing, error) => {
             panelWriting.current = writing;
+            // The run the "Before deciding" box was waiting for has ended: it no longer says
+            // a summary is coming, and says why when the run failed.
+            if (!writing) {
+              setBeforeDeciding((pending) =>
+                pending?.summaryRunning
+                  ? { ...pending, summaryRunning: false, ...(error ? { error } : {}) }
+                  : pending,
+              );
+            }
           }}
           onClose={hideChat}
           focusOnOpen={focusChat}
