@@ -32,7 +32,7 @@ export async function writeFileAtomic(path: string, content: string): Promise<vo
     } finally {
       await handle.close();
     }
-    await rename(temp, path);
+    await retryTransientWindows(() => rename(temp, path));
   } catch (error) {
     await unlink(temp).catch(() => {});
     throw error;
@@ -91,12 +91,12 @@ export async function createFileExclusive(path: string, content: string): Promis
     } finally {
       await handle.close();
     }
-    await link(temp, path);
+    await retryTransientWindows(() => link(temp, path));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
     throw error;
   } finally {
-    await unlink(temp).catch(() => {});
+    await retryTransientWindows(() => unlink(temp)).catch(() => {});
   }
   await syncDirectory(dirname(path));
   return true;
@@ -118,4 +118,52 @@ export async function removeStaleTempFiles(dir: string): Promise<void> {
 
 export function isNotFound(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
+}
+
+const TRANSIENT_WINDOWS_CODES = new Set(["EPERM", "EBUSY", "EACCES"]);
+
+export interface RetryOptions {
+  /** The platform to act for; retries happen only on win32. */
+  platform?: NodeJS.Platform;
+  /** How many times to try in all (default 11). */
+  tries?: number;
+  /** The wait before try `attempt + 1` (default 10 ms doubling, at most 200 ms). */
+  delayMs?: (attempt: number) => number;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Runs a file operation, retrying it briefly on Windows when it fails with EPERM, EBUSY or
+ * EACCES. There a file another process has open, or one another process just deleted (it
+ * stays "delete pending" until every handle on it is closed), refuses to be deleted, renamed,
+ * linked or read for a moment: two `preside add`s of one folder at once hit this when one
+ * deletes the entry the other is reading or deleting. graceful-fs and rimraf retry the same
+ * way. Elsewhere, and (by default) after about 1.3 seconds of retries, the error is thrown
+ * as it is.
+ */
+export async function retryTransientWindows<T>(
+  operation: () => Promise<T>,
+  {
+    platform = process.platform,
+    tries = 11,
+    delayMs = (attempt) => Math.min(10 * 2 ** attempt, 200),
+    sleep = (ms) => new Promise((done) => setTimeout(done, ms)),
+  }: RetryOptions = {},
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      if (
+        platform !== "win32" ||
+        !code ||
+        !TRANSIENT_WINDOWS_CODES.has(code) ||
+        attempt + 1 >= tries
+      ) {
+        throw error;
+      }
+      await sleep(delayMs(attempt));
+    }
+  }
 }

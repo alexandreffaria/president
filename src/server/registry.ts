@@ -33,7 +33,12 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { formatIssues } from "../core/schema.ts";
 import { fileError, UserError } from "./errors.ts";
-import { createFileExclusive, isNotFound, removeStaleTempFiles } from "./fs-utils.ts";
+import {
+  createFileExclusive,
+  isNotFound,
+  removeStaleTempFiles,
+  retryTransientWindows,
+} from "./fs-utils.ts";
 
 export const DECISIONS_DIR = "decisions";
 export const PROJECT_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -209,7 +214,7 @@ export class Registry {
     }
     let text: string;
     try {
-      text = await readFile(file, "utf8");
+      text = await retryTransientWindows(() => readFile(file, "utf8"));
     } catch (error) {
       if (isNotFound(error)) return undefined; // removed while we were listing
       throw configError(`cannot read ${file}: ${(error as Error).message}`, ENTRY_FIX);
@@ -240,7 +245,7 @@ export class Registry {
   async #delete(name: string): Promise<void> {
     const file = join(this.dir, name + ENTRY_SUFFIX);
     try {
-      await unlink(file);
+      await retryTransientWindows(() => unlink(file));
     } catch (error) {
       if (!isNotFound(error)) throw fileError("delete", file, error);
     }
@@ -264,7 +269,7 @@ export class Registry {
     if (this.#migrated) return;
     let text: string;
     try {
-      text = await readFile(this.legacyFile, "utf8");
+      text = await retryTransientWindows(() => readFile(this.legacyFile, "utf8"));
     } catch (error) {
       if (!isNotFound(error)) {
         throw configError(
@@ -294,7 +299,7 @@ export class Registry {
     await this.#ensureDir();
     for (const project of parsed.data.projects) await this.#create(project.name, project.path);
     try {
-      await rename(this.legacyFile, `${this.legacyFile}.migrated`);
+      await retryTransientWindows(() => rename(this.legacyFile, `${this.legacyFile}.migrated`));
     } catch (error) {
       if (!isNotFound(error)) throw fileError("rename", this.legacyFile, error);
     }

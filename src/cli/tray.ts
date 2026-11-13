@@ -15,7 +15,7 @@ import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { UserError } from "../server/errors.ts";
-import { writeFileAtomic } from "../server/fs-utils.ts";
+import { type RetryOptions, retryTransientWindows, writeFileAtomic } from "../server/fs-utils.ts";
 import { portFromEnv } from "../server/server.ts";
 import type { Output } from "./main.ts";
 
@@ -356,23 +356,13 @@ async function runExe(exe: string, args: string[], deps: TrayDeps, what: string)
 const LOCKED_TRIES = 20;
 
 async function replaceFile(from: string, to: string, deps: TrayDeps): Promise<void> {
-  await retryWhileLocked(() => rename(from, to), deps);
+  await retryTransientWindows(() => rename(from, to), lockedRetry(deps));
 }
 
 async function removeFile(path: string, deps: TrayDeps): Promise<void> {
-  await retryWhileLocked(() => rm(path, { force: true }), deps);
+  await retryTransientWindows(() => rm(path, { force: true }), lockedRetry(deps));
 }
 
-async function retryWhileLocked(action: () => Promise<void>, deps: TrayDeps): Promise<void> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await action();
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (attempt >= LOCKED_TRIES || (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")) {
-        throw error;
-      }
-      await deps.sleep(250);
-    }
-  }
+function lockedRetry(deps: TrayDeps): RetryOptions {
+  return { platform: deps.platform, tries: LOCKED_TRIES, delayMs: () => 250, sleep: deps.sleep };
 }
