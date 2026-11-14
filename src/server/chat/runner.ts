@@ -19,6 +19,7 @@ import { spawn } from "node:child_process";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
+import { withAbsolutePath } from "../executable.ts";
 import { isNotFound } from "../fs-utils.ts";
 import { killTree } from "../process-tree.ts";
 import { CLAUDE_NOT_FOUND, resolveClaude } from "./claude-command.ts";
@@ -180,7 +181,8 @@ export function runClaude(request: RunRequest, handlers: RunHandlers = {}): Prom
 
     const child = spawn(command.file, [...command.args, ...args], {
       cwd: request.cwd,
-      env,
+      // PATH without the entries that mean the project folder, for what the run looks up itself.
+      env: withAbsolutePath(env),
       stdio: ["pipe", "pipe", "pipe"],
       // Its own process group, so the run and anything it started stop together
       // (process-tree.ts; on Windows taskkill /T, which needs no group).

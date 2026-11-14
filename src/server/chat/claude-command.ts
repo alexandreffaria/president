@@ -8,14 +8,15 @@
  *
  * Claude Code comes as a program (claude.exe from the native installer, or what npm's package
  * puts in place today) or as a Node script (`cli.js`, what npm's package shipped before). On
- * Linux and macOS either one is `claude` on PATH, run as is (a script by its `#!`). On
+ * Linux and macOS either one is `claude` on PATH: a program runs as is, a Node script with
+ * the hub's own Node (`process.execPath`), never a `node` looked for on PATH. On
  * Windows, npm installs neither on PATH but a batch file, `claude.cmd`, which recent Node
  * refuses to run without a shell (and a shell would read the message's quoting). So a
  * claude.exe (or .com) anywhere on PATH comes first; otherwise the first claude.cmd is read,
  * never run, for what it starts: that program is run itself, and a script with the hub's own
  * Node (`process.execPath`).
  */
-import { readFileSync, statSync } from "node:fs";
+import { closeSync, openSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { findExecutable, pathDirs } from "../executable.ts";
 
@@ -66,11 +67,20 @@ function notRunnable(path: string): string {
   return `Claude Code isn't available here: president found ${path} but can't tell what it runs.`;
 }
 
-/** How to run the file at `path`, or undefined when it is a batch file of unknown form. */
+/**
+ * How to run the file at `path`, or undefined when it is a batch file of unknown form. A Node
+ * script (npm's `claude` on Linux and macOS is a link to `cli.js`) runs with the hub's own
+ * Node: its `#!/usr/bin/env node` would look for `node` on PATH, in the project folder too
+ * for an empty or relative entry.
+ */
 function commandFor(path: string, windows: boolean): ClaudeCommand | undefined {
   const ext = extname(path).toLowerCase();
   if (SCRIPT_EXTENSIONS.has(ext)) return { file: process.execPath, args: [path] };
-  if (windows && (ext === ".cmd" || ext === ".bat")) {
+  if (!windows) {
+    const real = realPath(path);
+    return isNodeScript(real) ? { file: process.execPath, args: [real] } : { file: path, args: [] };
+  }
+  if (ext === ".cmd" || ext === ".bat") {
     const target = shimTarget(path);
     if (target === undefined) return undefined;
     return SCRIPT_EXTENSIONS.has(extname(target).toLowerCase())
@@ -136,6 +146,32 @@ function packageBin(dir: string): string | undefined {
   if (typeof relative !== "string" || isAbsolute(relative)) return undefined;
   const target = join(dir, ...relative.split(/[\\/]/));
   return isTarget(target) ? target : undefined;
+}
+
+function realPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+/** A `.js`/`.cjs`/`.mjs` file, or one whose `#!` line runs `node` through env. */
+function isNodeScript(path: string): boolean {
+  if (SCRIPT_EXTENSIONS.has(extname(path).toLowerCase())) return true;
+  let head: string;
+  try {
+    const fd = openSync(path, "r");
+    try {
+      const buffer = Buffer.alloc(128);
+      head = buffer.toString("utf8", 0, readSync(fd, buffer, 0, buffer.length, 0));
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
+  return /^#!\s*\/usr\/bin\/env\s+(-S\s+)?node(\s|$)/.test(head);
 }
 
 function isTarget(path: string): boolean {

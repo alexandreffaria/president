@@ -3,21 +3,22 @@
  * A stand-in for the `claude` command in tests: the real one is never run. It answers like
  * `claude -p --output-format stream-json --verbose`, and:
  *
- * - logs each call ({ args, stdin, cwd }) to $FAKE_CLAUDE_DIR/calls.jsonl;
+ * - logs each call ({ args, stdin, cwd, path: its PATH }) to $FAKE_CLAUDE_DIR/calls.jsonl;
  * - like Claude Code, keeps a transcript per session in
  *   $CLAUDE_CONFIG_DIR/projects/<folder>/<session>.jsonl (empty: only its existence counts),
  *   and refuses `--resume` of a session without one ("No conversation found ...");
  * - answers with the next entry of $FAKE_CLAUDE_DIR/script.json when there is one
  *   ({ lines?: object[], text?: string, structured?: object, stderr?: string, exit?: number,
  *   delayMs?: number, pauseMs?: number, gate?: string, lateTranscript?: boolean,
- *   grandchild?: boolean }), otherwise
+ *   grandchild?: boolean, exitEarly?: boolean }), otherwise
  *   with "Echo: "
  *   and the last line of its standard input. `structured` is the `--json-schema` answer,
  *   given as the result's `structured_output` the way Claude Code reports structured output;
  *   `pauseMs` waits after the first stream line; `gate` waits, before answering, until a file of
  *   that name exists in $FAKE_CLAUDE_DIR (the test creates it); `lateTranscript` writes a new session's
  *   transcript only at the end of the run, as Claude Code may; `grandchild` starts a process
- *   that holds the run's output open for a minute, its pid in $FAKE_CLAUDE_DIR/grandchild.pid.
+ *   that holds the run's output open for a minute, its pid in $FAKE_CLAUDE_DIR/grandchild.pid, and with
+ *   `exitEarly` the stand-in then exits at once, leaving it running.
  */
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -37,7 +38,7 @@ for await (const chunk of process.stdin) stdin += chunk;
 
 appendFileSync(
   join(dir, "calls.jsonl"),
-  `${JSON.stringify({ args, stdin, cwd: process.cwd() })}\n`,
+  `${JSON.stringify({ args, stdin, cwd: process.cwd(), path: process.env.PATH })}\n`,
 );
 
 const folder = join(claudeDir, "projects", process.cwd().replace(/[^A-Za-z0-9]/g, "-"));
@@ -77,6 +78,8 @@ if (step.grandchild) {
     windowsHide: true,
   });
   writeFileSync(join(dir, "grandchild.pid"), String(child.pid));
+  // And ends at once, leaving it running.
+  if (step.exitEarly) process.exit(0);
 }
 if (step.delayMs) await new Promise((resolve) => setTimeout(resolve, step.delayMs));
 if (step.gate) {

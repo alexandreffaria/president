@@ -61,7 +61,8 @@ afterEach(async () => {
   await Promise.all(services.splice(0).map((chat) => chat.close()));
 });
 
-async function setup() {
+/** `claudeBin: undefined`: the service looks for `claude` on PATH, as the hub does. */
+async function setup(options: { claudeBin?: string | undefined } = { claudeBin: FAKE }) {
   const root = await tempDir();
   const registry = new Registry(join(root, "config"));
   const demo = await copyDemoProject();
@@ -75,7 +76,7 @@ async function setup() {
   let now = new Date("2026-11-12T10:00:00Z");
   const chat = new ChatService(registry, bus, {
     stateDir: join(root, "state"),
-    claudeBin: FAKE,
+    claudeBin: options.claudeBin,
     claudeDir,
     env: { ...process.env, FAKE_CLAUDE_DIR: fakeDir, CLAUDE_CONFIG_DIR: claudeDir },
     now: () => now,
@@ -221,6 +222,16 @@ describe("the session's command line (#0004)", () => {
   it("runs in the card's project folder", async () => {
     const t = await setup();
     await t.send("Hello");
+    expect((await t.calls())[0]?.cwd).toBe(t.demo);
+  });
+
+  it("finds `claude` on PATH as installed (npm's claude.cmd on Windows)", async () => {
+    // test/setup.ts put the stand-in on PATH: a link on Linux, an npm-style claude.cmd on
+    // Windows.
+    const t = await setup({ claudeBin: undefined });
+    const events = await t.send("Hello");
+    expect(events.at(-1)).toMatchObject({ type: "done" });
+    expect(events).toContainEqual(expect.objectContaining({ type: "text", text: "Echo: Hello" }));
     expect((await t.calls())[0]?.cwd).toBe(t.demo);
   });
 

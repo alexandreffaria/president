@@ -4,44 +4,34 @@
  * (src/server/chat/claude-command.ts). A run is stopped with everything it started, on Linux
  * by its process group and on Windows by taskkill /T.
  */
-import { existsSync, mkdirSync, symlinkSync } from "node:fs";
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CLAUDE_NOT_FOUND, resolveClaude, shimTarget } from "../src/server/chat/claude-command.ts";
 import { runClaude } from "../src/server/chat/runner.ts";
-import { nodeShim, programShim } from "./cmd-shim.ts";
+import { nodeShim, nodeShimV9, programShim } from "./cmd-shim.ts";
 import { tempDir, until } from "./helpers.ts";
 
 const windows = process.platform === "win32";
 /** The folder test/setup.ts put the stand-in in (`claude`, or claude.cmd on Windows). */
 const STAND_IN = join(process.env.XDG_STATE_HOME ?? "", "bin");
 const FAKE = join(import.meta.dirname, "fake-claude.mjs");
-/**
- * A folder with only `node` in it, for the stand-in's `#!/usr/bin/env node` on Linux (the
- * folder Node is in may have a real claude too).
- */
-const NODE_ONLY = join(process.env.XDG_STATE_HOME ?? "", "node-only");
-if (!windows) {
-  mkdirSync(NODE_ONLY, { recursive: true });
-  if (!existsSync(join(NODE_ONLY, "node"))) symlinkSync(process.execPath, join(NODE_ONLY, "node"));
-}
 
-/** An environment whose PATH is `dirs` (the key Windows has, often "Path"), and Node's. */
+/** An environment whose PATH is `dirs` (the key Windows has, often "Path"). */
 function withPath(dirs: string[], base: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   const key = windows
     ? (Object.keys(process.env).find((k) => k.toUpperCase() === "PATH") ?? "PATH")
     : "PATH";
   const env = { ...base };
   for (const k of Object.keys(env)) if (k.toUpperCase() === "PATH") delete env[k];
-  env[key] = [...dirs, ...(windows ? [] : [NODE_ONLY])].join(delimiter);
+  env[key] = dirs.join(delimiter);
   return env;
 }
 
 /**
- * A project folder with a `claude` of its own, at its root and in bin/, that leaves a mark
- * when it runs: on Windows a claude.exe (Node, which can't take the run's flags) and a
- * claude.cmd; on Linux a shell script.
+ * A project folder with a `claude` and a `node` of its own, at its root and in bin/, that
+ * leave a mark when they run: on Windows a claude.exe (Node, which can't take the run's
+ * flags) and a claude.cmd; on Linux shell scripts.
  */
 async function projectWithItsOwnClaude(): Promise<{
   project: string;
@@ -55,7 +45,9 @@ async function projectWithItsOwnClaude(): Promise<{
       await copyFile(process.execPath, join(dir, "claude.exe"));
       await writeFile(join(dir, "claude.cmd"), `@echo ran> "${mark}"\r\n`);
     } else {
-      await writeFile(join(dir, "claude"), `#!/bin/sh\necho ran > '${mark}'\n`, { mode: 0o755 });
+      for (const name of ["claude", "node"]) {
+        await writeFile(join(dir, name), `#!/bin/sh\necho ran > '${mark}'\n`, { mode: 0o755 });
+      }
     }
   }
   return {
@@ -133,6 +125,48 @@ describe("finding claude", () => {
     });
   });
 
+  it.skipIf(windows)(
+    "runs a claude linked to a Node script with president's own Node",
+    async () => {
+      // npm's install on Linux and macOS: `claude` is a link to the package's cli.js.
+      const npm = await tempDir();
+      const pkg = join(npm, "lib", "node_modules", "@anthropic-ai", "claude-code");
+      await mkdir(pkg, { recursive: true });
+      await writeFile(join(pkg, "package.json"), JSON.stringify({ type: "module" }));
+      await copyFile(FAKE, join(pkg, "cli.js"));
+      await mkdir(join(npm, "bin"));
+      await symlink(join(pkg, "cli.js"), join(npm, "bin", "claude"));
+      expect(resolveClaude("claude", withPath([join(npm, "bin")]))).toEqual({
+        file: process.execPath,
+        args: [await realpath(join(pkg, "cli.js"))],
+      });
+      // Its `#!/usr/bin/env node` would find the project's own node through "" or ".".
+      const { project, ran } = await projectWithItsOwnClaude();
+      const result = await run(project, withPath(["", ".", "bin", join(npm, "bin")], process.env));
+      expect(result).toMatchObject({ ok: true, text: "Echo: Hello" });
+      expect(await ran()).toBe(false);
+      // And a script without an extension, by its `#!` line.
+      const plain = await tempDir();
+      await writeFile(join(plain, "claude"), "#!/usr/bin/env node\n", { mode: 0o755 });
+      expect(resolveClaude("claude", withPath([plain]))).toEqual({
+        file: process.execPath,
+        args: [await realpath(join(plain, "claude"))],
+      });
+    },
+  );
+
+  it("gives the run a PATH of its absolute entries only", async () => {
+    const fake = await tempDir();
+    const env = withPath(["", ".", "bin", STAND_IN], { ...process.env, FAKE_CLAUDE_DIR: fake });
+    const result = await run(await tempDir(), env, { bin: FAKE });
+    expect(result).toMatchObject({ ok: true });
+    const [call] = (await readFile(join(fake, "calls.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { path?: string });
+    expect(call?.path).toBe(STAND_IN);
+  });
+
   it.runIf(windows)("prefers claude.exe to claude.cmd, wherever each is on PATH", async () => {
     const first = await tempDir();
     const second = await tempDir();
@@ -205,11 +239,14 @@ describe("reading npm's shim", () => {
     await writeFile(join(pkg, "cli.js"), "");
     // Even with a node.exe next to the shim, as npm's own folder has.
     await copyFile(process.execPath, join(npm, "node.exe"));
-    await writeFile(
-      join(npm, "claude.cmd"),
-      nodeShim("node_modules\\@anthropic-ai\\claude-code\\cli.js"),
-    );
-    expect(shimTarget(join(npm, "claude.cmd"))).toBe(join(pkg, "cli.js"));
+    // As npm 11 (cmd-shim 7) and npm 12 (cmd-shim 9) write it.
+    for (const shim of [nodeShim, nodeShimV9]) {
+      await writeFile(
+        join(npm, "claude.cmd"),
+        shim("node_modules\\@anthropic-ai\\claude-code\\cli.js"),
+      );
+      expect(shimTarget(join(npm, "claude.cmd"))).toBe(join(pkg, "cli.js"));
+    }
   });
 
   it("finds the program of today's package", async () => {
@@ -317,6 +354,27 @@ describe("stopping a run", () => {
     await until(() => !alive(grandchild), "the process the run started to stop", {
       timeoutMs: 15_000,
     });
+  });
+
+  it("stops a run that ended but left a process holding its output", {
+    timeout: 30_000,
+  }, async () => {
+    const fake = await tempDir();
+    await writeFile(
+      join(fake, "script.json"),
+      JSON.stringify([{ grandchild: true, exitEarly: true }]),
+    );
+    const env = { ...process.env, FAKE_CLAUDE_DIR: fake };
+    let grandchild: number | undefined;
+    try {
+      const result = await run(await tempDir(), env, { bin: FAKE, timeoutMs: 1500 });
+      expect(result).toMatchObject({ ok: false, error: expect.stringMatching(/took longer/) });
+      grandchild = Number(await readFile(join(fake, "grandchild.pid"), "utf8"));
+    } finally {
+      // On Windows the process is left running once the run's own has exited: no tree to find.
+      grandchild ??= Number(await readFile(join(fake, "grandchild.pid"), "utf8").catch(() => 0));
+      if (grandchild && alive(grandchild)) process.kill(grandchild);
+    }
   });
 
   it("stops a run when president shuts down, with what it started", {

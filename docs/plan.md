@@ -73,9 +73,9 @@ answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.m
 ### 3. Safety
 
 - [x] Spawn `claude` by absolute path through `findExecutable`, as git is, on every OS.
-  `src/server/chat/runner.ts:165` spawns it by bare name in the project folder, so a
-  `claude.exe` committed to a project (Windows), or an empty or relative PATH entry (Linux),
-  would run. (#44)
+  The chat runner spawned it by bare name in the project folder, so a `claude.exe`
+  committed to a project (Windows), or an empty or relative PATH entry (Linux), would have
+  run. (#44)
 - [x] foundations.md still says "Repo | Private on GitHub"; it's public now. (#43)
 
 ### 4. Refactors (no behaviour change; after section 6's chat trim, which cuts the same code)

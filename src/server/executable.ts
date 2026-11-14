@@ -64,6 +64,22 @@ export function pathDirs(env: NodeJS.ProcessEnv = process.env): string[] {
   return searchDirs(pathOf(env, windows) ?? (windows ? "" : "/usr/bin:/bin"), windows);
 }
 
+/**
+ * `env` with a PATH of its absolute entries only (pathDirs), for a child that runs in a
+ * project folder: whatever it looks for on PATH in turn (a `#!/usr/bin/env node`, say) can't
+ * come from that folder either.
+ */
+export function withAbsolutePath(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const windows = process.platform === "win32";
+  const keys = Object.keys(env).filter((k) =>
+    windows ? k.toUpperCase() === "PATH" : k === "PATH",
+  );
+  const result = { ...env };
+  for (const key of keys) delete result[key];
+  result[keys[0] ?? "PATH"] = pathDirs(env).join(delimiter);
+  return result;
+}
+
 function searchDirs(path: string, windows: boolean): string[] {
   const dirs: string[] = [];
   for (const raw of path.split(delimiter)) {

@@ -10,13 +10,21 @@ import { join } from "node:path";
 
 /**
  * Sends `signal` to `child`'s process group. On Windows, which has no process groups,
- * taskkill /T /F stops the child's process tree at once, whatever the signal; never once the
- * child has exited (`exited()`): /T can't find the tree of a process that is gone, and Windows
- * soon gives its PID to another process, which /T /F would kill with everything it started.
+ * taskkill /T /F stops the child's process tree at once, whatever the signal. That is only
+ * started while the child is still running (`exited()` is checked when taskkill starts; a
+ * small window remains in which the child exits and Windows gives its PID to another
+ * process): /T can't find the tree of a process that is gone, and /T /F would kill another
+ * process's tree. Once the child has exited, a process it started may still hold its output
+ * open, which would keep `close` from ever coming; its pipes are closed instead, so the run
+ * ends (that process is left running).
  */
 export function killTree(child: ChildProcess, signal: NodeJS.Signals, exited: () => boolean): void {
   if (process.platform === "win32") {
-    if (child.pid === undefined || exited()) return;
+    if (exited()) {
+      closePipes(child);
+      return;
+    }
+    if (child.pid === undefined) return;
     // By its full path: a taskkill.exe in the hub's cwd (a project folder) would come first.
     const taskkill = spawn(
       join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe"),
@@ -39,4 +47,10 @@ export function killTree(child: ChildProcess, signal: NodeJS.Signals, exited: ()
     // Already gone: stop the child itself.
     child.kill(signal);
   }
+}
+
+function closePipes(child: ChildProcess): void {
+  child.stdin?.destroy();
+  child.stdout?.destroy();
+  child.stderr?.destroy();
 }

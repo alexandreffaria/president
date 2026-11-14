@@ -39,8 +39,9 @@ jobs:
         # are not checked here). A broken card fails CI.
         run: node bin/preside.js validate .
       - name: Test
-        # The chat tests' stand-in for Claude Code (test/fake-claude.mjs) is on PATH as
-        # `claude`, and on Windows as an npm-style claude.cmd (test/setup.ts).
+        # The chat tests run a stand-in for Claude Code (test/fake-claude.mjs), mostly by its
+        # path. test/setup.ts also puts it on PATH as `claude` (on Windows as an npm-style
+        # claude.cmd), which test/claude-command.test.ts and one chat test find it by.
         run: npm test
         env:
           # The card writer's property test: 1000 generated cards here, 100 locally.
