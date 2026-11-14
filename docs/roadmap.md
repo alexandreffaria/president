@@ -33,26 +33,11 @@ stay. What changes:
 Do this before splitting `CardView.tsx` and `chat/service.ts` (plan.md, section 4), since it
 removes code both hold.
 
-## 2. The chat on Windows (202611143v3q, `finish-windows`)
-
-[Card](../decisions/202611143v3q-windows-support.md). Today the hub, Sync and the tray icon work
-on Windows, but the chat finds only `claude.exe`.
-
-- Spawn `claude` by absolute path through `findExecutable`, as git is, on every OS (also a
-  safety fix: plan.md, section 3).
-- Find npm's `claude.cmd` as well as `claude.exe`, and run it correctly (a `.cmd` needs
-  `cmd.exe`; quote the arguments safely).
-- Stopping a run must stop the whole process tree on Windows.
-- Run the chat tests on Windows CI: make `test/fake-claude.mjs` work as a command there, drop
-  the tests' exclusion in `.github/workflows/ci.yml` and fix what fails.
-- Drop the README line that says the chat needs `claude.exe` on Windows.
-
-## 3. Cleanup (no card needed)
+## 2. Cleanup (no card needed)
 
 The detail and order are in [plan.md](plan.md):
 
-- Agent context: a short `CLAUDE.md`, a shorter decision-cards skill, the stale CI comments.
-- Safety: the absolute-path spawn above.
+- Agent context: a short `CLAUDE.md`, a shorter decision-cards skill.
 - Refactors with no behaviour change: split `sync.ts`, `CardView.tsx`, `chat/service.ts`,
   `createApp` and the agent commands.
 - Small extras: fewer highlight.js languages, exact toolchain versions.

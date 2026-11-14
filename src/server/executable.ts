@@ -1,5 +1,5 @@
 /**
- * Finding a program (git) on PATH before running it, so that it is never one in the folder
+ * Finding a program (git, claude) on PATH before running it, so that it is never one in the folder
  * it runs in.
  *
  * On Windows, `spawn("git", { cwd })` looks in the child's cwd before PATH (libuv's
@@ -39,12 +39,7 @@ export function findExecutable(
     found.delete(key);
   }
   let notExecutable: string | undefined;
-  for (const raw of path.split(delimiter)) {
-    // Windows allows a quoted entry ("C:\Program Files\Git\cmd").
-    const dir = windows ? raw.replace(/^"(.*)"$/, "$1") : raw;
-    // Absolute only. On Windows that is a drive's root or a UNC share: "\bin" is on the cwd's
-    // drive.
-    if (!(windows ? /^([a-zA-Z]:[\\/]|\\\\)/.test(dir) : isAbsolute(dir))) continue;
+  for (const dir of searchDirs(path, windows)) {
     const candidates = windows
       ? WINDOWS_EXTENSIONS.map((ext) => join(dir, name + ext))
       : [join(dir, name)];
@@ -58,6 +53,43 @@ export function findExecutable(
     }
   }
   return notExecutable;
+}
+
+/**
+ * The PATH folders of `env` a program may come from, in order: the absolute entries only,
+ * never the cwd, an empty entry or a relative one.
+ */
+export function pathDirs(env: NodeJS.ProcessEnv = process.env): string[] {
+  const windows = process.platform === "win32";
+  return searchDirs(pathOf(env, windows) ?? (windows ? "" : "/usr/bin:/bin"), windows);
+}
+
+/**
+ * `env` with a PATH of its absolute entries only (pathDirs), for a child that runs in a
+ * project folder: whatever it looks for on PATH in turn (a `#!/usr/bin/env node`, say) can't
+ * come from that folder either.
+ */
+export function withAbsolutePath(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const windows = process.platform === "win32";
+  const keys = Object.keys(env).filter((k) =>
+    windows ? k.toUpperCase() === "PATH" : k === "PATH",
+  );
+  const result = { ...env };
+  for (const key of keys) delete result[key];
+  result[keys[0] ?? "PATH"] = pathDirs(env).join(delimiter);
+  return result;
+}
+
+function searchDirs(path: string, windows: boolean): string[] {
+  const dirs: string[] = [];
+  for (const raw of path.split(delimiter)) {
+    // Windows allows a quoted entry ("C:\Program Files\Git\cmd").
+    const dir = windows ? raw.replace(/^"(.*)"$/, "$1") : raw;
+    // Absolute only. On Windows that is a drive's root or a UNC share: "\bin" is on the cwd's
+    // drive.
+    if (windows ? /^([a-zA-Z]:[\\/]|\\\\)/.test(dir) : isAbsolute(dir)) dirs.push(dir);
+  }
+  return dirs;
 }
 
 /** PATH in `env`; on Windows the name ignores case (it is often "Path"). */

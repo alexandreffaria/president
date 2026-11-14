@@ -19,7 +19,10 @@ import { spawn } from "node:child_process";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
+import { withAbsolutePath } from "../executable.ts";
 import { isNotFound } from "../fs-utils.ts";
+import { killTree } from "../process-tree.ts";
+import { CLAUDE_NOT_FOUND, resolveClaude } from "./claude-command.ts";
 
 /** The tools that exist in the session (#0004): reading and research, nothing else. */
 export const SESSION_TOOLS = "Read,Grep,Glob,WebSearch,WebFetch";
@@ -36,6 +39,8 @@ export const SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 /** A run still going after this long is stopped. */
 export const RUN_TIMEOUT_MS = 15 * 60 * 1000;
 const KILL_GRACE_MS = 5000;
+/** How long after the run exits its output may stay open (a process it left holding it). */
+const EXIT_GRACE_MS = 2000;
 /** At most this much of a run's output is kept (a reply is far smaller). */
 const MAX_OUTPUT = 4 * 1024 * 1024;
 
@@ -48,7 +53,10 @@ export type SessionMode =
   | { oneOff: true };
 
 export interface RunRequest {
-  /** The `claude` executable (a path or a command on PATH). */
+  /**
+   * The `claude` executable: a name, looked for in the absolute PATH folders of `env`
+   * (claude-command.ts), or a path.
+   */
   bin: string;
   /** The project folder; the session's file tools are confined to it (`--restricted`). */
   cwd: string;
@@ -152,6 +160,17 @@ export function runClaude(request: RunRequest, handlers: RunHandlers = {}): Prom
       error: SHUTTING_DOWN,
     });
   }
+  const env = request.env ?? process.env;
+  const command = resolveClaude(request.bin, env);
+  if ("error" in command) {
+    return Promise.resolve({
+      ok: false,
+      text: "",
+      started: false,
+      sessionNotFound: false,
+      error: command.error,
+    });
+  }
   return new Promise((resolve) => {
     const texts: string[] = [];
     let started = false;
@@ -162,23 +181,32 @@ export function runClaude(request: RunRequest, handlers: RunHandlers = {}): Prom
     let settled = false;
     let stopped: string | undefined;
 
-    const child = spawn(request.bin, args, {
+    const child = spawn(command.file, [...command.args, ...args], {
       cwd: request.cwd,
-      env: request.env ?? process.env,
+      // PATH without the entries that mean the project folder, for what the run looks up itself.
+      env: withAbsolutePath(env),
       stdio: ["pipe", "pipe", "pipe"],
-      // Its own process group, so the run and anything it started stop together.
+      // Its own process group, so the run and anything it started stop together
+      // (process-tree.ts; on Windows taskkill /T, which needs no group).
       detached: true,
       shell: false,
       windowsHide: true,
     });
 
-    const killGroup = (signal: NodeJS.Signals) => {
-      try {
-        if (child.pid !== undefined) process.kill(-child.pid, signal);
-      } catch {
-        child.kill(signal);
-      }
-    };
+    // Whether the run itself has exited (`close` comes later, once its pipes are closed too).
+    let exited = false;
+    let exitGrace: NodeJS.Timeout | undefined;
+    child.on("exit", () => {
+      exited = true;
+      // A process the run left behind may hold its output open, which would keep `close`, and
+      // the answer, waiting until the run's timeout. Once the run has had time to be read to
+      // the end, what is left of it is stopped (its process group; on Windows nothing can be
+      // found) and its pipes are closed (killTree), and it ends as it ended: `stopped` stays
+      // unset, so its answer counts.
+      exitGrace = setTimeout(() => killGroup("SIGTERM"), EXIT_GRACE_MS);
+      exitGrace.unref();
+    });
+    const killGroup = (signal: NodeJS.Signals) => killTree(child, signal, () => exited);
     let killTimer: NodeJS.Timeout | undefined;
     const stop = (why: string) => {
       if (stopped || settled) return;
@@ -201,6 +229,7 @@ export function runClaude(request: RunRequest, handlers: RunHandlers = {}): Prom
       settled = true;
       clearTimeout(timer);
       clearTimeout(killTimer);
+      clearTimeout(exitGrace);
       request.signal?.removeEventListener("abort", onAbort);
       resolve(result);
     };
@@ -264,7 +293,7 @@ export function runClaude(request: RunRequest, handlers: RunHandlers = {}): Prom
         sessionNotFound: false,
         error:
           error.code === "ENOENT"
-            ? "Claude Code isn't installed here: president couldn't find the `claude` command."
+            ? CLAUDE_NOT_FOUND
             : `Couldn't start Claude Code: ${error.message}`,
       });
     });

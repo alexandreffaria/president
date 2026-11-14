@@ -5,7 +5,7 @@
  * `claude` is never run.
  */
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve as resolvePath } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   CardActionResponse,
@@ -61,7 +61,8 @@ afterEach(async () => {
   await Promise.all(services.splice(0).map((chat) => chat.close()));
 });
 
-async function setup() {
+/** `claudeBin: undefined`: the service looks for `claude` on PATH, as the hub does. */
+async function setup(options: { claudeBin?: string | undefined } = { claudeBin: FAKE }) {
   const root = await tempDir();
   const registry = new Registry(join(root, "config"));
   const demo = await copyDemoProject();
@@ -75,7 +76,7 @@ async function setup() {
   let now = new Date("2026-11-12T10:00:00Z");
   const chat = new ChatService(registry, bus, {
     stateDir: join(root, "state"),
-    claudeBin: FAKE,
+    claudeBin: options.claudeBin,
     claudeDir,
     env: { ...process.env, FAKE_CLAUDE_DIR: fakeDir, CLAUDE_CONFIG_DIR: claudeDir },
     now: () => now,
@@ -224,9 +225,23 @@ describe("the session's command line (#0004)", () => {
     expect((await t.calls())[0]?.cwd).toBe(t.demo);
   });
 
+  it("finds `claude` on PATH as installed (npm's claude.cmd on Windows)", async () => {
+    // test/setup.ts put the stand-in on PATH: a link on Linux, an npm-style claude.cmd on
+    // Windows.
+    const t = await setup({ claudeBin: undefined });
+    const events = await t.send("Hello");
+    expect(events.at(-1)).toMatchObject({ type: "done" });
+    expect(events).toContainEqual(expect.objectContaining({ type: "text", text: "Echo: Hello" }));
+    expect((await t.calls())[0]?.cwd).toBe(t.demo);
+  });
+
   it("describes tool calls in a few words", () => {
-    expect(describeTool("Read", { file_path: "/p/src/http.ts" }, "/p")).toBe("Reading src/http.ts");
-    expect(describeTool("WebSearch", { query: "dexie safari" }, "/p")).toBe(
+    // Paths as this OS writes them (src\http.ts on Windows).
+    const project = resolvePath("/p");
+    expect(describeTool("Read", { file_path: join(project, "src", "http.ts") }, project)).toBe(
+      `Reading ${join("src", "http.ts")}`,
+    );
+    expect(describeTool("WebSearch", { query: "dexie safari" }, project)).toBe(
       'Searching the web for "dexie safari"',
     );
   });
@@ -1291,8 +1306,11 @@ describe("keeping the hub's copy (202611114wet)", () => {
 
 describe("the state folder", () => {
   it("is $XDG_STATE_HOME/president, or ~/.local/state/president", () => {
-    expect(defaultStateDir({ XDG_STATE_HOME: "/x/state" })).toBe("/x/state/president");
-    expect(defaultStateDir({ XDG_STATE_HOME: "relative" })).toMatch(/\.local\/state\/president$/);
+    const state = resolvePath("/x/state");
+    expect(defaultStateDir({ XDG_STATE_HOME: state })).toBe(join(state, "president"));
+    expect(defaultStateDir({ XDG_STATE_HOME: "relative" })).toMatch(
+      /\.local[\\/]state[\\/]president$/,
+    );
   });
 
   it("starts over from a sessions file it can't read, and keeps it aside", async () => {

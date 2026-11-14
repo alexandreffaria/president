@@ -3,20 +3,26 @@
  * A stand-in for the `claude` command in tests: the real one is never run. It answers like
  * `claude -p --output-format stream-json --verbose`, and:
  *
- * - logs each call ({ args, stdin, cwd }) to $FAKE_CLAUDE_DIR/calls.jsonl;
+ * - logs each call ({ args, stdin, cwd, path: its PATH }) to $FAKE_CLAUDE_DIR/calls.jsonl;
  * - like Claude Code, keeps a transcript per session in
  *   $CLAUDE_CONFIG_DIR/projects/<folder>/<session>.jsonl (empty: only its existence counts),
  *   and refuses `--resume` of a session without one ("No conversation found ...");
  * - answers with the next entry of $FAKE_CLAUDE_DIR/script.json when there is one
  *   ({ lines?: object[], text?: string, structured?: object, stderr?: string, exit?: number,
- *   delayMs?: number, pauseMs?: number, gate?: string, lateTranscript?: boolean }), otherwise
+ *   delayMs?: number, pauseMs?: number, gate?: string, lateTranscript?: boolean,
+ *   grandchild?: boolean, exitEarly?: boolean, leaveBehind?: true | "attached" }),
+ *   otherwise
  *   with "Echo: "
  *   and the last line of its standard input. `structured` is the `--json-schema` answer,
  *   given as the result's `structured_output` the way Claude Code reports structured output;
  *   `pauseMs` waits after the first stream line; `gate` waits, before answering, until a file of
  *   that name exists in $FAKE_CLAUDE_DIR (the test creates it); `lateTranscript` writes a new session's
- *   transcript only at the end of the run, as Claude Code may.
+ *   transcript only at the end of the run, as Claude Code may; `grandchild` starts a process
+ *   that holds the run's output open for a minute, its pid in $FAKE_CLAUDE_DIR/grandchild.pid, and with
+ *   `exitEarly` the stand-in then exits at once, leaving it running; `leaveBehind` starts one,
+ *   detached (not with "attached"), after answering, and leaves it running.
  */
+import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -34,7 +40,7 @@ for await (const chunk of process.stdin) stdin += chunk;
 
 appendFileSync(
   join(dir, "calls.jsonl"),
-  `${JSON.stringify({ args, stdin, cwd: process.cwd() })}\n`,
+  `${JSON.stringify({ args, stdin, cwd: process.cwd(), path: process.env.PATH })}\n`,
 );
 
 const folder = join(claudeDir, "projects", process.cwd().replace(/[^A-Za-z0-9]/g, "-"));
@@ -66,6 +72,24 @@ if (existsSync(scriptFile)) {
 if (!step.lateTranscript) writeTranscript();
 
 const out = (line) => process.stdout.write(`${JSON.stringify(line)}\n`);
+/**
+ * A process of its own that keeps the run's output open for a minute, the way a tool Claude
+ * Code started would. Detached, it is out of reach of the run's stop: in a session of its own
+ * on Linux and, on Windows, out of the job that ends Node's children when Node exits.
+ */
+const startGrandchild = (detached) => {
+  const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], {
+    stdio: ["ignore", "inherit", "inherit"],
+    detached,
+    windowsHide: true,
+  });
+  writeFileSync(join(dir, "grandchild.pid"), String(child.pid));
+};
+if (step.grandchild) {
+  startGrandchild(Boolean(step.exitEarly));
+  // And the stand-in ends at once, leaving it running.
+  if (step.exitEarly) process.exit(0);
+}
 if (step.delayMs) await new Promise((resolve) => setTimeout(resolve, step.delayMs));
 if (step.gate) {
   while (!existsSync(join(dir, step.gate))) await new Promise((resolve) => setTimeout(resolve, 10));
@@ -98,4 +122,5 @@ for (const [i, line] of lines.entries()) {
   if (i === 0 && step.pauseMs) await new Promise((resolve) => setTimeout(resolve, step.pauseMs));
 }
 if (step.lateTranscript) writeTranscript();
+if (step.leaveBehind) startGrandchild(step.leaveBehind !== "attached");
 process.exit(step.exit ?? 0);
