@@ -10,7 +10,10 @@ queue. You read, pick an option (or reject them all and say why), and move to th
 Agents then apply your decisions to the project's docs and code.
 
 Background: [docs/foundations.md](docs/foundations.md). Card format: [docs/card-format.md](docs/card-format.md).
-Planned work: [docs/roadmap.md](docs/roadmap.md).
+Open work: [docs/roadmap.md](docs/roadmap.md) and [docs/plan.md](docs/plan.md).
+
+president is a personal tool: it runs on its owner's Linux machine and Windows workstation,
+and isn't released on npm.
 
 ## Setup
 
@@ -37,21 +40,10 @@ ln -s "$PWD/bin/preside.js" ~/.local/bin/preside   # make sure ~/.local/bin is o
 preside help
 ```
 
-(`npm link` works too if your npm prefix is writable.)
+The old `president` command no longer works; if a `~/.local/bin/president` link is left, remove it.
 
-The command used to be called `president`, and that name no longer works. If you installed it
-under the old name, run the `ln -s` line above from this repo and remove the old link:
-`rm ~/.local/bin/president`. If you used `npm link`, run it again (or delete `president` from
-`$(npm prefix -g)/bin`).
-
-**Use `preside`, not `npx preside`, outside this repo.** When a command isn't installed
-locally, `npx` looks for an npm package with that name. The `preside` package on npm is a
-placeholder of ours with no command, so `npx preside` only fails with
-`could not determine executable to run`; it can't run someone else's code, but it doesn't run
-president either. Never type `npx president`: an unrelated package called `president` exists
-on npm, and if a future release of it adds a command, `npx president` would download and run
-it, without asking when there is no terminal (as for an agent). Inside this repo `npx preside`
-runs the local copy.
+**Use `preside`, never `npx preside` or `npx president`, outside this repo.** `npx` would look
+on npm, where `preside` is an empty placeholder and `president` is someone else's package.
 
 ### Install the agent skill
 
@@ -87,9 +79,9 @@ symlinks also needs Developer Mode or admin rights).
   test -e .claude/skills/decision-cards/SKILL.md && echo ok || echo dangling
   ```
 
-- Per project, committed: use a relative target, counted from `.claude/skills/`, the same way this
-  repo does. Only commit it if everyone working on that project has president checked out at the
-  same place relative to it. For president cloned next to the project:
+- Per project, committed: a relative target, counted from `.claude/skills/`, as this repo does.
+  It works on both machines only if president sits at the same place relative to the project
+  on each. For president cloned next to the project:
 
   ```sh
   # from the other project's root, with president at ../president
@@ -113,7 +105,11 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
 
 ### On Windows: keep the hub running, with an icon
 
-On Windows, president can run in the background from the notification area (the tray, at the
+On the Windows workstation the hub, Sync and the icon work. The chat is untested on Windows:
+it can start only Claude Code's `claude.exe` (the native installer), never npm's
+`claude.cmd`, until [roadmap](docs/roadmap.md) item 2 lands.
+
+president can run in the background from the notification area (the tray, at the
 right of the taskbar), start with Windows, and start the hub again if it crashes. Its icon shows
 how many cards are in your Queue (`9+` above nine; the tooltip says "president: 3 cards
 waiting" or "nothing waiting"), and turns grey while the hub isn't running. Right-click it for

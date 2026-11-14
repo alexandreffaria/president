@@ -1,7 +1,7 @@
 /**
- * Sync (card #0001, docs/roadmap.md "Sync"): commits the human's card changes in a project,
- * pulls the other machines' changes and pushes, only when the human presses Sync. When the
- * hub starts it only fetches.
+ * Sync (card #0001, docs/archive/roadmap-2026-11.md "Sync"): commits the human's card
+ * changes in a project, pulls the other machines' changes and pushes, only when the human
+ * presses Sync. When the hub starts it only fetches.
  *
  * Per project, exactly the card's sequence:
  *
