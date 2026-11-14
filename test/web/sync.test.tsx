@@ -115,8 +115,9 @@ describe("the Sync control", () => {
   it("shows how many answers aren't synced and what waits on the remote", async () => {
     projects = [project({ unsynced: 2, remoteChanges: 1 }), project({ project: "b", unsynced: 1 })];
     await render();
-    await until(() => text().includes("3 answers not synced"), "the count");
-    expect(text()).toContain("1 card change on the remote, press Sync");
+    // The wording is pinned once, in "uses the card's wording for the counts".
+    await until(() => text().includes(unsyncedText(3)), "the count");
+    expect(text()).toContain(remoteText(1));
     expect(syncButton().getAttribute("aria-describedby")).toBe("sync-summary");
     expect(syncButton().getAttribute("aria-keyshortcuts")).toBe("s");
 
@@ -254,8 +255,8 @@ describe("the Sync control", () => {
       project({ project: "plain", unavailable: "it isn't …", skippedUnsynced: 0 }),
     ];
     await render();
-    await until(() => text().includes("web: 2 answers not synced (Sync skips it)"), "the line");
-    expect(host.querySelector("#sync-summary")?.textContent).toBe("1 answer not synced");
+    await until(() => text().includes(skippedText("web", 2)), "the line");
+    expect(host.querySelector("#sync-summary")?.textContent).toBe(unsyncedText(1));
     expect(syncButton().querySelector(".sync-count")?.textContent).toBe("1");
     expect(host.querySelectorAll(".sync-skipped li")).toHaveLength(1);
 
@@ -264,7 +265,7 @@ describe("the Sync control", () => {
     await syncEvent();
     await until(() => host.querySelector("#sync-summary") === null, "the summary to go");
     expect(syncButton().querySelector(".sync-count")).toBeNull();
-    expect(text()).toContain("web: 2 answers not synced (Sync skips it)");
+    expect(text()).toContain(skippedText("web", 2));
 
     projects = [project(), skipped(0)];
     await syncEvent();
@@ -299,7 +300,7 @@ describe("the Sync control", () => {
     const squeezed = () => host.querySelector(".sync")?.hasAttribute("data-squeezed");
     projects = [project({ unsynced: 2 })];
     await render();
-    await until(() => text().includes("2 answers not synced"), "the count");
+    await until(() => text().includes(unsyncedText(2)), "the count");
     expect(squeezed()).toBe(false);
     // The bar, the end group and the nav: each can change size alone.
     for (const selector of [".topbar", ".topbar-end", ".nav"]) {

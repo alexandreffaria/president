@@ -778,8 +778,9 @@ describe("errors", () => {
   it("says on the Projects page when a project's folder is gone (R5-21)", async () => {
     await io(() => rm(demo, { recursive: true }));
     await open("/projects", () => text().includes("is missing"), "the missing folder");
-    expect(host.querySelector(".project .notice-warn")?.textContent).toBe(
-      `the project folder ${demo} is missing. If it moved, remove this project and add it again from its new place.`,
+    // test/api.test.ts pins the sentence; the page shows the hub's error for the project.
+    expect(host.querySelector(".project .notice-warn")?.textContent).toContain(
+      `the project folder ${demo} is missing.`,
     );
   });
 });

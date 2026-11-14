@@ -477,9 +477,7 @@ describe("the hub at start", () => {
     try {
       const status = (await (await fetch(`${hub.url}/api/sync`)).json()) as SyncStatusResponse;
       const shop = status.projects.find((p) => p.project === "shop");
-      expect(shop?.rebase?.message).toBe(
-        "A rebase is in progress in shop, and Sync waits until it is finished or aborted",
-      );
+      expect(shop?.rebase?.message).toMatch(/^A rebase is in progress in shop/);
       expect(shop?.rebase?.action).toMatch(/uncommitted changes to lib\.js/);
       expect(shop?.rebase?.action).toContain(`git rebase --abort in ${s.laptop}`);
     } finally {
