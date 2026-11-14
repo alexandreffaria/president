@@ -429,13 +429,6 @@ export async function undoLastAction(
   project: Project,
   id: string,
   revision: string,
-  /**
-   * Called with the action about to be undone; throwing refuses the undo. A "neither" whose
-   * new-options run already started is refused this way (20261112dfik `refuse-undo`): starting
-   * the run writes nothing to the card, so the journal alone can't tell. `card` is the card
-   * as the action left it.
-   */
-  check?: (action: CardActionType, card: LoadedCard) => void,
 ): Promise<LoadedCard> {
   return writeLock.run(`${project.path}\0${id}`, async () => {
     const card = await lockedCard(project, id);
@@ -450,7 +443,6 @@ export async function undoLastAction(
         { status: 409, code: "undo_unavailable" },
       );
     }
-    check?.(ours.action, card);
     const text = ours.action === "resolve" ? withUndoEntry(card, ours.before) : ours.before;
     const written = await writeChecked(project, card, text);
     undoJournal.delete(card.path);
@@ -535,9 +527,10 @@ function withUndoEntry(decided: LoadedCard, before: string): string {
  */
 function changedSince(action: CardActionType | undefined): string {
   switch (action) {
+    case "neither":
+      return "the card changed since (new options may already be on it), so your note can't be taken back";
     case "note":
     case "chat":
-    case "neither":
       return "the card changed since (an agent may already have read your note), so it can't be taken back; add another note to correct it";
     case "defer":
       return "the card changed since you deferred it, so it can't be undone; reopen it if needed";

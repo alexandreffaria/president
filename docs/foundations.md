@@ -61,8 +61,8 @@ first five were settled before president had cards. Work not built yet is in
 | 2026-11-12 | The change notice says when Sync brought the newer card. | [20261112xp4s](../decisions/20261112xp4s-notice-after-sync.md) |
 | 2026-11-12 | Unsynced answers in a project Sync skips get their own line. | [20261112l9vh](../decisions/20261112l9vh-unsynced-count-skipped-projects.md) |
 | 2026-11-12 | The new pick after "Neither" is hidden again, in the run's message and the chat. | [2026111272fu](../decisions/2026111272fu-new-pick-and-neutral-chat.md) |
-| 2026-11-12 | The "Neither" message is sent only once Undo is gone. | [20261112160s](../decisions/20261112160s-undo-new-options-turn.md) |
-| 2026-11-12 | A second tab can start the waiting run, and Undo is then refused. | [20261112dfik](../decisions/20261112dfik-second-tab-during-wait.md) |
+| 2026-11-12 | ~~The "Neither" message is sent only once Undo is gone.~~ Undone by 59oa. | [20261112160s](../decisions/20261112160s-undo-new-options-turn.md) |
+| 2026-11-12 | ~~A second tab can start the waiting run, and Undo is then refused.~~ Undone by 59oa. | [20261112dfik](../decisions/20261112dfik-second-tab-during-wait.md) |
 | 2026-11-12 | No always-on server: a hub on each machine; Sync moves the cards between them. | [2026111276n0](../decisions/2026111276n0-hub-on-your-server.md) |
 | 2026-11-12 | The Windows tray icon shows how many cards are waiting. | [20261112vzn8](../decisions/20261112vzn8-tray-icon-on-windows.md) |
 | 2026-11-12 | A withdrawn card can't be deferred. | [20261112tiuq](../decisions/20261112tiuq-defer-withdrawn-card.md) |

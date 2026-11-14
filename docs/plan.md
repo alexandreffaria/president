@@ -78,15 +78,15 @@ answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.m
   run. (#44)
 - [x] foundations.md still says "Repo | Private on GitHub"; it's public now. (#43)
 
-### 4. Refactors (no behaviour change; after section 6's chat trim, which cuts the same code)
+### 4. Refactors (no behaviour change; section 6's chat trim, which cut the same code, is done)
 
 - [ ] Split `src/server/sync.ts` (1.3k lines): `Repo` to `sync/repo.ts`, and `runSequence`
   (360 lines, 19 branches) into named checks, with `SyncService` in its own file.
-- [ ] Split `src/web/views/CardView.tsx` (1.7k lines), **after 2026111459oa** (it holds the
-  waiting and "Start now" UI). Make hooks for loading, actions and
+- [ ] Split `src/web/views/CardView.tsx` (1.6k lines; unblocked by the chat trim). Make hooks
+  for loading, actions and
   focus return, and move `ActionBar`, `DeferMenu`, `StatusNotice` and `BrokenCard` into
   `components/`.
-- [ ] Split `src/server/chat/service.ts` (1.3k lines), **after 2026111459oa**: the run
+- [ ] Split `src/server/chat/service.ts` (1.3k lines; unblocked by the chat trim): the run
   bookkeeping into one class, and new options and summaries into their own files.
 - [ ] Split `createApp` in `src/server/app.ts` into route files.
 - [ ] Move the agent-facing commands out of `src/cli/commands.ts`, and split `pending()` into
@@ -104,9 +104,9 @@ answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.m
   `docs/roadmap.md` to `docs/archive/roadmap-2026-11.md` with a short new roadmap. (#43)
 - [x] Record 20261114509p and 20261114zuct in foundations.md's "Engineering process". (#43)
 - [x] README: drop the install notes meant for other people (2026111411fs). (#43)
-- [ ] Chat trim (2026111459oa): new options start at once and Undo cancels the run; the
-  waiting and other-tab "Start now" code goes (roadmap item 1). Do it before section 4's
-  `CardView.tsx` and `chat/service.ts` splits.
+- [x] Chat trim (2026111459oa): new options start at once and Undo cancels the run; the
+  waiting and other-tab "Start now" code is gone. Section 4's `CardView.tsx` and
+  `chat/service.ts` splits are now unblocked. (#45)
 - [x] Windows chat (202611143v3q): on top of section 3's absolute-path spawn, find npm's
   `claude.cmd`, and run the chat tests on Windows CI. (#44)
 - Freeze (202611147ch5): until 2026-11-28 nothing beyond this plan gets built, unless

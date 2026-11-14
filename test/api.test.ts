@@ -10,7 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   CardDetailDto,
   CardListResponse,
@@ -22,9 +22,19 @@ import { agentToken, unseenFeedback } from "../src/core/pending.ts";
 import { buildQueue } from "../src/core/queue.ts";
 import { createApp } from "../src/server/app.ts";
 import { cachedCardPaths } from "../src/server/cards.ts";
+import { ChatService } from "../src/server/chat/service.ts";
 import { Registry } from "../src/server/registry.ts";
 import { EventBus } from "../src/server/watcher.ts";
 import { cardText, copyDemoProject, diffLines, tempDir } from "./helpers.ts";
+
+/**
+ * Stopped after each test, before its folders go: Ask for new options starts a run
+ * (2026111459oa). Registered after helpers.ts's cleanup, so it runs first.
+ */
+const chats: ChatService[] = [];
+afterEach(async () => {
+  await Promise.all(chats.splice(0).map((chat) => chat.close()));
+});
 
 async function setup() {
   const registry = new Registry(join(await tempDir(), "config"));
@@ -33,7 +43,9 @@ async function setup() {
   const bus = new EventBus();
   const events: HubEvent[] = [];
   bus.subscribe((e) => events.push(e));
-  const app = createApp({ registry, bus, staticDir: undefined });
+  const chat = new ChatService(registry, bus);
+  chats.push(chat);
+  const app = createApp({ registry, bus, chat, staticDir: undefined });
   const request = async (path: string, init: RequestInit = {}): Promise<Response> =>
     app.request(`http://127.0.0.1:4747${path}`, init);
   const post = (path: string, body: unknown) =>

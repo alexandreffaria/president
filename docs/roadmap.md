@@ -16,24 +16,7 @@ when real use on CellSignalMapper or geode asks for one. president is for its ow
 release, and Windows means the owner's workstation
 ([2026111411fs](../decisions/2026111411fs-who-is-president-for.md)).
 
-## 1. Simpler "Neither" (2026111459oa, `trim`)
-
-[Card](../decisions/2026111459oa-chat-on-cards-scope.md). Asking, Teach me, More info and summaries
-stay. What changes:
-
-- **Ask for new options** starts the run at once, with no wait for the Undo notice to close.
-  The "Sending when Undo closes" state goes.
-- **Undo** while the run is going cancels it (stops the `claude` process) and writes nothing to
-  the card. Your message stays in the agent's session; that is accepted (it may cost up to $1).
-- **Other tabs** get no "hasn't started … Start now"; there is nothing waiting to start.
-- This undoes [20261112160s](../decisions/20261112160s-undo-new-options-turn.md) and
-  [20261112dfik](../decisions/20261112dfik-second-tab-during-wait.md): remove their code, tests
-  and README text, and mark both rows in foundations.md as undone by 59oa.
-
-Do this before splitting `CardView.tsx` and `chat/service.ts` (plan.md, section 4), since it
-removes code both hold.
-
-## 2. Cleanup (no card needed)
+## Cleanup (no card needed)
 
 The detail and order are in [plan.md](plan.md):
 
