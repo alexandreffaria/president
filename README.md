@@ -105,9 +105,9 @@ Because these are symlinks, pulling this repo updates the skill everywhere it's 
 
 ### On Windows: keep the hub running, with an icon
 
-On the Windows workstation the hub, Sync and the icon work. The chat finds only Claude Code's
-`claude.exe` (the native installer), not npm's `claude.cmd`, until
-[roadmap](docs/roadmap.md) item 2 lands.
+On the Windows workstation the hub, Sync and the icon work. The chat is untested on Windows:
+it can start only Claude Code's `claude.exe` (the native installer), never npm's
+`claude.cmd`, until [roadmap](docs/roadmap.md) item 2 lands.
 
 president can run in the background from the notification area (the tray, at the
 right of the taskbar), start with Windows, and start the hub again if it crashes. Its icon shows

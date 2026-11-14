@@ -1,5 +1,7 @@
 # president — roadmap
 
+Archived 2026-11-14 (20261114r0w8): all of this is built. Open work is in [../roadmap.md](../roadmap.md).
+
 The work that settled decisions imply and that isn't built yet. Each section says which card
 decided it; the card file has the full reasoning, the options that weren't chosen and the
 sources. The decisions themselves are listed in [foundations.md](../foundations.md#settled-decisions).

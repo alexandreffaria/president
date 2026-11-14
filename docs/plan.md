@@ -4,7 +4,7 @@ What we're working on now, kept up to date as items land. Tick an item (`[x]`) i
 request that does it, with the PR number. The direction calls are decision cards, all
 answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.md).
 
-## Where president is
+## Where president is (2026-11-14)
 
 - **Started** 2026-11-10 from the idea in `ideas/tj-video-transcript.txt`: a queue of open
   questions, decided fast, with agents applying the answers.
@@ -54,13 +54,15 @@ answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.m
   `test/web/harness.ts`)
 - [x] Where tests pin a whole user-facing sentence, assert the outcome or code instead,
   keeping one full-text check per message. (#42)
-- [ ] Re-review the comment-only change merged in #42 (close() docstring). It was merged
-  without a re-review, so the next review round should cover it.
+- [x] Re-review the comment-only change merged in #42 (close() docstring). It was merged
+  without a re-review, so the next review round should cover it. (#43)
 
 ### 2. Agent context
 
 - [ ] Add a short `CLAUDE.md` (under 300 words): layout, the check commands, "never branch
-  in the main checkout (the hub runs from it)", and where cards and docs live.
+  in the main checkout (the hub runs from it)", where cards and docs live, and the 509p
+  rule: for president, cards only for direction, UX and scope; mechanics are listed in the
+  PR under "Decided without a card".
 - [ ] Trim `skills/decision-cards/SKILL.md` from about 4k words toward 2k. Every agent
   session in every project loads it. Point to `docs/card-format.md` instead of repeating
   it, and move the rarely used parts ("New notes", "Changing a card") into a reference file
