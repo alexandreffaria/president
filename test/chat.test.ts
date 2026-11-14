@@ -5,7 +5,7 @@
  * `claude` is never run.
  */
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve as resolvePath } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   CardActionResponse,
@@ -225,8 +225,12 @@ describe("the session's command line (#0004)", () => {
   });
 
   it("describes tool calls in a few words", () => {
-    expect(describeTool("Read", { file_path: "/p/src/http.ts" }, "/p")).toBe("Reading src/http.ts");
-    expect(describeTool("WebSearch", { query: "dexie safari" }, "/p")).toBe(
+    // Paths as this OS writes them (src\http.ts on Windows).
+    const project = resolvePath("/p");
+    expect(describeTool("Read", { file_path: join(project, "src", "http.ts") }, project)).toBe(
+      `Reading ${join("src", "http.ts")}`,
+    );
+    expect(describeTool("WebSearch", { query: "dexie safari" }, project)).toBe(
       'Searching the web for "dexie safari"',
     );
   });
@@ -1291,8 +1295,11 @@ describe("keeping the hub's copy (202611114wet)", () => {
 
 describe("the state folder", () => {
   it("is $XDG_STATE_HOME/president, or ~/.local/state/president", () => {
-    expect(defaultStateDir({ XDG_STATE_HOME: "/x/state" })).toBe("/x/state/president");
-    expect(defaultStateDir({ XDG_STATE_HOME: "relative" })).toMatch(/\.local\/state\/president$/);
+    const state = resolvePath("/x/state");
+    expect(defaultStateDir({ XDG_STATE_HOME: state })).toBe(join(state, "president"));
+    expect(defaultStateDir({ XDG_STATE_HOME: "relative" })).toMatch(
+      /\.local[\\/]state[\\/]president$/,
+    );
   });
 
   it("starts over from a sessions file it can't read, and keeps it aside", async () => {

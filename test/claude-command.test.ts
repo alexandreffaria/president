@@ -143,10 +143,13 @@ describe("finding claude", () => {
       file: join(second, "claude.exe"),
       args: [],
     });
-    // And in the same folder.
-    await copyFile(process.execPath, join(first, "claude.exe"));
-    expect(resolveClaude("claude", withPath([first, second]))).toEqual({
-      file: join(first, "claude.exe"),
+    // And in the same folder (a new one: what was found for that PATH is remembered).
+    const both = await tempDir();
+    await writeFile(join(both, "claude.cmd"), programShim("claude-other.exe"));
+    await copyFile(process.execPath, join(both, "claude-other.exe"));
+    await copyFile(process.execPath, join(both, "claude.exe"));
+    expect(resolveClaude("claude", withPath([both]))).toEqual({
+      file: join(both, "claude.exe"),
       args: [],
     });
   });
