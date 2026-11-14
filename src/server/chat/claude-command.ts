@@ -75,16 +75,23 @@ function notRunnable(path: string): string {
  */
 function commandFor(path: string, windows: boolean): ClaudeCommand | undefined {
   const ext = extname(path).toLowerCase();
-  if (SCRIPT_EXTENSIONS.has(ext)) return { file: process.execPath, args: [path] };
   if (!windows) {
     const real = realPath(path);
-    return isNodeScript(real) ? { file: process.execPath, args: [real] } : { file: path, args: [] };
+    const options = nodeOptions(real);
+    return options
+      ? { file: process.execPath, args: [...options, real] }
+      : { file: path, args: [] };
   }
+  const script = (file: string) => ({
+    file: process.execPath,
+    args: [...(nodeOptions(file) ?? []), file],
+  });
+  if (SCRIPT_EXTENSIONS.has(ext)) return script(path);
   if (ext === ".cmd" || ext === ".bat") {
     const target = shimTarget(path);
     if (target === undefined) return undefined;
     return SCRIPT_EXTENSIONS.has(extname(target).toLowerCase())
-      ? { file: process.execPath, args: [target] }
+      ? script(target)
       : { file: target, args: [] };
   }
   return { file: path, args: [] };
@@ -156,22 +163,30 @@ function realPath(path: string): string {
   }
 }
 
-/** A `.js`/`.cjs`/`.mjs` file, or one whose `#!` line runs `node` through env. */
-function isNodeScript(path: string): boolean {
-  if (SCRIPT_EXTENSIONS.has(extname(path).toLowerCase())) return true;
-  let head: string;
+/**
+ * The Node options of a Node script: a `.js`/`.cjs`/`.mjs` file, or one whose `#!` line runs
+ * `node` through env. With `env -S` that line's words after `node` are its options
+ * (`#!/usr/bin/env -S node --no-warnings`), split on whitespace as env -S does for simple
+ * cases. Undefined for anything else.
+ */
+function nodeOptions(path: string): string[] | undefined {
+  const script = SCRIPT_EXTENSIONS.has(extname(path).toLowerCase());
+  let head = "";
   try {
     const fd = openSync(path, "r");
     try {
-      const buffer = Buffer.alloc(128);
+      const buffer = Buffer.alloc(512);
       head = buffer.toString("utf8", 0, readSync(fd, buffer, 0, buffer.length, 0));
     } finally {
       closeSync(fd);
     }
   } catch {
-    return false;
+    return script ? [] : undefined;
   }
-  return /^#!\s*\/usr\/bin\/env\s+(-S\s+)?node(\s|$)/.test(head);
+  const line = head.split(/\r?\n/)[0] ?? "";
+  const match = /^#!\s*\/usr\/bin\/env\s+(-S\s+)?node(?:[ \t]+(.*))?$/.exec(line);
+  if (!match) return script ? [] : undefined;
+  return match[1] ? (match[2] ?? "").split(/[ \t]+/).filter(Boolean) : [];
 }
 
 function isTarget(path: string): boolean {

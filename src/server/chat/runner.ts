@@ -21,7 +21,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 import { withAbsolutePath } from "../executable.ts";
 import { isNotFound } from "../fs-utils.ts";
-import { killTree } from "../process-tree.ts";
+import { closePipes, killTree } from "../process-tree.ts";
 import { CLAUDE_NOT_FOUND, resolveClaude } from "./claude-command.ts";
 
 /** The tools that exist in the session (#0004): reading and research, nothing else. */
@@ -39,6 +39,8 @@ export const SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 /** A run still going after this long is stopped. */
 export const RUN_TIMEOUT_MS = 15 * 60 * 1000;
 const KILL_GRACE_MS = 5000;
+/** How long after the run exits its output may stay open (a process it left holding it). */
+const EXIT_GRACE_MS = 2000;
 /** At most this much of a run's output is kept (a reply is far smaller). */
 const MAX_OUTPUT = 4 * 1024 * 1024;
 
@@ -193,8 +195,14 @@ export function runClaude(request: RunRequest, handlers: RunHandlers = {}): Prom
 
     // Whether the run itself has exited (`close` comes later, once its pipes are closed too).
     let exited = false;
+    let exitGrace: NodeJS.Timeout | undefined;
     child.on("exit", () => {
       exited = true;
+      // A process the run left behind may hold its output open, which would keep `close`, and
+      // the answer, waiting until the run's timeout. Once the run has had time to be read to
+      // the end, its pipes are closed and it ends as it ended.
+      exitGrace = setTimeout(() => closePipes(child), EXIT_GRACE_MS);
+      exitGrace.unref();
     });
     const killGroup = (signal: NodeJS.Signals) => killTree(child, signal, () => exited);
     let killTimer: NodeJS.Timeout | undefined;
@@ -219,6 +227,7 @@ export function runClaude(request: RunRequest, handlers: RunHandlers = {}): Prom
       settled = true;
       clearTimeout(timer);
       clearTimeout(killTimer);
+      clearTimeout(exitGrace);
       request.signal?.removeEventListener("abort", onAbort);
       resolve(result);
     };

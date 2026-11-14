@@ -10,7 +10,8 @@
  * - answers with the next entry of $FAKE_CLAUDE_DIR/script.json when there is one
  *   ({ lines?: object[], text?: string, structured?: object, stderr?: string, exit?: number,
  *   delayMs?: number, pauseMs?: number, gate?: string, lateTranscript?: boolean,
- *   grandchild?: boolean, exitEarly?: boolean }), otherwise
+ *   grandchild?: boolean, exitEarly?: boolean, leaveBehind?: boolean }),
+ *   otherwise
  *   with "Echo: "
  *   and the last line of its standard input. `structured` is the `--json-schema` answer,
  *   given as the result's `structured_output` the way Claude Code reports structured output;
@@ -18,7 +19,8 @@
  *   that name exists in $FAKE_CLAUDE_DIR (the test creates it); `lateTranscript` writes a new session's
  *   transcript only at the end of the run, as Claude Code may; `grandchild` starts a process
  *   that holds the run's output open for a minute, its pid in $FAKE_CLAUDE_DIR/grandchild.pid, and with
- *   `exitEarly` the stand-in then exits at once, leaving it running.
+ *   `exitEarly` the stand-in then exits at once, leaving it running; `leaveBehind` starts one,
+ *   detached, after answering, and leaves it running.
  */
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -70,17 +72,21 @@ if (existsSync(scriptFile)) {
 if (!step.lateTranscript) writeTranscript();
 
 const out = (line) => process.stdout.write(`${JSON.stringify(line)}\n`);
-if (step.grandchild) {
-  // A process of its own that keeps the run's output open for a minute, the way a tool
-  // Claude Code started would: the run ends only once it is stopped too.
-  // With `exitEarly` it is out of reach of the run's stop: detached, so in a session of its own
-  // on Linux and, on Windows, out of the job that ends Node's children when Node exits.
+/**
+ * A process of its own that keeps the run's output open for a minute, the way a tool Claude
+ * Code started would. Detached, it is out of reach of the run's stop: in a session of its own
+ * on Linux and, on Windows, out of the job that ends Node's children when Node exits.
+ */
+const startGrandchild = (detached) => {
   const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], {
     stdio: ["ignore", "inherit", "inherit"],
-    detached: Boolean(step.exitEarly),
+    detached,
     windowsHide: true,
   });
   writeFileSync(join(dir, "grandchild.pid"), String(child.pid));
+};
+if (step.grandchild) {
+  startGrandchild(Boolean(step.exitEarly));
   // And the stand-in ends at once, leaving it running.
   if (step.exitEarly) process.exit(0);
 }
@@ -116,4 +122,5 @@ for (const [i, line] of lines.entries()) {
   if (i === 0 && step.pauseMs) await new Promise((resolve) => setTimeout(resolve, step.pauseMs));
 }
 if (step.lateTranscript) writeTranscript();
+if (step.leaveBehind) startGrandchild(true);
 process.exit(step.exit ?? 0);

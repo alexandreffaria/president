@@ -155,6 +155,30 @@ describe("finding claude", () => {
     },
   );
 
+  it("keeps the Node options of an `env -S` line", async () => {
+    const dir = await realpath(await tempDir());
+    const cli = join(dir, "cli.js");
+    await writeFile(cli, "#!/usr/bin/env -S node --no-warnings  --max-old-space-size=4096\n");
+    expect(resolveClaude(cli)).toEqual({
+      file: process.execPath,
+      args: ["--no-warnings", "--max-old-space-size=4096", cli],
+    });
+    // Without -S, env takes "node --flag" as one name: no options.
+    await writeFile(cli, "#!/usr/bin/env node --no-warnings\n");
+    expect(resolveClaude(cli)).toEqual({ file: process.execPath, args: [cli] });
+  });
+
+  it.skipIf(windows)("keeps them for a `claude` found on PATH", async () => {
+    const dir = await realpath(await tempDir());
+    await writeFile(join(dir, "claude"), "#!/usr/bin/env -S node --no-warnings\n", {
+      mode: 0o755,
+    });
+    expect(resolveClaude("claude", withPath([dir]))).toEqual({
+      file: process.execPath,
+      args: ["--no-warnings", join(dir, "claude")],
+    });
+  });
+
   it("gives the run a PATH of its absolute entries only", async () => {
     const fake = await tempDir();
     const env = withPath(["", ".", "bin", STAND_IN], { ...process.env, FAKE_CLAUDE_DIR: fake });
@@ -374,6 +398,28 @@ describe("stopping a run", () => {
       expect(alive(grandchild)).toBe(true);
     } finally {
       grandchild ??= Number(await readFile(join(fake, "grandchild.pid"), "utf8").catch(() => 0));
+      if (grandchild && alive(grandchild)) process.kill(grandchild);
+    }
+  });
+
+  it("gives the answer of a run that left a process holding its output", {
+    timeout: 30_000,
+  }, async () => {
+    const fake = await tempDir();
+    await writeFile(join(fake, "script.json"), JSON.stringify([{ leaveBehind: true }]));
+    const env = { ...process.env, FAKE_CLAUDE_DIR: fake };
+    let grandchild = 0;
+    try {
+      const started = Date.now();
+      // The run's timeout is far off: the answer comes once the run has exited, not then.
+      const result = await run(await tempDir(), env, { bin: FAKE, timeoutMs: 60_000 });
+      grandchild = Number(await readFile(join(fake, "grandchild.pid"), "utf8"));
+      expect(result).toMatchObject({ ok: true, text: "Echo: Hello" });
+      expect(result.error).toBeUndefined();
+      expect(Date.now() - started).toBeLessThan(15_000);
+      expect(alive(grandchild)).toBe(true);
+    } finally {
+      grandchild ||= Number(await readFile(join(fake, "grandchild.pid"), "utf8").catch(() => 0));
       if (grandchild && alive(grandchild)) process.kill(grandchild);
     }
   });

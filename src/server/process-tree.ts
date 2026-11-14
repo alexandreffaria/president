@@ -53,7 +53,8 @@ export function killTree(child: ChildProcess, signal: NodeJS.Signals, exited: ()
   if (exited()) closePipes(child);
 }
 
-function closePipes(child: ChildProcess): void {
+/** Closes the pipes to `child`, so its `close` comes even while something else holds them. */
+export function closePipes(child: ChildProcess): void {
   child.stdin?.destroy();
   child.stdout?.destroy();
   child.stderr?.destroy();
