@@ -658,6 +658,41 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111459oa)", 
     await until(() => text().includes("(The options are now on the card.)"), "the run's reply");
   });
 
+  it("Neither is off while a run waits behind a reply streaming in", async () => {
+    await script([{ text: "Yes.", gate: "reply" }, { structured: ANSWER }]);
+    await open("/card/demo/0002");
+    const post = (path: string, body: object) =>
+      io(() =>
+        fetch(path, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    // Another tab asks a question, then says Neither while the answer streams in.
+    const reply = await post("/api/chats/demo/0002/messages", { text: "Is it there?" });
+    await runStarted();
+    const { card } = (await io(async () => (await fetch("/api/cards/demo/0002")).json())) as {
+      card: { revision: string };
+    };
+    const asked = await post("/api/cards/demo/0002/actions", {
+      type: "neither",
+      note: NOTE,
+      revision: card.revision,
+    });
+    expect(asked.status).toBe(200);
+    await eventually(async () => (await chatCopy()).optionsRun, "the run on the card");
+    expect((await chatCopy()).running).toBe("reply");
+    await until(() => button("Neither")?.disabled === true, "Neither off");
+    await openGate("reply");
+    await io(() => reply.text());
+    await eventually(
+      async () => (await chatCopy()).newOptions?.state === "written",
+      "the options written",
+    );
+    await until(() => button("Neither")?.disabled === false, "Neither again");
+  });
+
   it("an open Neither panel can't ask again while another tab's run goes on (one note at a time)", async () => {
     await script([{ structured: ANSWER, gate: "answer" }]);
     await open("/card/demo/0002");
@@ -676,7 +711,7 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111459oa)", 
     );
     expect(asked.status).toBe(200);
     await until(
-      () => text().includes("New options are being written for this card; ask again once"),
+      () => text().includes("A new-options run is going on for this card; ask again once"),
       "the panel's explanation",
     );
     expect(button("Ask for new options")?.disabled).toBe(true);

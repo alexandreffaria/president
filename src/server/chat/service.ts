@@ -290,6 +290,7 @@ export class ChatService {
     // reported as going on (the page reads again when it ends), never as over with what the
     // record said before it ended.
     const run = this.#running.get(keyName(key));
+    const optionsRun = this.#newOptions.has(keyName(key));
     // A new-options run counts from its start, also while it waits for a reply to end.
     const running: ChatDto["running"] =
       run === "summary"
@@ -298,7 +299,7 @@ export class ChatService {
           ? this.#optionRuns.has(run)
             ? "options"
             : "reply"
-          : this.#newOptions.has(keyName(key))
+          : optionsRun
             ? "options"
             : false;
     const [messages, entry] = await Promise.all([this.store.messages(key), this.store.entry(key)]);
@@ -314,6 +315,7 @@ export class ChatService {
         this.#starting.has(keyName(key)) ||
         (await transcriptExists(this.#claudeDir, entry.session)),
       running,
+      optionsRun,
       ...(newOptions ? { newOptions } : {}),
     };
   }
@@ -574,12 +576,7 @@ export class ChatService {
     const key = { project: project.name, id };
     const k = keyName(key);
     return this.#runLock.run(k, async () => {
-      if (this.#newOptions.has(k)) {
-        throw new UserError(
-          "new options are being written for this card; wait for them, or undo your note first",
-          { status: 409, code: "chat_busy" },
-        );
-      }
+      if (this.#newOptions.has(k)) throw this.#busy(key);
       const card = await write();
       const note = lastNeither(card);
       try {
@@ -593,24 +590,26 @@ export class ChatService {
   }
 
   /**
-   * Undoes a card action (`undo`) one after the other with starting runs. When the card then
-   * no longer waits on the note of its new-options run (the "neither" was undone), the run is
-   * stopped and its record dropped (2026111459oa `trim`). The card is put back first, so the
-   * run can no longer write it (rewriteCard's revision check); once the run has written its
-   * options, the card changed after the action and the undo is refused. The "Neither"
-   * message stays in the conversation, and in the session.
+   * Writes the card (`write`: an Undo, a decision) one after the other with starting runs.
+   * When the card then no longer waits on the note of its new-options run (the "neither" was
+   * undone, the card decided), the run is stopped, saying `why` in the panel, and its record
+   * dropped (2026111459oa `trim`). The card is written first, so the run can no longer write
+   * it (rewriteCard's revision check); an Undo after the run wrote its options is refused,
+   * since the card changed after the action. The "Neither" message stays in the
+   * conversation, and in the session.
    */
-  async undoing(
+  async stoppingRun(
     project: Project,
     id: string,
-    undo: () => Promise<LoadedCard>,
+    write: () => Promise<LoadedCard>,
+    why: string,
   ): Promise<LoadedCard> {
     const key = { project: project.name, id };
     const k = keyName(key);
     return this.#runLock.run(k, async () => {
-      const card = await undo();
+      const card = await write();
       const run = this.#newOptions.get(k);
-      if (run && !waitsOn(card, run.note)) run.stop.abort();
+      if (run && !waitsOn(card, run.note)) run.stop.abort(why);
       const record = (await this.store.entry(key))?.newOptions;
       if (record && record.state !== "written" && !waitsOn(card, record.note)) {
         await this.#clearRecord(key, record.note);
@@ -708,14 +707,14 @@ export class ChatService {
     note: string,
     retry: string | undefined,
     revealedNow: string | undefined,
-    /** Aborted by an Undo of the note (undoing). */
+    /** Aborted, with the panel line as its reason, by stoppingRun. */
     stop: AbortSignal,
   ): Promise<void> {
     const run = new ChatRun();
     this.#optionRuns.add(run);
-    await this.#reserveWhenIdle(key, run);
+    // Stopped while it waited for a reply: it ends at once, and nothing reached the session.
+    if (!(await this.#reserveWhenIdle(key, run, stop))) return;
     try {
-      // Stopped while it waited: nothing was said to the session yet.
       if (stop.aborted) return;
       const card = await this.#card(project, key.id);
       // Decided, undone or rewritten by an agent while the run waited: nothing to write. (A
@@ -750,8 +749,8 @@ export class ChatService {
       let failure: string | undefined;
       let written: LoadedCard | undefined;
       let message = "";
-      // Undone: the card is already back as it was, and the record gone.
-      const stopped = () => save(this.#message("hub", "You undid your note, so the run stopped."));
+      // Undone or decided: the card is already written, and the record gone.
+      const stopped = () => save(this.#message("hub", String(stop.reason)));
       if (stop.aborted) {
         await stopped();
         return;
@@ -802,10 +801,13 @@ export class ChatService {
         });
         this.#bus.emit({ type: "cards", project: project.name });
       } else if (stop.aborted) {
-        // Stopped while the hub wrote: the write was refused because the card was put back.
+        // Stopped while the hub wrote: the write was refused because the card was written.
         await stopped();
       } else {
-        await this.#newOptionsFailed(key, note, failure ?? "the run failed");
+        // Whether the card still waits on the note (not decided elsewhere, say, by Sync).
+        const now = await findCard(project, key.id).catch(() => undefined);
+        const waits = now?.ok === true && waitsOn(now.card, note);
+        await this.#newOptionsFailed(key, note, failure ?? "the run failed", waits);
       }
     } finally {
       run.emit({ type: "done", message: undefined });
@@ -813,8 +815,8 @@ export class ChatService {
     }
   }
 
-  async #newOptionsFailed(key: CardKey, note: string, error: string): Promise<void> {
-    await this.store.append(key, this.#message("hub", newOptionsFailure(error)));
+  async #newOptionsFailed(key: CardKey, note: string, error: string, waits = true): Promise<void> {
+    await this.store.append(key, this.#message("hub", newOptionsFailure(error, waits)));
     await this.store.updateEntry(key, (e) =>
       e?.newOptions?.note === note ? { ...e, newOptions: { note, state: "failed", error } } : e,
     );
@@ -1089,11 +1091,15 @@ export class ChatService {
 
   /** Why the card refuses another run: what holds it. */
   #busy(key: CardKey): UserError {
-    const message = this.#newOptions.has(keyName(key))
-      ? "new options are being written on this card; wait for them"
-      : this.#running.get(keyName(key)) === "new"
-        ? "a new conversation is being started on this card; try again in a moment"
-        : "the agent is still answering on this card; wait for it to finish";
+    const options = this.#newOptions.get(keyName(key));
+    // A stopped run still on the card is one being stopped (its process, or its write).
+    const message = options?.stop.signal.aborted
+      ? "the new-options run on this card is still stopping; try again in a moment"
+      : options
+        ? "new options are being written on this card; wait for them, or undo your note first"
+        : this.#running.get(keyName(key)) === "new"
+          ? "a new conversation is being started on this card; try again in a moment"
+          : "the agent is still answering on this card; wait for it to finish";
     return new UserError(message, { status: 409, code: "chat_busy" });
   }
 
@@ -1109,12 +1115,19 @@ export class ChatService {
   /**
    * Waits until no run is going on for the card, then reserves it for `run`: the check and
    * the reservation have no await between them, so of several waiters woken together one
-   * reserves and the others wait again.
+   * reserves and the others wait again. False, without reserving, once `stop` is aborted.
    */
-  async #reserveWhenIdle(key: CardKey, run: ChatRun): Promise<void> {
+  async #reserveWhenIdle(key: CardKey, run: ChatRun, stop: AbortSignal): Promise<boolean> {
     const name = keyName(key);
-    while (this.#running.has(name)) await this.#nextRelease(name);
+    const stopped = new Promise<void>((resolve) =>
+      stop.addEventListener("abort", () => resolve(), { once: true }),
+    );
+    while (!stop.aborted && this.#running.has(name)) {
+      await Promise.race([this.#nextRelease(name), stopped]);
+    }
+    if (stop.aborted) return false;
     this.#running.set(name, run);
+    return true;
   }
 
   #nextRelease(name: string): Promise<void> {

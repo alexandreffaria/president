@@ -179,7 +179,8 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const chatLoaded = cardChat.chat !== undefined;
   /** The new-options run of the card's latest "neither" (#0007), while it concerns the card. */
   const newOptions = cardChat.chat?.newOptions;
-  const writingOptions = cardChat.chat?.running === "options";
+  // The card has a new-options run (also while it waits for a reply): one note at a time.
+  const optionsRun = cardChat.chat?.optionsRun === true;
   // A "neither" always leaves a conversation, before its message is saved too (202611111gpm).
   const hasConversation =
     (cardChat.chat?.messages.length ?? 0) > 0 ||
@@ -763,7 +764,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
       void decide(selected, draft.decisionNote, { selected: undefined, decisionNote: "" });
     },
     n: () => {
-      if (!isActive || options.length === 0 || writingOptions) return false;
+      if (!isActive || options.length === 0 || optionsRun) return false;
       openPanel("neither");
     },
     m: () => {
@@ -1114,7 +1115,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
           onDefer={defer}
           deferMenu={deferMenu}
           onDeferMenu={setDeferMenu}
-          writingOptions={writingOptions}
+          optionsRun={optionsRun}
         />
       )}
     </div>
@@ -1249,8 +1250,8 @@ function ActionBar(props: {
   onDefer: (until?: Date) => void;
   deferMenu: boolean;
   onDeferMenu: (open: boolean) => void;
-  /** New options are being written: Neither waits for them, as Send does. */
-  writingOptions: boolean;
+  /** The card has a new-options run: Neither waits for it to end (one note at a time). */
+  optionsRun: boolean;
 }) {
   const { card, busy, draft, panel } = props;
   const { selected, answer } = draft;
@@ -1282,7 +1283,7 @@ function ActionBar(props: {
       if (ok) props.onPanel(null);
     };
     // One note at a time (2026111459oa): a new one waits for the options being written.
-    const waits = neither && props.writingOptions;
+    const waits = neither && props.optionsRun;
     const submit = async () => {
       if (!text.trim() || waits) return;
       const sent = { [panel]: "" };
@@ -1354,7 +1355,7 @@ function ActionBar(props: {
           </div>
           {waits && (
             <p className="muted small" id="panel-waits">
-              New options are being written for this card; ask again once they are there.
+              A new-options run is going on for this card; ask again once it has ended.
             </p>
           )}
         </form>
@@ -1486,8 +1487,8 @@ function ActionBar(props: {
               ref={neitherButton}
               type="button"
               className="button"
-              disabled={busy || props.writingOptions}
-              title={props.writingOptions ? "New options are being written" : undefined}
+              disabled={busy || props.optionsRun}
+              title={props.optionsRun ? "A new-options run is going on for this card" : undefined}
               onClick={() => props.onPanel("neither")}
             >
               Neither… <kbd>n</kbd>

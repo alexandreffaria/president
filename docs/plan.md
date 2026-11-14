@@ -56,6 +56,8 @@ answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.m
   keeping one full-text check per message. (#42)
 - [x] Re-review the comment-only change merged in #42 (close() docstring). It was merged
   without a re-review, so the next review round should cover it. (#43)
+- [x] Fix the Windows flake in "ends the stream's handler when the page goes away"
+  (`test/chat.test.ts`): longer waits there and in the other run-state waits. (#45)
 
 ### 2. Agent context
 

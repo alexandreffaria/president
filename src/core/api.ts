@@ -159,6 +159,12 @@ export interface ChatDto {
    */
   running: false | "reply" | "summary" | "options";
   /**
+   * The card has a new-options run, from its start until it has ended: also while it waits
+   * for a reply (`running` is then "reply") or is being stopped. A "neither" is refused
+   * meanwhile (one note at a time, 2026111459oa).
+   */
+  optionsRun: boolean;
+  /**
    * The run that writes new options from the card's latest "neither" note (#0007,
    * 2026111459oa), while it concerns the card as it is: absent when there is
    * none, or once the card no longer waits on that note (undone, decided, rewritten by an
