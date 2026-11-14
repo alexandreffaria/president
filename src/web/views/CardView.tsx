@@ -1281,8 +1281,10 @@ function ActionBar(props: {
       const ok = await props.onDecide(CUSTOM_CHOICE, text, { neither: "" }, "neither");
       if (ok) props.onPanel(null);
     };
+    // One note at a time (2026111459oa): a new one waits for the options being written.
+    const waits = neither && props.writingOptions;
     const submit = async () => {
-      if (!text.trim()) return;
+      if (!text.trim() || waits) return;
       const sent = { [panel]: "" };
       const ok = await props.onAct(
         { type: neither ? "neither" : "note", note: text },
@@ -1330,7 +1332,12 @@ function ActionBar(props: {
             <button type="button" className="button" onClick={() => props.onPanel(null)}>
               Close <kbd>Esc</kbd>
             </button>
-            <button type="submit" className="button button-primary" disabled={busy || !text.trim()}>
+            <button
+              type="submit"
+              className="button button-primary"
+              disabled={busy || waits || !text.trim()}
+              aria-describedby={waits ? "panel-waits" : undefined}
+            >
               {neither ? "Ask for new options" : "Add note"} <kbd>Ctrl ⏎</kbd>
             </button>
             {neither && (
@@ -1345,6 +1352,11 @@ function ActionBar(props: {
               </button>
             )}
           </div>
+          {waits && (
+            <p className="muted small" id="panel-waits">
+              New options are being written for this card; ask again once they are there.
+            </p>
+          )}
         </form>
       </div>
     );

@@ -1578,7 +1578,8 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
   it("says so clearly when the note is written but the run can't be recorded", async () => {
     const t = await setup();
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(t.chat, "newOptionsAsked").mockRejectedValueOnce(new Error("disk full"));
+    // Recording the run is the first write to the session store after the note.
+    vi.spyOn(t.chat.store, "updateEntry").mockRejectedValueOnce(new Error("disk full"));
     const { revision } = await t.card();
     const response = await t.post("/api/cards/demo/0002/actions", {
       type: "neither",
@@ -1867,67 +1868,50 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
     }
   });
 
-  it("a second Neither during the run replaces the run, which stays tracked", async () => {
-    const t = await setup();
-    await t.script([
-      { structured: ANSWER, gate: "first" },
-      { structured: ANSWER, gate: "second" },
-    ]);
-    await neither(t, "First note.");
-    await t.called(1);
-    const { at } = await neither(t);
-    await t.called(2);
-    const going = await t.conversation();
-    expect(going.running).toBe("options");
-    expect(going.newOptions).toEqual({ note: at, state: "started" });
-    // Still the card's run: a message is refused, and Undo would stop it.
-    expect((await t.post("/api/chats/demo/0002/messages", { text: "Hi" })).status).toBe(409);
-    await t.openGate("second");
-    const chat = await settled(t);
-    expect(chat.newOptions?.state).toBe("written");
-    expect(chat.messages.map((m) => [m.from, m.text])).toEqual([
-      ["you", "Neither: First note."],
-      ["hub", "Your newer note replaced this one, so the run stopped."],
-      ["you", `Neither: ${NOTE}`],
-      ["agent", `${ANSWER.message}\n\n(The options are now on the card.)`],
-    ]);
-    // close() waits for no leftover run.
-    await t.chat.close();
-  });
+  /** A second Neither on the card: refused, and the card file is left as it was. */
+  async function refusedNeither(t: T) {
+    const before = await readFile(cardPath(t), "utf8");
+    const { revision } = await t.card();
+    const response = await t.post("/api/cards/demo/0002/actions", {
+      type: "neither",
+      note: "Second note.",
+      revision,
+    });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      code: "chat_busy",
+      error: "new options are being written for this card; wait for them, or undo your note first",
+    });
+    expect(await readFile(cardPath(t), "utf8")).toBe(before);
+  }
 
-  it("Undo, then Neither again at once: the undone run winds down and the new one runs", async () => {
+  it("refuses a second Neither while the run goes on (one note at a time)", async () => {
     const t = await setup();
-    await t.script([{ structured: ANSWER, gate: "first" }, { structured: ANSWER }]);
-    const { card } = await neither(t);
+    await t.script([{ structured: ANSWER, gate: "answer" }]);
+    const { at } = await neither(t);
     await t.called(1);
-    const undo = t.post("/api/cards/demo/0002/undo", { revision: card.revision });
-    expect((await undo).status).toBe(200);
-    const { at } = await neither(t, "Second note.");
+    await refusedNeither(t);
+    await t.openGate("answer");
     const chat = await settled(t);
     expect(chat.newOptions).toEqual({ note: at, state: "written" });
-    expect(chat.messages.map((m) => [m.from, m.text])).toEqual([
-      ["you", `Neither: ${NOTE}`],
-      ["hub", "You undid your note, so the run stopped."],
-      ["you", "Neither: Second note."],
-      ["agent", `${ANSWER.message}\n\n(The options are now on the card.)`],
-    ]);
-    expect(await t.calls()).toHaveLength(2);
+    expect(chat.messages.map((m) => m.text)).not.toContain("Neither: Second note.");
+    expect(await t.calls()).toHaveLength(1);
   });
 
-  /**
-   * Neither, Undo and Neither again while a reply goes on, so both runs wait for it: the
-   * undone one starts nothing, and only the new note's run reaches the session.
-   */
-  async function againWhileReplying(t: T) {
+  it("refuses a Neither while an undone run winds down, and takes it once it has ended", async () => {
+    const t = await setup();
+    // The run waits for a reply to end, so it is still on the card after the Undo.
     await t.script([{ text: "Yes.", gate: "reply" }, { structured: ANSWER }]);
     const reply = t.send("Is IndexedDB available?");
     await t.called(1);
     const first = await neither(t);
     const undo = await t.post("/api/cards/demo/0002/undo", { revision: first.card.revision });
     expect(undo.status).toBe(200);
-    const second = await neither(t, "Second note.");
+    await refusedNeither(t);
     await t.openGate("reply");
     await reply;
+    expect((await settled(t)).newOptions).toBeUndefined();
+    const second = await neither(t, "Second note.");
     const chat = await settled(t);
     expect(chat.newOptions).toEqual({ note: second.at, state: "written" });
     expect(chat.messages.map((m) => [m.from, m.text])).toEqual([
@@ -1936,25 +1920,26 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
       ["you", "Neither: Second note."],
       ["agent", `${ANSWER.message}\n\n(The options are now on the card.)`],
     ]);
-    const calls = await t.calls();
-    expect(calls).toHaveLength(2);
-    expect(calls[1]?.stdin).toContain("Second note.");
-    return { first, second };
-  }
-
-  it("Undo and Neither again while a reply goes on: one run, for the new note", async () => {
-    await againWhileReplying(await setup());
+    expect(await t.calls()).toHaveLength(2);
   });
 
-  it("a note made in the same second as an undone one is never taken for it", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-11-14T21:00:00.400Z"));
-    try {
-      const { first, second } = await againWhileReplying(await setup());
-      expect(second.at).toBe(first.at);
-    } finally {
-      vi.useRealTimers();
-    }
+  it("a Neither after a failed run starts a fresh run for the new note", async () => {
+    const t = await setup();
+    await t.script([
+      { lines: [{ type: "result", subtype: "error_max_budget_usd", is_error: true }] },
+      { structured: ANSWER },
+    ]);
+    const first = await neither(t);
+    expect((await settled(t)).newOptions).toMatchObject({ note: first.at, state: "failed" });
+    const second = await neither(t, "Second note.");
+    const chat = await settled(t);
+    expect(chat.newOptions).toEqual({ note: second.at, state: "written" });
+    const calls = await t.calls();
+    expect(calls).toHaveLength(2);
+    // A first run for the new note, not a retry of the failed one.
+    expect(calls[1]?.stdin).toContain("Second note.");
+    expect(calls[1]?.stdin).not.toContain("Your previous answer");
+    expect(chat.messages.at(-2)?.text).toBe("Neither: Second note.");
   });
 
   it("an Undo while the hub writes the options: the write is refused, and the panel says it was undone", async () => {

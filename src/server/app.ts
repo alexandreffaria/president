@@ -267,10 +267,22 @@ export function createApp(options: AppOptions): Hono {
         status: 400,
       });
     }
-    const card = await sync.writeCard(project, () =>
-      actOnCard(project, c.req.param("id"), action, { revision }),
-    );
+    const id = c.req.param("id");
+    const write = () => sync.writeCard(project, () => actOnCard(project, id, action, { revision }));
+    // Ask for new options (#0007): refused while the card's run goes on, before the card is
+    // written; otherwise the run starts now, and an Undo stops it (2026111459oa).
+    const asked =
+      action.type === "neither" ? await chat.newOptionsAsked(project, id, write) : undefined;
+    const card = asked?.card ?? (await write());
     writes.record(card.path, revision, card.revision);
+    if (asked && !asked.started) {
+      // The note is written: say so, rather than a bare 500 the page would read as unsaved.
+      bus.emit({ type: "cards", project: project.name });
+      throw new UserError(
+        "your note is saved and the card waits for the project's agent, but president couldn't ask for new options right away (see the server log)",
+        { status: 500, code: "new_options_unrecorded" },
+      );
+    }
     const savesSummary =
       action.type === "chat" || (action.type === "resolve" && Boolean(action.summary));
     if (savesSummary) {
@@ -285,20 +297,6 @@ export function createApp(options: AppOptions): Hono {
       await chat
         .closeWithoutSummary(project, card.id, { decision: card.revision })
         .catch((error: unknown) => console.error("[chat] closing the conversation:", error));
-    }
-    // Ask for new options (#0007): the run starts now, and an Undo stops it (2026111459oa).
-    if (action.type === "neither") {
-      try {
-        await chat.newOptionsAsked(project, card);
-      } catch (error) {
-        // The note is written: say so, rather than a bare 500 the page would read as unsaved.
-        console.error("[chat] recording a new-options run:", error);
-        bus.emit({ type: "cards", project: project.name });
-        throw new UserError(
-          "your note is saved and the card waits for the project's agent, but president couldn't ask for new options right away (see the server log)",
-          { status: 500, code: "new_options_unrecorded" },
-        );
-      }
     }
     // What the conversation is now, so the page knows whether its reminder is still due.
     const unsummarized =

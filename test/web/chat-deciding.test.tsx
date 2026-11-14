@@ -658,6 +658,32 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111459oa)", 
     await until(() => text().includes("(The options are now on the card.)"), "the run's reply");
   });
 
+  it("an open Neither panel can't ask again while another tab's run goes on (one note at a time)", async () => {
+    await script([{ structured: ANSWER, gate: "answer" }]);
+    await open("/card/demo/0002");
+    await press("n");
+    await typeInto(host.querySelector("#panel-text"), "Something else.");
+    // Another tab asks for new options on the card.
+    const { card } = (await io(async () => (await fetch("/api/cards/demo/0002")).json())) as {
+      card: { revision: string };
+    };
+    const asked = await io(() =>
+      fetch("/api/cards/demo/0002/actions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "neither", note: NOTE, revision: card.revision }),
+      }),
+    );
+    expect(asked.status).toBe(200);
+    await until(
+      () => text().includes("New options are being written for this card; ask again once"),
+      "the panel's explanation",
+    );
+    expect(button("Ask for new options")?.disabled).toBe(true);
+    await openGate("answer");
+    await until(() => button("Ask for new options")?.disabled === false, "the panel again");
+  });
+
   it("New conversation, asking, sending and Neither are off while the run goes on (20261112lvbu)", async () => {
     await script([{}, { structured: ANSWER, gate: "answer" }]);
     await io(async () =>

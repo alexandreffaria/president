@@ -38,7 +38,7 @@ import {
 } from "../../core/api.ts";
 import { parseCardFileName } from "../../core/card-file.ts";
 import { newOptionsFailure } from "../../core/new-options.ts";
-import type { FeedbackEntry, RawFrontmatter } from "../../core/schema.ts";
+import type { RawFrontmatter } from "../../core/schema.ts";
 import {
   type BodySections,
   demoteSectionHeadings,
@@ -119,25 +119,6 @@ function waitsOn(card: LoadedCard, note: string): boolean {
     card.frontmatter.needs_new_options === true &&
     lastNeither(card)?.at === note
   );
-}
-
-/** The "neither" note a new-options run writes from: its time and its text. */
-type NeitherNote = Pick<FeedbackEntry, "at" | "note">;
-
-/**
- * Whether the card still waits on that very note: the same time and text, so a note made in
- * the same second as one undone is never taken for it.
- */
-function waitsOnNote(card: LoadedCard, neither: NeitherNote): boolean {
-  return waitsOn(card, neither.at) && lastNeither(card)?.note === neither.note;
-}
-
-/** Why a run stopped: a newer note replaced its note (abort reason), or an Undo. */
-const REPLACED = "replaced";
-function stoppedLine(stop: AbortSignal): string {
-  return stop.reason === REPLACED
-    ? "Your newer note replaced this one, so the run stopped."
-    : "You undid your note, so the run stopped.";
 }
 
 /** A reason as a clause after a colon: "The run failed." becomes "the run failed". */
@@ -227,12 +208,13 @@ export class ChatService {
   /** Who waits for a card's run to end (#nextRelease). */
   readonly #waiters = new Map<string, (() => void)[]>();
   /**
-   * New-options runs started and not ended (they may still wait for the card's other run),
-   * by card: the note they write from, when they end, and what stops them (Undo).
+   * The new-options run of each card, from its start until it has ended (also while it waits
+   * for a reply to end, or winds down after an Undo): its note's time, when it ends, and what
+   * stops it (Undo). One at a time: a second "neither" is refused meanwhile (newOptionsAsked).
    */
   readonly #newOptions = new Map<
     string,
-    { neither: NeitherNote; done: Promise<void>; stop: AbortController }
+    { note: string; done: Promise<void>; stop: AbortController }
   >();
   /** The runs in #running that are new-options runs (`running: "options"`). */
   readonly #optionRuns = new WeakSet<ChatRun>();
@@ -312,8 +294,10 @@ export class ChatService {
     const running: ChatDto["running"] =
       run === "summary"
         ? "summary"
-        : run instanceof ChatRun && !this.#optionRuns.has(run)
-          ? "reply"
+        : run instanceof ChatRun
+          ? this.#optionRuns.has(run)
+            ? "options"
+            : "reply"
           : this.#newOptions.has(keyName(key))
             ? "options"
             : false;
@@ -578,14 +562,34 @@ export class ChatService {
   }
 
   /**
-   * The human said "neither" and asked for new options (#0007): the run that writes them
-   * starts at once (2026111459oa `trim`); an Undo stops it (undoing).
+   * "Neither" (#0007): `write` records the note and its run starts at once (2026111459oa
+   * `trim`). One note at a time: refused, before the write, while the card's run goes on or
+   * winds down after an Undo. `started: false`: the note is written but its run couldn't be.
    */
-  async newOptionsAsked(project: Project, card: LoadedCard): Promise<void> {
-    const note = lastNeither(card);
-    if (!note) return;
-    const key = { project: project.name, id: card.id };
-    await this.#runLock.run(keyName(key), () => this.#startRun(project, key, note));
+  async newOptionsAsked(
+    project: Project,
+    id: string,
+    write: () => Promise<LoadedCard>,
+  ): Promise<{ card: LoadedCard; started: boolean }> {
+    const key = { project: project.name, id };
+    const k = keyName(key);
+    return this.#runLock.run(k, async () => {
+      if (this.#newOptions.has(k)) {
+        throw new UserError(
+          "new options are being written for this card; wait for them, or undo your note first",
+          { status: 409, code: "chat_busy" },
+        );
+      }
+      const card = await write();
+      const note = lastNeither(card);
+      try {
+        if (note) await this.#startRun(project, key, note.at);
+        return { card, started: true };
+      } catch (error) {
+        console.error("[chat] recording a new-options run:", error);
+        return { card, started: false };
+      }
+    });
   }
 
   /**
@@ -606,7 +610,7 @@ export class ChatService {
     return this.#runLock.run(k, async () => {
       const card = await undo();
       const run = this.#newOptions.get(k);
-      if (run && !waitsOnNote(card, run.neither)) run.stop.abort();
+      if (run && !waitsOn(card, run.note)) run.stop.abort();
       const record = (await this.store.entry(key))?.newOptions;
       if (record && record.state !== "written" && !waitsOn(card, record.note)) {
         await this.#clearRecord(key, record.note);
@@ -654,43 +658,29 @@ export class ChatService {
           : record.state === "started"
             ? "the run stopped when president was shut down"
             : undefined;
-      const neither = lastNeither(current);
-      if (!neither) return { started: false };
-      await this.#startRun(project, key, neither, retry, revealedNow);
+      await this.#startRun(project, key, record.note, retry, revealedNow);
       return { started: true };
     });
   }
 
   /**
-   * Records the run as started and starts it, in the background; call under #runLock. A run
-   * still on the card (for an earlier note, or undone and still winding down) is stopped,
-   * and this one waits for it to end, so a card has one run at a time.
+   * Records the run as started and starts it, in the background; call under #runLock, with
+   * no run on the card (newOptionsAsked and startNewOptions refuse then).
    */
   async #startRun(
     project: Project,
     key: CardKey,
-    neither: NeitherNote,
+    note: string,
     retry?: string,
     revealedNow?: string,
   ): Promise<void> {
     const k = keyName(key);
-    // The run still on the card is stopped; this one starts once it has ended (in the
-    // background, so the request that asked for it doesn't wait for a reply going on).
-    const previous = this.#newOptions.get(k);
-    previous?.stop.abort(REPLACED);
-    const note = neither.at;
-    let done!: () => void;
-    const run = {
-      neither,
-      done: new Promise<void>((resolve) => {
-        done = resolve;
-      }),
-      stop: new AbortController(),
-    };
+    const { promise: done, resolve: ended } = Promise.withResolvers<void>();
+    const run = { note, done, stop: new AbortController() };
     this.#newOptions.set(k, run);
     const forget = () => {
       if (this.#newOptions.get(k) === run) this.#newOptions.delete(k);
-      done();
+      ended();
     };
     try {
       await this.store.updateEntry(key, (e) => ({ ...e, newOptions: { note, state: "started" } }));
@@ -699,13 +689,11 @@ export class ChatService {
       throw error;
     }
     const stop = run.stop.signal;
-    void (previous?.done ?? Promise.resolve())
-      .then(() => this.#writeNewOptions(project, key, neither, retry, revealedNow, stop))
+    void this.#writeNewOptions(project, key, note, retry, revealedNow, stop)
       .catch(async (error: unknown) => {
         console.error("[chat]", error);
-        if (!stop.aborted) {
+        if (!stop.aborted)
           await this.#newOptionsFailed(key, note, "internal error; see the server log");
-        }
       })
       .finally(() => {
         forget();
@@ -717,13 +705,12 @@ export class ChatService {
   async #writeNewOptions(
     project: Project,
     key: CardKey,
-    neitherNote: NeitherNote,
+    note: string,
     retry: string | undefined,
     revealedNow: string | undefined,
-    /** Aborted by an Undo of the note (undoing), or by a newer note (REPLACED). */
+    /** Aborted by an Undo of the note (undoing). */
     stop: AbortSignal,
   ): Promise<void> {
-    const note = neitherNote.at;
     const run = new ChatRun();
     this.#optionRuns.add(run);
     await this.#reserveWhenIdle(key, run);
@@ -731,10 +718,11 @@ export class ChatService {
       // Stopped while it waited: nothing was said to the session yet.
       if (stop.aborted) return;
       const card = await this.#card(project, key.id);
+      // Decided, undone or rewritten by an agent while the run waited: nothing to write. (A
+      // card that waits on the note has it as its last "neither"; `!neither` narrows the type.)
       const neither = lastNeither(card);
-      // Decided, undone or rewritten by an agent while the run waited: nothing to write.
-      if (!neither || !waitsOnNote(card, neitherNote)) {
-        await this.#clearRecord(key, note);
+      if (!neither || !waitsOn(card, note)) {
+        if (!stop.aborted) await this.#clearRecord(key, note);
         return;
       }
       const entry = await this.store.entry(key);
@@ -762,8 +750,8 @@ export class ChatService {
       let failure: string | undefined;
       let written: LoadedCard | undefined;
       let message = "";
-      // Undone (the card is already back as it was, and the record gone) or replaced.
-      const stopped = () => save(this.#message("hub", stoppedLine(stop)));
+      // Undone: the card is already back as it was, and the record gone.
+      const stopped = () => save(this.#message("hub", "You undid your note, so the run stopped."));
       if (stop.aborted) {
         await stopped();
         return;
@@ -803,6 +791,7 @@ export class ChatService {
         // new options either: the chat is neutral about them until r, with no word of an
         // earlier pick, since there was none.
         await this.store.updateEntry(key, (e) => {
+          if (e?.newOptions?.note !== note) return e;
           const next: SessionEntry = {
             ...e,
             newOptions: { note, state: "written", options: hash },

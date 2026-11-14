@@ -78,7 +78,7 @@ first five were settled before president had cards. Work not built yet is in
 | 2026-11-13 | Cards with 10 or more options get a warning. | [20261113oew6](../decisions/20261113oew6-cap-options-at-9.md) |
 | 2026-11-14 | Two-week feature freeze: bug fixes, the cleanup plan and these cards; new features only when CellSignalMapper or geode asks. | [202611147ch5](../decisions/202611147ch5-what-next-for-president.md) |
 | 2026-11-14 | For president, cards only for direction, UX and scope; agents decide mechanics and list them in the PR. | [20261114509p](../decisions/20261114509p-which-president-questions-get-cards.md) |
-| 2026-11-14 | Keep the chat; after "Neither" new options start at once and Undo cancels them (undoes 160s, dfik). | [2026111459oa](../decisions/2026111459oa-chat-on-cards-scope.md) |
+| 2026-11-14 | Keep the chat; after "Neither" new options start at once and Undo cancels them, one note at a time (undoes 160s, dfik). | [2026111459oa](../decisions/2026111459oa-chat-on-cards-scope.md) |
 | 2026-11-14 | Finish Windows: the hub finds npm's `claude.cmd`, and the chat tests run on Windows CI. | [202611143v3q](../decisions/202611143v3q-windows-support.md) |
 | 2026-11-14 | A PR's review loop runs until every finding, nits included, is fixed and reviewed again. | [20261114zuct](../decisions/20261114zuct-review-loop-stopping-rule.md) |
 | 2026-11-14 | One line per decision here, reasons in the card; the old roadmap is archived. | [20261114r0w8](../decisions/20261114r0w8-where-decisions-are-recorded.md) |
