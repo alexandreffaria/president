@@ -43,6 +43,7 @@ options:
 resolution:
   choice: freeze
   resolved_at: 2026-11-14T03:17:59Z
+applied_at: 2026-11-14T04:17:20Z
 ---
 
 ## Context

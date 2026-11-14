@@ -43,6 +43,7 @@ options:
 resolution:
   choice: finish-windows
   resolved_at: 2026-11-14T03:18:18Z
+applied_at: 2026-11-14T05:30:32Z
 ---
 
 ## Context

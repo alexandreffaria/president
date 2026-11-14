@@ -35,6 +35,7 @@ options:
 resolution:
   choice: one-line
   resolved_at: 2026-11-14T03:20:21Z
+applied_at: 2026-11-14T04:17:21Z
 ---
 
 ## Context
