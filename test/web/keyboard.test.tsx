@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HelpOverlay } from "../../src/web/components/HelpOverlay.tsx";
 import { type KeyMap, shortcutAllowed, useKeyboard, useKeyLayer } from "../../src/web/keyboard.ts";
 import { parseRoute } from "../../src/web/router.tsx";
+import { press } from "./harness.ts";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -20,14 +21,6 @@ afterEach(() => {
   host.remove();
   document.body.innerHTML = "";
 });
-
-function press(target: EventTarget, key: string, init: KeyboardEventInit = {}): KeyboardEvent {
-  const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
-  act(() => {
-    target.dispatchEvent(event);
-  });
-  return event;
-}
 
 function Page(props: { keys: KeyMap; children?: React.ReactNode }) {
   useKeyboard(props.keys);
@@ -94,7 +87,7 @@ describe("shortcutAllowed", () => {
 });
 
 describe("useKeyboard", () => {
-  it("doesn't steal Enter from a focused button, and handles it on the page", () => {
+  it("doesn't steal Enter from a focused button, and handles it on the page", async () => {
     const enter = vi.fn();
     const clicked = vi.fn();
     act(() =>
@@ -108,17 +101,17 @@ describe("useKeyboard", () => {
     );
     const button = host.querySelector("button") as HTMLButtonElement;
     button.focus();
-    const onButton = press(button, "Enter");
+    const onButton = await press("Enter", button);
     expect(enter).not.toHaveBeenCalled();
     // Not cancelled, so the browser still activates the button.
     expect(onButton.defaultPrevented).toBe(false);
 
-    const onPage = press(document.body, "Enter");
+    const onPage = await press("Enter", document.body);
     expect(enter).toHaveBeenCalledTimes(1);
     expect(onPage.defaultPrevented).toBe(true);
   });
 
-  it("doesn't steal Enter from a focused link", () => {
+  it("doesn't steal Enter from a focused link", async () => {
     const enter = vi.fn();
     act(() =>
       root.render(
@@ -128,13 +121,13 @@ describe("useKeyboard", () => {
       ),
     );
     const link = host.querySelector("a") as HTMLAnchorElement;
-    expect(press(link, "Enter").defaultPrevented).toBe(false);
+    expect((await press("Enter", link)).defaultPrevented).toBe(false);
     expect(enter).not.toHaveBeenCalled();
   });
 
-  it("lets a handler decline a key by returning false", () => {
+  it("lets a handler decline a key by returning false", async () => {
     act(() => root.render(<Page keys={{ enter: () => false }} />));
-    expect(press(document.body, "Enter").defaultPrevented).toBe(false);
+    expect((await press("Enter", document.body)).defaultPrevented).toBe(false);
   });
 });
 
@@ -160,38 +153,38 @@ describe("the help dialog", () => {
     return { onClose, opener };
   }
 
-  it("turns page shortcuts off while it is open", () => {
+  it("turns page shortcuts off while it is open", async () => {
     const defer = vi.fn();
     const back = vi.fn();
     const { onClose } = open({ d: defer, escape: back });
     const dialog = host.querySelector("dialog") as HTMLDialogElement;
     expect(dialog.open).toBe(true);
-    press(document.activeElement ?? dialog, "d");
-    press(document.body, "d");
+    await press("d", document.activeElement ?? dialog);
+    await press("d", document.body);
     expect(defer).not.toHaveBeenCalled();
-    press(document.activeElement ?? dialog, "Escape");
+    await press("Escape", document.activeElement ?? dialog);
     expect(back).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("closes on ? without the page reopening it", () => {
+  it("closes on ? without the page reopening it", async () => {
     const help = vi.fn();
     const { onClose } = open({ "?": help });
-    const event = press(document.activeElement ?? document.body, "?", { shiftKey: true });
+    const event = await press("?", document.activeElement ?? document.body, { shiftKey: true });
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(help).not.toHaveBeenCalled();
     expect(event.defaultPrevented).toBe(true);
   });
 
-  it("moves focus in, keeps Tab inside, and gives focus back when it closes", () => {
+  it("moves focus in, keeps Tab inside, and gives focus back when it closes", async () => {
     const { opener } = open({});
     const dialog = host.querySelector("dialog") as HTMLDialogElement;
     const close = dialog.querySelector("button") as HTMLButtonElement;
     expect(document.activeElement).toBe(close);
     // The only control: Tab and Shift+Tab stay on it.
-    expect(press(close, "Tab").defaultPrevented).toBe(true);
+    expect((await press("Tab", close)).defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(close);
-    expect(press(close, "Tab", { shiftKey: true }).defaultPrevented).toBe(true);
+    expect((await press("Tab", close, { shiftKey: true })).defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(close);
     act(() => root.render(<Help keys={{}} open={false} onClose={() => {}} />));
     expect(document.activeElement).toBe(opener);
@@ -210,26 +203,26 @@ function Panel(props: { page: KeyMap; layer: KeyMap; open: boolean }) {
 }
 
 describe("key layers (panels holding input)", () => {
-  it("turn page shortcuts off wherever focus is, and get Esc even from a text field", () => {
+  it("turn page shortcuts off wherever focus is, and get Esc even from a text field", async () => {
     const page = { j: vi.fn(), d: vi.fn(), escape: vi.fn() };
     const layer = { escape: vi.fn(), j: vi.fn() };
     act(() => root.render(<Panel page={page} layer={layer} open />));
     const button = host.querySelector("button") as HTMLButtonElement;
     for (const target of [button, document.body]) {
-      press(target, "j");
-      press(target, "d");
+      await press("j", target);
+      await press("d", target);
     }
     expect(page.j).not.toHaveBeenCalled();
     expect(page.d).not.toHaveBeenCalled();
     // The layer's own keys follow the usual rules (here, focus on a button is fine)...
     expect(layer.j).toHaveBeenCalledTimes(2);
     // ...and Esc reaches it from the textarea, while the page's Esc does not run.
-    press(host.querySelector("textarea") as HTMLTextAreaElement, "Escape");
+    await press("Escape", host.querySelector("textarea") as HTMLTextAreaElement);
     expect(layer.escape).toHaveBeenCalledTimes(1);
     expect(page.escape).not.toHaveBeenCalled();
 
     act(() => root.render(<Panel page={page} layer={layer} open={false} />));
-    press(document.body, "j");
+    await press("j", document.body);
     expect(page.j).toHaveBeenCalledTimes(1);
   });
 });

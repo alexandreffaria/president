@@ -39,19 +39,21 @@ waiting on a card say which one.
 
 ### 1. Test suite (do first; every review round pays for it)
 
-- [ ] Stop the `president-test-*` leak: close the ChatService (and wait for it to go idle)
+- [x] Stop the `president-test-*` leak: close the ChatService (and wait for it to go idle)
   in `afterEach` of `test/web/chat.test.tsx` and `test/chat.test.ts`. Today a fake-claude
-  run still going writes into the temp dir after it is removed.
-- [ ] Stop the `president-state-*` leak: the state dir's removal (`test/setup.ts:67`) runs
+  run still going writes into the temp dir after it is removed. (#42)
+- [x] Stop the `president-state-*` leak: the state dir's removal (`test/setup.ts:67`) runs
   only if the late-output `afterAll` check (:110) passes, and the gate fixtures fail it on
-  purpose. Remove the dir either way.
-- [ ] Fix the Windows "only fetches…" flake (`test/sync-api.test.ts:300`): also wait until
-  `shop` shows `remoteChanges: 1`, not only until some project has a fetch error.
-- [ ] Split `test/web/chat.test.tsx` (84 s of the suite's 88 s wall time) into 2–3 files.
-- [ ] Move the shared test helpers (`until` ×6, `press` ×4, `FakeWebSocket` ×4, the web hub
-  stub) into one harness.
-- [ ] Where tests pin a whole user-facing sentence, assert the outcome or code instead,
-  keeping one full-text check per message.
+  purpose. Remove the dir either way. (#42)
+- [x] Fix the Windows "only fetches…" flake (`test/sync-api.test.ts:300`): also wait until
+  `shop` shows `remoteChanges: 1`, not only until some project has a fetch error. (#42)
+- [x] Split `test/web/chat.test.tsx` (84 s of the suite's 88 s wall time) into 2–3 files.
+  (#42: `chat-panel`, `chat-deciding` and `chat-gone-views`, sharing `chat-page.tsx`)
+- [x] Move the shared test helpers (`until` ×6, `press` ×4, `FakeWebSocket` ×4, the web hub
+  stub) into one harness. (#42: `until` in `test/helpers.ts`, the rest in
+  `test/web/harness.ts`)
+- [x] Where tests pin a whole user-facing sentence, assert the outcome or code instead,
+  keeping one full-text check per message. (#42)
 
 ### 2. Agent context
 

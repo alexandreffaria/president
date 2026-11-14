@@ -19,7 +19,7 @@ import { startHub } from "../src/server/server.ts";
 import { SyncService } from "../src/server/sync.ts";
 import { EventBus } from "../src/server/watcher.ts";
 import { gitSandbox, type Sandbox } from "./git-sandbox.ts";
-import { DEMO_PROJECT, tempDir } from "./helpers.ts";
+import { DEMO_PROJECT, tempDir, until } from "./helpers.ts";
 
 // Each test runs a few dozen git commands; with several suites at once on a busy machine that
 // can take a while.
@@ -76,13 +76,8 @@ async function holdTheCommit(s: Sandbox): Promise<() => Promise<void>> {
   return () => writeFile(go, "");
 }
 
-async function until(check: () => Promise<boolean>, what: string): Promise<void> {
-  const deadline = Date.now() + 30_000;
-  while (!(await check())) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-}
+/** How long a wait on git work gets: it's slow on a busy machine. */
+const GIT_WAIT = { timeoutMs: 30_000, everyMs: 25 };
 
 describe("the Sync API", () => {
   it("counts answers not synced, syncs, and keeps the result for every tab", async () => {
@@ -167,7 +162,7 @@ describe("the Sync API", () => {
     const release = await holdTheCommit(s);
 
     const syncing = post("/api/sync", {});
-    await until(async () => (await status()).running, "the Sync to start");
+    await until(async () => (await status()).running, "the Sync to start", GIT_WAIT);
     const refused = await act("0002", { type: "defer" });
     expect(refused.status).toBe(409);
     expect(await refused.json()).toMatchObject({
@@ -297,9 +292,17 @@ describe("the hub at start", () => {
     try {
       const status = async () =>
         (await (await fetch(`${hub.url}/api/sync`)).json()) as SyncStatusResponse;
+      // Each project's fetch ends on its own: wait for both, not for whichever ends first.
       await until(
-        async () => (await status()).projects.some((p) => p.fetchError),
-        "the fetch to finish",
+        async () => {
+          const projects = (await status()).projects;
+          return (
+            !!projects.find((p) => p.project === "offline")?.fetchError &&
+            projects.find((p) => p.project === "shop")?.remoteChanges === 1
+          );
+        },
+        "both fetches to finish",
+        GIT_WAIT,
       );
       const projects = (await status()).projects;
       expect(projects.find((p) => p.project === "shop")).toEqual({
@@ -345,7 +348,11 @@ describe("the hub at start", () => {
       expect(await shop()).toMatchObject({ fetchError: expect.any(String), fetchRetrying: true });
       events.length = 0;
       reachable();
-      await until(async () => (await shop())?.fetchError === undefined, "a retry to fetch");
+      await until(
+        async () => (await shop())?.fetchError === undefined,
+        "a retry to fetch",
+        GIT_WAIT,
+      );
       expect((await shop())?.fetchRetrying).toBe(false);
       expect(events).toContainEqual({ type: "sync" });
     } finally {
@@ -356,7 +363,11 @@ describe("the hub at start", () => {
   it("keeps the error once the retries run out", async () => {
     const { sync, shop } = await unreachable([50, 50]);
     try {
-      await until(async () => (await shop())?.fetchRetrying === false, "the retries to end");
+      await until(
+        async () => (await shop())?.fetchRetrying === false,
+        "the retries to end",
+        GIT_WAIT,
+      );
       expect((await shop())?.fetchError).toMatch(/gone\.git/);
     } finally {
       await sync.close();
@@ -391,7 +402,11 @@ describe("the hub at start", () => {
         fetchRetrying: true,
       });
       reachable();
-      await until(async () => (await shop())?.fetchError === undefined, "a retry to fetch");
+      await until(
+        async () => (await shop())?.fetchError === undefined,
+        "a retry to fetch",
+        GIT_WAIT,
+      );
     } finally {
       await sync.close();
     }
@@ -414,7 +429,7 @@ describe("the hub at start", () => {
       removed = true;
       // A retry that read the registry before the removal finishes first (the lock), then
       // the next one reads it and stops.
-      await until(async () => readsSinceRemoved > 0, "a retry to read the registry");
+      await until(async () => readsSinceRemoved > 0, "a retry to read the registry", GIT_WAIT);
       await new Promise((resolve) => setTimeout(resolve, 20));
       events.length = 0;
       // Were it still retried, this fetch would work and say so.
@@ -462,9 +477,7 @@ describe("the hub at start", () => {
     try {
       const status = (await (await fetch(`${hub.url}/api/sync`)).json()) as SyncStatusResponse;
       const shop = status.projects.find((p) => p.project === "shop");
-      expect(shop?.rebase?.message).toBe(
-        "A rebase is in progress in shop, and Sync waits until it is finished or aborted",
-      );
+      expect(shop?.rebase?.message).toMatch(/^A rebase is in progress in shop/);
       expect(shop?.rebase?.action).toMatch(/uncommitted changes to lib\.js/);
       expect(shop?.rebase?.action).toContain(`git rebase --abort in ${s.laptop}`);
     } finally {

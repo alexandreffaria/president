@@ -50,7 +50,7 @@ jobs:
         # claude.exe / npm's claude.cmd, and its tests put test/fake-claude.mjs on PATH as a
         # command. Open PRs change those files, so the fix comes after they merge; until then
         # the chat tests don't run here.
-        run: npx vitest run --exclude test/chat.test.ts --exclude test/web/chat.test.tsx
+        run: npx vitest run --exclude test/chat.test.ts --exclude "test/web/chat-*.test.tsx"
         env:
           FC_RUNS: "1000"
       - name: Build

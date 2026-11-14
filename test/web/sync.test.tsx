@@ -9,34 +9,17 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   CardListResponse,
-  LiveMessage,
   ProjectSyncStatus,
   SyncResultDto,
   SyncStatusResponse,
 } from "../../src/core/api.ts";
 import { App } from "../../src/web/App.tsx";
 import { remoteText, skippedText, unsyncedText } from "../../src/web/components/Sync.tsx";
+import { FakeWebSocket, press, setWaitMs, until } from "./harness.ts";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 vi.setConfig({ testTimeout: 15_000 });
-
-class FakeWebSocket {
-  static last: FakeWebSocket | undefined;
-  onmessage: ((event: MessageEvent) => void) | null = null;
-  onclose: (() => void) | null = null;
-  constructor() {
-    FakeWebSocket.last = this;
-    // The hub opens its socket from a timer, inside the act() of a wait in `until`.
-    queueMicrotask(() => this.receive({ type: "ready" }));
-  }
-  receive(message: LiveMessage) {
-    this.onmessage?.(new MessageEvent("message", { data: JSON.stringify(message) }));
-  }
-  emit(message: LiveMessage) {
-    act(() => this.receive(message));
-  }
-  close() {}
-}
+setWaitMs(10_000);
 
 const EMPTY: CardListResponse = { cards: [], broken: [], projectErrors: [], projects: [] };
 
@@ -77,7 +60,7 @@ beforeEach(() => {
   projects = [project()];
   syncPosts = 0;
   finishSync = undefined;
-  vi.stubGlobal("WebSocket", FakeWebSocket);
+  FakeWebSocket.install();
   vi.stubGlobal("fetch", async (input: string, init: RequestInit = {}) => {
     if (input === "/api/cards") return json(EMPTY);
     if (input === "/api/sync" && init.method === "POST") {
@@ -110,29 +93,15 @@ const text = () => host.textContent ?? "";
 const syncButton = () =>
   host.querySelector<HTMLButtonElement>(".sync-button") ?? expect.fail("no Sync button");
 
-async function until(check: () => boolean, what: string): Promise<void> {
-  const deadline = Date.now() + 10_000;
-  while (!check()) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}: ${text()}`);
-    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
-  }
-}
-
 async function render() {
   window.history.replaceState(null, "", "/");
   act(() => root.render(<App />));
   await until(() => text().includes("Nothing waiting for you"), "the queue");
 }
 
-async function press(key: string, target: EventTarget = document.body) {
-  await act(async () => {
-    target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
-  });
-}
-
 /** Another tab, or the hub start, changed the Sync state. */
 async function syncEvent() {
-  FakeWebSocket.last?.emit({ type: "sync" });
+  FakeWebSocket.last()?.emit({ type: "sync" });
 }
 
 describe("the Sync control", () => {
@@ -146,8 +115,9 @@ describe("the Sync control", () => {
   it("shows how many answers aren't synced and what waits on the remote", async () => {
     projects = [project({ unsynced: 2, remoteChanges: 1 }), project({ project: "b", unsynced: 1 })];
     await render();
-    await until(() => text().includes("3 answers not synced"), "the count");
-    expect(text()).toContain("1 card change on the remote, press Sync");
+    // The wording is pinned once, in "uses the card's wording for the counts".
+    await until(() => text().includes(unsyncedText(3)), "the count");
+    expect(text()).toContain(remoteText(1));
     expect(syncButton().getAttribute("aria-describedby")).toBe("sync-summary");
     expect(syncButton().getAttribute("aria-keyshortcuts")).toBe("s");
 
@@ -285,8 +255,8 @@ describe("the Sync control", () => {
       project({ project: "plain", unavailable: "it isn't …", skippedUnsynced: 0 }),
     ];
     await render();
-    await until(() => text().includes("web: 2 answers not synced (Sync skips it)"), "the line");
-    expect(host.querySelector("#sync-summary")?.textContent).toBe("1 answer not synced");
+    await until(() => text().includes(skippedText("web", 2)), "the line");
+    expect(host.querySelector("#sync-summary")?.textContent).toBe(unsyncedText(1));
     expect(syncButton().querySelector(".sync-count")?.textContent).toBe("1");
     expect(host.querySelectorAll(".sync-skipped li")).toHaveLength(1);
 
@@ -295,7 +265,7 @@ describe("the Sync control", () => {
     await syncEvent();
     await until(() => host.querySelector("#sync-summary") === null, "the summary to go");
     expect(syncButton().querySelector(".sync-count")).toBeNull();
-    expect(text()).toContain("web: 2 answers not synced (Sync skips it)");
+    expect(text()).toContain(skippedText("web", 2));
 
     projects = [project(), skipped(0)];
     await syncEvent();
@@ -330,7 +300,7 @@ describe("the Sync control", () => {
     const squeezed = () => host.querySelector(".sync")?.hasAttribute("data-squeezed");
     projects = [project({ unsynced: 2 })];
     await render();
-    await until(() => text().includes("2 answers not synced"), "the count");
+    await until(() => text().includes(unsyncedText(2)), "the count");
     expect(squeezed()).toBe(false);
     // The bar, the end group and the nav: each can change size alone.
     for (const selector of [".topbar", ".topbar-end", ".nav"]) {

@@ -64,7 +64,6 @@ if (process.platform === "win32") {
 }
 process.env.PATH = `${join(stateHome, "bin")}${delimiter}${path}`;
 process.env.FAKE_CLAUDE_DIR = join(stateHome, "fake");
-afterAll(() => rmSync(stateHome, { recursive: true, force: true }));
 
 /** How long after a file's last test late output is still caught. */
 const LATE_MS = 100;
@@ -109,5 +108,11 @@ afterEach(() => {
 
 afterAll(async () => {
   await new Promise((resolve) => setTimeout(resolve, LATE_MS));
-  expect(problems.splice(0), "warnings and console errors after the tests").toEqual([]);
+  // The state folder goes whether or not the check passes (test/gate's fixtures fail it on
+  // purpose): a failing hook skips the hooks after it.
+  try {
+    expect(problems.splice(0), "warnings and console errors after the tests").toEqual([]);
+  } finally {
+    rmSync(stateHome, { recursive: true, force: true });
+  }
 });

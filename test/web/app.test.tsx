@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HubEvent, LiveMessage } from "../../src/core/api.ts";
+import type { HubEvent } from "../../src/core/api.ts";
 import { createApp } from "../../src/server/app.ts";
 import { Registry } from "../../src/server/registry.ts";
 import { EventBus } from "../../src/server/watcher.ts";
@@ -17,6 +17,15 @@ import { clearWrites } from "../../src/web/app-writes.ts";
 import { clearDrafts } from "../../src/web/drafts.ts";
 import { navigate } from "../../src/web/router.tsx";
 import { cardText, copyDemoProject, diffLines, tempDir } from "../helpers.ts";
+import {
+  FakeWebSocket,
+  press,
+  pressFocused,
+  settled,
+  setWaitMs,
+  stubHub,
+  until,
+} from "./harness.ts";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -28,40 +37,10 @@ import { cardText, copyDemoProject, diffLines, tempDir } from "../helpers.ts";
 // says what it was waiting for.
 vi.setConfig({ testTimeout: 15_000 });
 const WAIT_MS = 5000;
-
-/** Stands in for the browser's WebSocket; tests push hub events through it. */
-class FakeWebSocket {
-  static instances: FakeWebSocket[] = [];
-  /** Off: a new socket says "ready" only when the test calls ready(). */
-  static autoReady = true;
-  onmessage: ((event: MessageEvent) => void) | null = null;
-  onclose: (() => void) | null = null;
-  closed = false;
-  readonly url: string;
-  constructor(url: string) {
-    this.url = url;
-    FakeWebSocket.instances.push(this);
-    if (FakeWebSocket.autoReady) queueMicrotask(() => this.ready());
-  }
-  ready() {
-    this.emit({ type: "ready" });
-  }
-  emit(message: LiveMessage) {
-    if (this.closed) return;
-    act(() => this.onmessage?.(new MessageEvent("message", { data: JSON.stringify(message) })));
-  }
-  /** The connection drops (the hub stopped, say). */
-  drop() {
-    this.closed = true;
-    act(() => this.onclose?.());
-  }
-  close() {
-    this.closed = true;
-  }
-}
+setWaitMs(WAIT_MS);
 
 /** The tab's current socket. */
-const socket = () => FakeWebSocket.instances.at(-1);
+const socket = () => FakeWebSocket.last();
 
 let root: Root;
 let host: HTMLElement;
@@ -72,15 +51,13 @@ let posts: string[];
 let syncingUndos = 0;
 /** While set, card reads say the hub's Sync brought in the revision (changedBySync). */
 let syncBroughtIn = false;
-/** Requests the UI started that haven't finished; awaited before the stubs go away. */
-const inFlight = new Set<Promise<Response>>();
 
 beforeAll(async () => {
   await setUp();
   const slow = 30_000;
   await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card", slow);
   await press("?", document.body);
-  await press("Escape");
+  await pressFocused("Escape");
   await press("1", document.body);
   await press("Enter", document.body);
   await until(() => text().includes("Decided #0001"), "the decision toast", slow);
@@ -101,42 +78,32 @@ async function setUp() {
   posts = [];
   syncingUndos = 0;
   syncBroughtIn = false;
-  vi.stubGlobal("fetch", async (input: string, init: RequestInit = {}) => {
+  stubHub(app, (input, init, hub) => {
     if (init.method === "POST") posts.push(input);
     if (init.method === "POST" && input.endsWith("/undo") && syncingUndos > 0) {
       // What the hub answers while the project's Sync runs (SyncService.writeCard).
       syncingUndos--;
-      return Response.json(
-        {
-          error: "Sync is running in demo, so nothing was changed; try again when it finishes.",
-          code: "syncing",
-        },
-        { status: 409 },
+      return Promise.resolve(
+        Response.json(
+          {
+            error: "Sync is running in demo, so nothing was changed; try again when it finishes.",
+            code: "syncing",
+          },
+          { status: 409 },
+        ),
       );
     }
-    const request = new Request(`http://127.0.0.1:4747${input}`, init);
-    // A browser adds Origin itself (scripts may not set it, so the DOM's Request drops it).
-    request.headers.set("origin", "http://127.0.0.1:4747");
-    const response = Promise.resolve(app.fetch(request)).then(async (res) => {
-      if (
-        !syncBroughtIn ||
-        init.method === "POST" ||
-        !/^\/api\/cards\/[^/?]+\/[^/?]+/.test(input)
-      ) {
-        return res;
-      }
+    if (!syncBroughtIn || init.method === "POST" || !/^\/api\/cards\/[^/?]+\/[^/?]+/.test(input)) {
+      return undefined;
+    }
+    return hub().then(async (res) => {
       // What SyncService.broughtIn says once a Sync's pull brought this revision in.
       const body = (await res.json()) as { ok: boolean; card?: { changedBySync: boolean } };
       if (body.card) body.card.changedBySync = true;
       return Response.json(body, { status: res.status });
     });
-    inFlight.add(response);
-    response.finally(() => inFlight.delete(response)).catch(() => {});
-    return response;
   });
-  FakeWebSocket.instances = [];
-  FakeWebSocket.autoReady = true;
-  vi.stubGlobal("WebSocket", FakeWebSocket);
+  FakeWebSocket.install();
   vi.stubGlobal("confirm", () => true);
   clearDrafts();
   clearWrites();
@@ -147,16 +114,7 @@ async function setUp() {
 
 async function tearDown() {
   act(() => root.unmount());
-  // A refresh can start one more request once the last one finishes: wait until it's quiet.
-  for (let quiet = 0; quiet < 3; ) {
-    if (inFlight.size > 0) {
-      quiet = 0;
-      await Promise.allSettled([...inFlight]);
-    } else {
-      quiet++;
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-  }
+  await settled();
   host.remove();
   document.body.innerHTML = "";
   vi.unstubAllGlobals();
@@ -175,39 +133,11 @@ async function io<T>(work: () => Promise<T>): Promise<T> {
   return result;
 }
 
-async function until(check: () => boolean, what: string, timeoutMs = WAIT_MS): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!check()) {
-    if (Date.now() > deadline)
-      throw new Error(`timed out waiting for ${what}: ${text().slice(0, 600)}`);
-    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
-  }
-}
-
 async function open(path: string, ready: () => boolean, what: string, timeoutMs = WAIT_MS) {
   window.history.replaceState(null, "", path);
   act(() => root.render(<App />));
   await until(ready, what, timeoutMs);
   await settled();
-}
-
-/**
- * Waits until no request the page started is still out. A card page loads the card, the
- * queue (which j and k follow) and the card's conversation separately, in no set order: a
- * key pressed when only the card has arrived would find no queue to move along.
- */
-async function settled(): Promise<void> {
-  for (let quiet = 0; quiet < 3; ) {
-    if (inFlight.size > 0) {
-      quiet = 0;
-      await act(async () => {
-        await Promise.allSettled([...inFlight]);
-      });
-    } else {
-      quiet++;
-      await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
-    }
-  }
 }
 
 const text = () => host.textContent ?? "";
@@ -216,14 +146,6 @@ const button = (label: string) =>
   [...host.querySelectorAll("button")].find((b) => b.textContent?.startsWith(label)) as
     | HTMLButtonElement
     | undefined;
-
-async function press(key: string, target: EventTarget = document.activeElement ?? document.body) {
-  const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
-  await act(async () => {
-    target.dispatchEvent(event);
-  });
-  return event;
-}
 
 /** Types into a field the way a person does (React sees an input event). */
 async function typeInto(field: Element | null, value: string) {
@@ -306,15 +228,15 @@ describe("card view keyboard", () => {
     await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");
     await press("?", document.body);
     expect(host.querySelector("dialog[open]")).not.toBeNull();
-    await press("d");
+    await pressFocused("d");
     await press("d", document.body);
     await settle();
     expect(posts).toEqual([]);
-    await press("Escape");
+    await pressFocused("Escape");
     expect(host.querySelector("dialog")).toBeNull();
     expect(pathname()).toBe("/card/demo/0001");
     await press("?", document.body);
-    await press("?");
+    await pressFocused("?");
     expect(host.querySelector("dialog")).toBeNull();
   });
 
@@ -484,7 +406,7 @@ describe("panels holding unsent text (R2-3)", () => {
     const close = button("Close");
     close?.focus();
     expect(document.activeElement).toBe(close);
-    for (const key of ["j", "k", "m", "d", "2", "u", "?"]) await press(key);
+    for (const key of ["j", "k", "m", "d", "2", "u", "?"]) await pressFocused(key);
     await press("j", document.body);
     await settle();
     expect(pathname()).toBe("/card/demo/0001");
@@ -503,7 +425,7 @@ describe("panels holding unsent text (R2-3)", () => {
     await press("m", document.body);
     await typeInto(host.querySelector("#panel-text"), "Ask Sam first");
     button("Close")?.focus();
-    await press("Escape");
+    await pressFocused("Escape");
     await settle();
     expect(host.querySelector("#panel-text")).toBeNull();
     expect(pathname()).toBe("/card/demo/0001");
@@ -523,13 +445,13 @@ describe("panels holding unsent text (R2-3)", () => {
     await press("1", document.body);
     await typeInto(host.querySelector(".decision-note"), "Works offline");
     button("Decide")?.focus();
-    await press("d");
+    await pressFocused("d");
     await settle();
     expect(posts).toEqual([]);
     expect(await io(() => readFile(file, "utf8"))).toBe(original);
     expect(text()).toContain("isn't sent");
     // Esc still goes back to the queue, and nothing typed is lost.
-    await press("Escape");
+    await pressFocused("Escape");
     await until(() => pathname() === "/", "the queue");
     await until(() => text().includes("What you typed on #0001 is kept"), "the kept toast");
     await act(async () => navigate("/card/demo/0001"));
@@ -856,8 +778,9 @@ describe("errors", () => {
   it("says on the Projects page when a project's folder is gone (R5-21)", async () => {
     await io(() => rm(demo, { recursive: true }));
     await open("/projects", () => text().includes("is missing"), "the missing folder");
-    expect(host.querySelector(".project .notice-warn")?.textContent).toBe(
-      `the project folder ${demo} is missing. If it moved, remove this project and add it again from its new place.`,
+    // test/api.test.ts pins the sentence; the page shows the hub's error for the project.
+    expect(host.querySelector(".project .notice-warn")?.textContent).toContain(
+      `the project folder ${demo} is missing.`,
     );
   });
 });
@@ -1021,7 +944,7 @@ describe("snooze (#0017, 202611112hzh) and the queue order (#0009, #0015)", () =
     await press("D", document.body);
     expect(text()).toContain("Defer until:");
     // Esc closes it without deferring.
-    await press("Escape");
+    await pressFocused("Escape");
     await settle();
     expect(text()).not.toContain("Defer until:");
     expect(pathname()).toBe("/card/demo/0002");
