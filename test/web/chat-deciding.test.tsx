@@ -6,8 +6,7 @@
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
-import { clearHeldUndos } from "../../src/web/new-options.ts";
+import { describe, expect, it } from "vitest";
 import { navigate } from "../../src/web/router.tsx";
 import {
   button,
@@ -503,7 +502,7 @@ describe("the agent never replaces text already in the summary box (PR #28 R3)",
   });
 });
 
-describe("Neither: new options right away (#0007, 202611111gpm, 20261112160s, 20261112dfik)", () => {
+describe("Neither: new options right away (#0007, 202611111gpm, 2026111459oa)", () => {
   const NOTE = "Both assume a server. Compare on-device storage only.";
   const ANSWER = {
     message: "Here are two on-device options.",
@@ -527,13 +526,18 @@ describe("Neither: new options right away (#0007, 202611111gpm, 20261112160s, 20
     ],
     recommendation: { option: "files", why: "Simplest to back up." },
   };
+  const file = () => io(() => readFile(join(demo, "decisions", "0002-api-errors.md"), "utf8"));
   const script = (steps: object[]) =>
     io(() => writeFile(join(fakeDir, "script.json"), JSON.stringify(steps)));
-  const dismissToast = () => {
-    const close = host.querySelector<HTMLButtonElement>(".toast-close");
-    if (!close) throw new Error(`no toast: ${text().slice(0, 600)}`);
-    close.click();
-  };
+  const openGate = (gate: string) => io(() => writeFile(join(fakeDir, gate), ""));
+  /** Waits until `check`, which reads past the page, holds. */
+  async function eventually(check: () => Promise<boolean>, what: string) {
+    for (let i = 0; !(await check()); i++) {
+      if (i > 400) throw new Error(`never happened: ${what}`);
+      await pause();
+    }
+  }
+  const runStarted = () => eventually(async () => (await calls()).length === 1, "the run");
 
   async function askForNewOptions() {
     await open("/card/demo/0002");
@@ -543,46 +547,86 @@ describe("Neither: new options right away (#0007, 202611111gpm, 20261112160s, 20
     await until(() => text().includes("Asked for new options on #0002."), "the Undo notice");
   }
 
-  beforeEach(() => clearHeldUndos());
-
-  it("shows the message as pending while Undo is offered, and runs when the notice closes", async () => {
-    await script([{ structured: ANSWER }]);
+  it("starts the run at once, moves on, and the card says Writing new options… (202611128a05 leave)", async () => {
+    await script([{ structured: ANSWER, gate: "answer" }]);
     await askForNewOptions();
-    // Back on the card while the notice is still shown: nothing has reached the agent.
+    // While the Undo notice is still shown, the run has already reached the agent.
+    await runStarted();
+    expect((await calls())[0]?.args).toContain("--json-schema");
+    // Like Decide and Defer, Ask for new options moves on (202611128a05 `leave`).
+    await until(() => window.location.pathname !== "/card/demo/0002", "the next card");
     navigate("/card/demo/0002");
-    await until(() => text().includes(`Neither: ${NOTE}`), "the pending message");
-    expect(text()).toContain("Sending when Undo closes");
-    expect(button("Start now")).toBeUndefined();
-    expect(await calls()).toEqual([]);
-
-    dismissToast();
+    await until(() => text().includes("Writing new options…"), "the run's status");
+    await until(() => text().includes(`Neither: ${NOTE}`), "the Neither message");
+    await openGate("answer");
     await until(() => text().includes("(The options are now on the card.)"), "the run's reply");
     await until(() => text().includes("Plain files"), "the new options");
     expect(text()).toMatch(/New options, written from your note at /);
-    expect(text()).not.toContain("Sending when Undo closes");
     // The new pick stays hidden (#0008, 2026111272fu).
     expect(button("Show the agent's pick")).toBeDefined();
-    expect((await calls())[0]?.args).toContain("--json-schema");
   });
 
-  it("moves on to the next card, and the card says Writing new options… while the run goes on (202611128a05 leave)", async () => {
-    await script([{ structured: ANSWER, delayMs: 1500 }]);
+  it("another tab just sees the run, with nothing to press", async () => {
+    await script([{ structured: ANSWER, gate: "answer" }]);
     await askForNewOptions();
-    // Like Decide and Defer, Ask for new options moves on (202611128a05 `leave`).
-    await until(() => window.location.pathname !== "/card/demo/0002", "the next card");
-    dismissToast();
-    navigate("/card/demo/0002");
+    // A reload is another page: it has no Undo notice.
+    await reload("/card/demo/0002");
     await until(() => text().includes("Writing new options…"), "the run's status");
+    expect(button("Start now")).toBeUndefined();
+    expect(button("Try again")).toBeUndefined();
+    expect(text()).not.toContain("hasn't started");
+    await openGate("answer");
     await until(() => text().includes("(The options are now on the card.)"), "the run's reply");
+    expect(await calls()).toHaveLength(1);
+  });
+
+  it("an Undo during the run stops it and puts the card back", async () => {
+    const before = await file();
+    await script([{ structured: ANSWER, gate: "answer" }]);
+    await askForNewOptions();
+    await runStarted();
+    await press("u");
+    await until(() => text().includes("Undone. #0002 is back as it was"), "the undo");
+    await until(
+      () => (host.querySelector("#panel-text") as HTMLTextAreaElement | null)?.value === NOTE,
+      "the note back in the Neither panel",
+    );
+    expect(await file()).toBe(before);
+    // The message stays in the conversation (2026111459oa accepts it), and the run ends.
+    await eventually(async () => !(await chatCopy()).running, "the run to end");
+    const copy = await chatCopy();
+    expect(copy.newOptions).toBeUndefined();
+    expect(copy.messages.map((m) => m.text)).toEqual([
+      `Neither: ${NOTE}`,
+      "You undid your note, so the run stopped.",
+    ]);
+    await openGate("answer");
+    await pause();
+    expect(await file()).toBe(before);
+  });
+
+  it("once the options are written, Undo is refused and they stay", async () => {
+    await script([{ structured: ANSWER }]);
+    await askForNewOptions();
+    await eventually(
+      async () => (await chatCopy()).newOptions?.state === "written",
+      "the options written",
+    );
+    await press("u");
+    await until(() => text().includes("Couldn't undo"), "the refusal");
+    expect(text()).toContain(
+      "Couldn't undo: the card changed since (new options may already be on it), so your note can't be taken back",
+    );
+    expect(await file()).toMatch(/id: indexeddb/);
   });
 
   it("offers no run for a neither made on another machine (20261112ah6a wait)", async () => {
     // Synced from another machine: the card waits on the note, and this hub has no record.
-    const file = join(demo, "decisions", "0002-api-errors.md");
-    const card = await io(() => readFile(file, "utf8"));
+    const path = join(demo, "decisions", "0002-api-errors.md");
+    const card = await file();
     await io(() =>
       writeFile(
-        file,
+        path,
         card.replace(
           "depends_on: []\n",
           `depends_on: []\nneeds_new_options: true\nfeedback:\n  - type: neither\n    at: 2026-11-12T21:00:00Z\n    note: ${NOTE}\n`,
@@ -594,40 +638,18 @@ describe("Neither: new options right away (#0007, 202611111gpm, 20261112160s, 20
     await press("c");
     await until(() => messageBox() !== null, "the conversation");
     await pause();
-    expect(button("Start now")).toBeUndefined();
     expect(button("Try again")).toBeUndefined();
-    expect(text()).not.toContain("hasn't started");
     expect(text()).not.toContain(`Neither: ${NOTE}`);
     expect(await calls()).toEqual([]);
   });
 
-  it("an Undo takes the message back, and nothing reaches the agent", async () => {
-    await askForNewOptions();
-    await press("u");
-    await until(() => text().includes("Undone. #0002 is back as it was"), "the undo");
-    await until(() => !text().includes(`Neither: ${NOTE}`), "the message to leave");
-    await until(
-      () => (host.querySelector("#panel-text") as HTMLTextAreaElement | null)?.value === NOTE,
-      "the note back in the Neither panel",
-    );
-    await pause();
-    expect(await calls()).toEqual([]);
-  });
-
-  it("another page offers Start now, and a failed run offers Try again", async () => {
+  it("a failed run offers Try again", async () => {
     await script([
       { lines: [{ type: "result", subtype: "error_max_budget_usd", is_error: true }] },
       { structured: ANSWER },
     ]);
     await askForNewOptions();
-    // A reload is another page: it doesn't hold the Undo notice.
-    clearHeldUndos();
-    await reload("/card/demo/0002");
-    await until(() => text().includes("hasn't started"), "the second-tab message");
-    expect(text()).toMatch(
-      /The run for your note at .+ hasn't started\. If another tab still shows its Undo notice, it starts when that closes\./,
-    );
-    await click("Start now");
+    navigate("/card/demo/0002");
     await until(() => !!button("Try again"), "Try again");
     expect(text()).toContain(
       "Couldn't write new options: the run stopped at its spending cap ($1). The card waits for the project's agent, as before.",
@@ -636,34 +658,8 @@ describe("Neither: new options right away (#0007, 202611111gpm, 20261112160s, 20
     await until(() => text().includes("(The options are now on the card.)"), "the run's reply");
   });
 
-  it("the notice closing never retries a run that failed from another tab (no automatic retry)", async () => {
-    await script([
-      { lines: [{ type: "result", subtype: "error_max_budget_usd", is_error: true }] },
-      { structured: ANSWER },
-    ]);
-    await askForNewOptions();
-    // Another tab presses Start now, and its run fails fast.
-    const note = (await chatCopy()).newOptions?.note as string;
-    const started = await fetch("/api/chats/demo/0002/new-options", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ note }),
-    });
-    expect(await started.json()).toEqual({ started: true });
-    for (let i = 0; (await chatCopy()).newOptions?.state !== "failed"; i++) {
-      if (i > 400) throw new Error("the run never failed");
-      await pause();
-    }
-    // This tab's notice closes: the failed run stays failed, with Try again for the human.
-    dismissToast();
-    for (let i = 0; i < 10; i++) await pause();
-    await settled();
-    expect(await calls()).toHaveLength(1);
-    expect((await chatCopy()).newOptions?.state).toBe("failed");
-  });
-
-  it("New conversation is off while the Neither message waits, and while a message is held (20261112lvbu)", async () => {
-    await script([{}, { structured: ANSWER }, {}]);
+  it("New conversation, asking, sending and Neither are off while the run goes on (20261112lvbu)", async () => {
+    await script([{}, { structured: ANSWER, gate: "answer" }]);
     await io(async () =>
       (
         await fetch("/api/chats/demo/0002/messages", {
@@ -675,32 +671,20 @@ describe("Neither: new options right away (#0007, 202611111gpm, 20261112160s, 20
     );
     await askForNewOptions();
     navigate("/card/demo/0002");
-    await until(() => text().includes("Sending when Undo closes"), "the pending message");
+    await until(() => text().includes("Writing new options…"), "the run's status");
     if (!messageBox()) await press("c");
     await until(() => button("New conversation") !== undefined, "New conversation");
     expect(button("New conversation")?.disabled).toBe(true);
+    expect(button("Teach me")?.disabled).toBe(true);
     await typeInto(messageBox(), "Why drop the server?");
-    await press("Enter", messageBox() as Element);
-    await until(() => text().includes("Sent after your Neither message"), "the held message");
-    expect(button("New conversation")?.disabled).toBe(true);
-    dismissToast();
-    await until(() => text().includes("Echo: Why drop the server?"), "the held message's reply");
+    expect(button("Send")?.disabled).toBe(true);
+    expect(button("Neither")?.disabled).toBe(true);
+    // n does nothing either: no Neither panel opens.
+    await press("n", document.body);
+    expect(host.querySelector("#panel-text")).toBeNull();
+    await openGate("answer");
     await until(() => button("New conversation")?.disabled === false, "New conversation again");
-  });
-
-  it("holds a message sent while the Neither message waits, and sends it after", async () => {
-    await script([{ structured: ANSWER }, {}]);
-    await askForNewOptions();
-    navigate("/card/demo/0002");
-    await until(() => text().includes("Sending when Undo closes"), "the pending message");
-    await typeInto(messageBox(), "Why drop the server?");
-    await press("Enter", messageBox() as Element);
-    await until(() => text().includes("Sent after your Neither message"), "the held message");
-    expect(await calls()).toEqual([]);
-    dismissToast();
-    await until(() => text().includes("Echo: Why drop the server?"), "the held message's reply");
-    const stdin = (await calls()).map((c) => c.stdin);
-    expect(stdin[0]).toContain(NOTE);
-    expect(stdin[1]).toContain("Why drop the server?");
+    expect(button("Send")?.disabled).toBe(false);
+    expect(button("Neither")?.disabled).toBe(false);
   });
 });

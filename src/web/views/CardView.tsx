@@ -43,7 +43,6 @@ import {
 } from "../format.ts";
 import { useHub } from "../hub.tsx";
 import { type KeyMap, useKeyboard, useKeyLayer } from "../keyboard.ts";
-import { holdUndo, releaseUndo, startWhenUndoCloses } from "../new-options.ts";
 import { cardPath, Link, navigate } from "../router.tsx";
 import { dateInputValue, nextMonth, startOfDay, tomorrow } from "../snooze.ts";
 import { useDismissToasts, useToast, useToastShown } from "../toast.tsx";
@@ -180,7 +179,8 @@ export function CardView({ project, id }: { project: string; id: string }) {
   const chatLoaded = cardChat.chat !== undefined;
   /** The new-options run of the card's latest "neither" (#0007), while it concerns the card. */
   const newOptions = cardChat.chat?.newOptions;
-  // A "neither" always leaves a conversation, its message pending at first (202611111gpm).
+  const writingOptions = cardChat.chat?.running === "options";
+  // A "neither" always leaves a conversation, before its message is saved too (202611111gpm).
   const hasConversation =
     (cardChat.chat?.messages.length ?? 0) > 0 ||
     (newOptions !== undefined && newOptions.state !== "written");
@@ -451,14 +451,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
         const panelToRestore: DraftPanel | undefined =
           options.panel ??
           (action.type === "neither" || action.type === "note" ? action.type : undefined);
-        // Ask for new options: the run starts only once this Undo notice is gone, so an Undo
-        // before then leaves nothing anywhere (20261112160s `wait-out`).
-        const note =
-          action.type === "neither"
-            ? res.card.frontmatter.feedback.findLast((f) => f.type === "neither")?.at
-            : undefined;
-        if (note) holdUndo(project, id, note);
-        const onClose = note ? () => startWhenUndoCloses(project, id, note) : undefined;
+        // Undoing Ask for new options also stops its run (2026111459oa `trim`).
         const undo = {
           label: "Undo",
           key: "u",
@@ -470,7 +463,6 @@ export function CardView({ project, id }: { project: string; id: string }) {
                 return hub.refresh();
               })
               .then(() => {
-                if (note) releaseUndo(project, id, note);
                 forgetDecision(project, id);
                 restoreDraft(project, id, wasSent, panelToRestore);
                 navigate(cardPath(project, id));
@@ -487,22 +479,15 @@ export function CardView({ project, id }: { project: string; id: string }) {
                     tone: "error",
                     action: undo,
                     group: undoGroup,
-                    ...(onClose ? { onClose } : {}),
                   });
                   return;
                 }
-                // 20261112dfik `refuse-undo`: another tab started the run for this note.
-                const runStarted = error instanceof RequestError && error.code === "run_started";
-                toast(`Couldn't undo: ${error.message}${runStarted ? "." : ""}`, {
-                  tone: "error",
-                });
-                // The note stays sent, so its run starts (if it hasn't already).
-                onClose?.();
+                toast(`Couldn't undo: ${error.message}`, { tone: "error" });
               });
           },
         };
         const done = typeof options.done === "string" ? options.done : options.done(res.card);
-        toast(done, { action: undo, group: undoGroup, ...(onClose ? { onClose } : {}) });
+        toast(done, { action: undo, group: undoGroup });
       }
       // A view that has gone doesn't move the human on: they are wherever they went since.
       if (options.leave && generation === viewGeneration.current) {
@@ -778,7 +763,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
       void decide(selected, draft.decisionNote, { selected: undefined, decisionNote: "" });
     },
     n: () => {
-      if (!isActive || options.length === 0) return false;
+      if (!isActive || options.length === 0 || writingOptions) return false;
       openPanel("neither");
     },
     m: () => {
@@ -1129,6 +1114,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
           onDefer={defer}
           deferMenu={deferMenu}
           onDeferMenu={setDeferMenu}
+          writingOptions={writingOptions}
         />
       )}
     </div>
@@ -1263,6 +1249,8 @@ function ActionBar(props: {
   onDefer: (until?: Date) => void;
   deferMenu: boolean;
   onDeferMenu: (open: boolean) => void;
+  /** New options are being written: Neither waits for them, as Send does. */
+  writingOptions: boolean;
 }) {
   const { card, busy, draft, panel } = props;
   const { selected, answer } = draft;
@@ -1486,7 +1474,8 @@ function ActionBar(props: {
               ref={neitherButton}
               type="button"
               className="button"
-              disabled={busy}
+              disabled={busy || props.writingOptions}
+              title={props.writingOptions ? "New options are being written" : undefined}
               onClick={() => props.onPanel("neither")}
             >
               Neither… <kbd>n</kbd>

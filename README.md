@@ -225,7 +225,7 @@ both want port 4747 (the icon then turns grey and says "port 4747 in use by anot
    |---|---|
    | `1`–`9` (`a`/`b` on A/B cards) | select an option, then `Enter` to decide (optionally type why first) |
    | `r` | show the agent's pick (hidden until you ask, and again each time you come back to the card); on a card without one, ask the chat for the agent's own view |
-   | `n` | neither: reject all options with a note; the card's own agent writes new ones right away, once the Undo notice closes. The same panel can also decide the card with what you typed as your own answer |
+   | `n` | neither: reject all options with a note; the card's own agent starts writing new ones at once; Undo stops it. The same panel can also decide the card with what you typed as your own answer |
    | `m` | add a note without deciding; also works on a decided card (the decision stays) |
    | `c` | show or hide the conversation with the card's agent (hiding only hides it; the conversation stays open) |
    | `d` | defer for a week: the card leaves the queue and comes back, marked "back from deferral", when the week is over |
@@ -298,17 +298,16 @@ both want port 4747 (the icon then turns grey and says "port 4747 in use by anot
    write (Undo takes both back), **Decide without summary** decides and closes the conversation
    as Close without summary does (Undo brings the reminder back), and Esc goes back to the card.
 
-   **Ask for new options** (the Neither panel) records your note, then, once its Undo notice
-   has closed, sends it to the card's agent as a message in that conversation: "Neither: ...",
-   marked "Sending when Undo closes" until then, so an Undo takes it back before the agent
-   ever sees it. The agent reads the project, researches, and answers with new options, which
-   president writes to the card with the same checks as `preside update` (nothing is written
+   **Ask for new options** (the Neither panel) records your note and sends it at once to the
+   card's agent as a message in that conversation: "Neither: ...". Undo puts the card back and
+   stops the run; your message stays in the conversation and in the agent's memory. Once the
+   new options are written, Undo is refused. The agent reads the project, researches, and
+   answers with new options, which president writes to the card with the same checks as `preside update` (nothing is written
    if the card changed meanwhile, by you, an agent or Sync, or the options don't pass the
    checks; the page says why and offers **Try again**). The card then says "New options, written from your note at
    21:00", with the new pick hidden like any other until you press `r`, also in the
    conversation. The card stays in `preside pending` for the project's working agent, who
-   reads your note and options it didn't write. The same card open in another tab while the
-   Undo notice waits offers **Start now**; pressing it takes Undo away from the first tab.
+   reads your note and options it didn't write.
 
    Notes (`m`) reach agents through `preside pending`, which lists notes they haven't read yet.
    An agent marks a card handled with a token from `pending` that records what it was shown, so

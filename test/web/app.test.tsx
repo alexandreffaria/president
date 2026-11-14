@@ -10,6 +10,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HubEvent } from "../../src/core/api.ts";
 import { createApp } from "../../src/server/app.ts";
+import { ChatService } from "../../src/server/chat/service.ts";
 import { Registry } from "../../src/server/registry.ts";
 import { EventBus } from "../../src/server/watcher.ts";
 import { App } from "../../src/web/App.tsx";
@@ -46,6 +47,8 @@ let root: Root;
 let host: HTMLElement;
 let demo: string;
 let registryEntry: string;
+/** Stopped in tearDown: Ask for new options starts a run (2026111459oa). */
+let chat: ChatService;
 let posts: string[];
 /** How many of the next undo requests the hub refuses because a Sync is running. */
 let syncingUndos = 0;
@@ -74,7 +77,9 @@ async function setUp() {
   demo = await copyDemoProject();
   await registry.add({ path: demo, name: "demo" });
   registryEntry = join(registry.dir, "demo.json");
-  const app = createApp({ registry, bus: new EventBus(), staticDir: undefined });
+  const bus = new EventBus();
+  chat = new ChatService(registry, bus);
+  const app = createApp({ registry, bus, chat, staticDir: undefined });
   posts = [];
   syncingUndos = 0;
   syncBroughtIn = false;
@@ -115,6 +120,7 @@ async function setUp() {
 async function tearDown() {
   act(() => root.unmount());
   await settled();
+  await chat.close();
   host.remove();
   document.body.innerHTML = "";
   vi.unstubAllGlobals();
