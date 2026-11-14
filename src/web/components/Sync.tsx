@@ -50,7 +50,7 @@ export function unsyncedText(n: number): string {
   return `${plural(n, "answer", "answers")} not synced`;
 }
 
-/** "3 card changes on the remote, press Sync", the roadmap's wording. */
+/** "3 card changes on the remote, press Sync", the wording of docs/archive/roadmap-2026-11.md. */
 export function remoteText(n: number): string {
   return `${plural(n, "card change", "card changes")} on the remote, press Sync`;
 }

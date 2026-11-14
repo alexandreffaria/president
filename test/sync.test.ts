@@ -1,7 +1,7 @@
 /**
  * Sync (card #0001) against scratch repositories: every check and failure path the card and
- * docs/roadmap.md describe. Each test builds its own remote and two clones in a temp folder
- * (see git-sandbox.ts); nothing here runs git anywhere else.
+ * docs/archive/roadmap-2026-11.md describe. Each test builds its own remote and two clones in
+ * a temp folder (see git-sandbox.ts); nothing here runs git anywhere else.
  */
 import { execFileSync } from "node:child_process";
 import { chmod, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -495,8 +495,9 @@ describe("Sync: a card changed on both machines", () => {
   });
 
   it("isn't refused by the third check when the remote changed a card answered here", async () => {
-    // The roadmap's clarification: check 3 only looks outside decisions/. The card is
-    // committed first, so a clash ends in the rebase conflict above, not in "not now".
+    // The archived roadmap's clarification (docs/archive/roadmap-2026-11.md): check 3 only
+    // looks outside decisions/. The card is committed first, so a clash ends in the rebase
+    // conflict above, not in "not now".
     const s = await gitSandbox();
     await desktopPushes(s, { "decisions/0002-size.md": "status: deferred\n" });
     await s.write(s.laptop, "decisions/0002-size.md", "status: open\nnote: here\n");

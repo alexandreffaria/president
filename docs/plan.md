@@ -1,8 +1,8 @@
 # Plan (from the 2026-11-14 reflection)
 
 What we're working on now, kept up to date as items land. Tick an item (`[x]`) in the pull
-request that does it, with the PR number. The direction calls are decision cards. Items
-waiting on a card say which one.
+request that does it, with the PR number. The direction calls are decision cards, all
+answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.md).
 
 ## Where president is
 
@@ -23,19 +23,19 @@ waiting on a card say which one.
 - **Effort after the first day's build** (lines added in feature pull requests, roughly):
   about 20% went to the core loop, 40% to the chat and 40% to Sync and platform work.
 
-## Decision cards (2026-11-14)
+## Decision cards (2026-11-14, all answered)
 
-| Card | Question |
-|---|---|
-| [202611147ch5](../decisions/202611147ch5-what-next-for-president.md) | What should the next two weeks be? |
-| [20261114509p](../decisions/20261114509p-which-president-questions-get-cards.md) | Which of president's own questions become cards? |
-| [2026111459oa](../decisions/2026111459oa-chat-on-cards-scope.md) | How much of the chat stays? |
-| [202611143v3q](../decisions/202611143v3q-windows-support.md) | How far does Windows support go? |
-| [20261114zuct](../decisions/20261114zuct-review-loop-stopping-rule.md) | When does a review loop stop? |
-| [20261114r0w8](../decisions/20261114r0w8-where-decisions-are-recorded.md) | Does the decisions table keep the reasons? |
-| [2026111411fs](../decisions/2026111411fs-who-is-president-for.md) | Only for you, or a package others install? |
+| Card | Question | Answer |
+|---|---|---|
+| [202611147ch5](../decisions/202611147ch5-what-next-for-president.md) | What should the next two weeks be? | `freeze`: bug fixes, this plan and these cards; new features only when CellSignalMapper or geode asks |
+| [20261114509p](../decisions/20261114509p-which-president-questions-get-cards.md) | Which of president's own questions become cards? | `direction-only`: direction, UX, scope; mechanics listed in the PR |
+| [2026111459oa](../decisions/2026111459oa-chat-on-cards-scope.md) | How much of the chat stays? | `trim`: new options start at once, Undo cancels them |
+| [202611143v3q](../decisions/202611143v3q-windows-support.md) | How far does Windows support go? | `finish-windows`: `claude.cmd` too, chat tests on Windows CI |
+| [20261114zuct](../decisions/20261114zuct-review-loop-stopping-rule.md) | When does a review loop stop? | `all`: every finding, nits included, fixed and re-reviewed |
+| [20261114r0w8](../decisions/20261114r0w8-where-decisions-are-recorded.md) | Does the decisions table keep the reasons? | `one-line`: one line and a link per decision |
+| [2026111411fs](../decisions/2026111411fs-who-is-president-for.md) | Only for you, or a package others install? | `personal`: public repo, no npm release, Windows = your workstation |
 
-## Engineering: no card needed, in order
+## Engineering, in order (sections 1-5 need no card; 6 applies the cards)
 
 ### 1. Test suite (do first; every review round pays for it)
 
@@ -54,6 +54,8 @@ waiting on a card say which one.
   `test/web/harness.ts`)
 - [x] Where tests pin a whole user-facing sentence, assert the outcome or code instead,
   keeping one full-text check per message. (#42)
+- [ ] Re-review the comment-only change merged in #42 (close() docstring). It was merged
+  without a re-review, so the next review round should cover it.
 
 ### 2. Agent context
 
@@ -64,7 +66,7 @@ waiting on a card say which one.
   it, and move the rarely used parts ("New notes", "Changing a card") into a reference file
   the skill links to.
 - [ ] Update the stale parts of the Windows comments in `.github/workflows/ci.yml` (lines
-  20-21 and 49-52); the chat-test exclusion itself waits on 202611143v3q.
+  20-21 and 49-52); the chat-test exclusion itself goes in section 6.
 
 ### 3. Safety
 
@@ -72,9 +74,9 @@ waiting on a card say which one.
   `src/server/chat/runner.ts:165` spawns it by bare name in the project folder, so a
   `claude.exe` committed to a project (Windows), or an empty or relative PATH entry (Linux),
   would run.
-- [ ] foundations.md still says "Repo | Private on GitHub"; it's public now.
+- [x] foundations.md still says "Repo | Private on GitHub"; it's public now. (#43)
 
-### 4. Refactors (no behaviour change; after the cards that could cut the same code)
+### 4. Refactors (no behaviour change; after section 6's chat trim, which cuts the same code)
 
 - [ ] Split `src/server/sync.ts` (1.3k lines): `Repo` to `sync/repo.ts`, and `runSequence`
   (360 lines, 19 branches) into named checks, with `SyncService` in its own file.
@@ -94,20 +96,16 @@ waiting on a card say which one.
 - [ ] Pin exact versions of the new toolchain (TypeScript 7, vite 8, vitest 5) in
   `package.json`.
 
-## Waiting on cards
+### 6. What the 2026-11-14 cards decided
 
-- **2026111459oa (chat):**
-  - `trim`: the new options start at once and Undo cancels them, so the waiting and
-    other-tab "Start now" code goes.
-  - `ask-only`: summaries, reminders and the new-options run go.
-- **202611143v3q (platform):**
-  - `finish-windows`: on top of the absolute-path spawn, handle npm's `claude.cmd`, and
-    run the chat tests on Windows CI.
-  - `hub-sync-only`: the README says the chat is Linux-only.
-  - `drop-windows`: the Windows code and its tray icon go.
-- **20261114r0w8 (records):** `one-line` slims the foundations table to one line per
-  decision. Either way, `docs/roadmap.md` moves to `docs/archive/` with a short new roadmap.
-- **20261114509p and 20261114zuct:** these change how I work (memory and the skill), not
-  the code.
-- **202611147ch5 (next two weeks):** sets whether anything beyond this plan gets built.
-- **2026111411fs (who it's for):** sets how much docs, platform and edge-case work is worth.
+- [x] Slim the foundations table to one line per decision (20261114r0w8), and move
+  `docs/roadmap.md` to `docs/archive/roadmap-2026-11.md` with a short new roadmap. (#43)
+- [x] Record 20261114509p and 20261114zuct in foundations.md's "Engineering process". (#43)
+- [x] README: drop the install notes meant for other people (2026111411fs). (#43)
+- [ ] Chat trim (2026111459oa): new options start at once and Undo cancels the run; the
+  waiting and other-tab "Start now" code goes (roadmap item 1). Do it before section 4's
+  `CardView.tsx` and `chat/service.ts` splits.
+- [ ] Windows chat (202611143v3q): on top of section 3's absolute-path spawn, find npm's
+  `claude.cmd`, and run the chat tests on Windows CI (roadmap item 2).
+- Freeze (202611147ch5): until 2026-11-28 nothing beyond this plan gets built, unless
+  CellSignalMapper or geode asks for it.

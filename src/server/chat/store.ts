@@ -2,7 +2,7 @@
  * What the hub keeps about card conversations on this machine, in president's state folder
  * (`$XDG_STATE_HOME/president/`, by default `~/.local/state/president/`). None of it is in a
  * project, none of it travels with Sync, and all of it is keyed by project name and card id
- * ("Four per-machine stores, one folder" in docs/roadmap.md):
+ * ("Four per-machine stores, one folder" in docs/archive/roadmap-2026-11.md):
  *
  *   sessions.json             { "<project>/<id>": SessionEntry }: the card's Claude Code
  *                             session id (#0021) or that a new one was asked for
