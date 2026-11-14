@@ -14,9 +14,12 @@ import { join } from "node:path";
  * started while the child is still running (`exited()` is checked when taskkill starts; a
  * small window remains in which the child exits and Windows gives its PID to another
  * process): /T can't find the tree of a process that is gone, and /T /F would kill another
- * process's tree. Once the child has exited, a process it started may still hold its output
- * open, which would keep `close` from ever coming; its pipes are closed instead, so the run
- * ends (that process is left running).
+ * process's tree.
+ *
+ * Once the child has exited, a process it started that is out of reach (on Windows any, its
+ * tree gone; elsewhere one in a session of its own) may still hold the child's output open,
+ * which would keep `close` from ever coming. So the child's pipes are closed too, and the run
+ * ends; that process is left running.
  */
 export function killTree(child: ChildProcess, signal: NodeJS.Signals, exited: () => boolean): void {
   if (process.platform === "win32") {
@@ -47,6 +50,7 @@ export function killTree(child: ChildProcess, signal: NodeJS.Signals, exited: ()
     // Already gone: stop the child itself.
     child.kill(signal);
   }
+  if (exited()) closePipes(child);
 }
 
 function closePipes(child: ChildProcess): void {

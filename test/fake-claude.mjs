@@ -73,12 +73,15 @@ const out = (line) => process.stdout.write(`${JSON.stringify(line)}\n`);
 if (step.grandchild) {
   // A process of its own that keeps the run's output open for a minute, the way a tool
   // Claude Code started would: the run ends only once it is stopped too.
+  // With `exitEarly` it is out of reach of the run's stop: detached, so in a session of its own
+  // on Linux and, on Windows, out of the job that ends Node's children when Node exits.
   const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], {
     stdio: ["ignore", "inherit", "inherit"],
+    detached: Boolean(step.exitEarly),
     windowsHide: true,
   });
   writeFileSync(join(dir, "grandchild.pid"), String(child.pid));
-  // And ends at once, leaving it running.
+  // And the stand-in ends at once, leaving it running.
   if (step.exitEarly) process.exit(0);
 }
 if (step.delayMs) await new Promise((resolve) => setTimeout(resolve, step.delayMs));
