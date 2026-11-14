@@ -48,6 +48,7 @@ options:
 resolution:
   choice: hide
   resolved_at: 2026-11-12T20:23:08Z
+applied_at: 2026-11-13T21:52:48Z
 ---
 
 ## Context

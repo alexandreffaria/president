@@ -51,6 +51,7 @@ options:
 resolution:
   choice: warn
   resolved_at: 2026-11-13T13:01:01Z
+applied_at: 2026-11-13T21:22:07Z
 ---
 
 ## Context
