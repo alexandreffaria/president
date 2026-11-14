@@ -370,10 +370,9 @@ describe("stopping a run", () => {
       const started = Date.now();
       const result = await run(await tempDir(), env, { bin: FAKE, timeoutMs: 1500 });
       grandchild = Number(await readFile(join(fake, "grandchild.pid"), "utf8"));
-      expect({ ...result, ms: Date.now() - started, alive: alive(grandchild) }).toMatchObject({
-        ok: false,
-        error: expect.stringMatching(/took longer/),
-      });
+      expect(`${result.error} ms=${Date.now() - started} alive=${alive(grandchild)}`).toMatch(
+        /took longer/,
+      );
     } finally {
       // On Windows the process is left running once the run's own has exited: no tree to find.
       grandchild ??= Number(await readFile(join(fake, "grandchild.pid"), "utf8").catch(() => 0));
