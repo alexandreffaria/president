@@ -98,6 +98,9 @@ afterEach(async () => {
   // Before helpers.ts removes the temp folder (hooks run as a stack): a fake-claude run
   // still going never writes into a folder that is gone.
   await chat.close();
+  // A reply cut short ends its stream, and the page reads the conversation again: that read
+  // still goes to the hub, not past the stub to happy-dom's own origin.
+  await settled();
   host.remove();
   document.body.innerHTML = "";
   vi.unstubAllGlobals();

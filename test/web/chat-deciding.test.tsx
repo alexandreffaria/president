@@ -209,7 +209,9 @@ describe("deciding while a conversation is open, reviewed (PR #28 R1)", () => {
     await press("Escape");
     await until(() => deciding() === null, "the box to close");
     expect((messageBox() as HTMLTextAreaElement).disabled).toBe(false);
-    expect(button("Teach me")?.disabled).toBe(false);
+    // The asks also wait for the page to read that the summary's run is over, which can come
+    // after the box closes on a busy machine.
+    await until(() => button("Teach me")?.disabled === false, "Teach me to be on again");
     expect(text()).not.toContain("Finish deciding");
   });
 
