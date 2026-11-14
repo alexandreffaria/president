@@ -263,8 +263,9 @@ export class ChatService {
 
   /**
    * Stops the runs in progress and waits until the service is idle: every run (a reply, a
-   * summary, new options) has ended and released its card, so nothing writes to the state
-   * folder after this returns.
+   * summary, new options) started before it has ended and released its card. A request
+   * already on its way in can still reserve a card after this returns; its run stops at once,
+   * but may still write to the state folder.
    */
   async close(): Promise<void> {
     clearInterval(this.#cleanupTimer);
