@@ -21,7 +21,7 @@ import {
   tooltipTitle,
   withDisplay,
 } from "../tray/linux/preside-tray.ts";
-import { tempDir } from "./helpers.ts";
+import { tempDir, until } from "./helpers.ts";
 
 const ACCENT = [0x3d, 0x5a, 0x80];
 const DOWN = [0x8a, 0x8f, 0x98];
@@ -235,11 +235,6 @@ async function privateBus() {
   };
 }
 
-async function until(check: () => boolean): Promise<void> {
-  for (let i = 0; i < 100 && !check(); i++) await new Promise((r) => setTimeout(r, 20));
-  expect(check()).toBe(true);
-}
-
 // Unix sockets in a temp folder: where the icon runs.
 describe.skipIf(process.platform === "win32")("the Linux tray icon on a bus", () => {
   it("registers with the tray host, shows the count and the build, opens and quits", {
@@ -250,7 +245,7 @@ describe.skipIf(process.platform === "win32")("the Linux tray icon on a bus", ()
     const hub = fakeHub();
     const icon = await startIcon(bus.address, hub.deps, 60_000);
     try {
-      await until(() => bus.registered.length === 1);
+      await until(() => bus.registered.length === 1, "the icon to register", { timeoutMs: 2000 });
       expect(bus.registered).toEqual([icon.busName]);
 
       const props = await bus.host.getInterface(
@@ -289,7 +284,7 @@ describe.skipIf(process.platform === "win32")("the Linux tray icon on a bus", ()
       await item.$subscribe("NewToolTip", () => signals.push("NewToolTip"));
       hub.state.count = 0;
       await icon.refresh();
-      await until(() => signals.length === 2);
+      await until(() => signals.length === 2, "both signals", { timeoutMs: 2000 });
       expect(signals.sort()).toEqual(["NewIcon", "NewToolTip"]);
       expect((await props.Get("org.kde.StatusNotifierItem", "ToolTip"))[2]).toBe(
         "president: nothing waiting",
@@ -329,7 +324,7 @@ describe.skipIf(process.platform === "win32")("the Linux tray icon on a bus", ()
       expect(icon.view).toBe(1);
       expect(bus.registered).toEqual([]);
       await bus.startWatcher();
-      await until(() => bus.registered.length === 1);
+      await until(() => bus.registered.length === 1, "the icon to register", { timeoutMs: 2000 });
       expect(bus.registered).toEqual([icon.busName]);
     } finally {
       await icon.close();

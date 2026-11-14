@@ -9,34 +9,17 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   CardListResponse,
-  LiveMessage,
   ProjectSyncStatus,
   SyncResultDto,
   SyncStatusResponse,
 } from "../../src/core/api.ts";
 import { App } from "../../src/web/App.tsx";
 import { remoteText, skippedText, unsyncedText } from "../../src/web/components/Sync.tsx";
+import { FakeWebSocket, press, setWaitMs, until } from "./harness.ts";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 vi.setConfig({ testTimeout: 15_000 });
-
-class FakeWebSocket {
-  static last: FakeWebSocket | undefined;
-  onmessage: ((event: MessageEvent) => void) | null = null;
-  onclose: (() => void) | null = null;
-  constructor() {
-    FakeWebSocket.last = this;
-    // The hub opens its socket from a timer, inside the act() of a wait in `until`.
-    queueMicrotask(() => this.receive({ type: "ready" }));
-  }
-  receive(message: LiveMessage) {
-    this.onmessage?.(new MessageEvent("message", { data: JSON.stringify(message) }));
-  }
-  emit(message: LiveMessage) {
-    act(() => this.receive(message));
-  }
-  close() {}
-}
+setWaitMs(10_000);
 
 const EMPTY: CardListResponse = { cards: [], broken: [], projectErrors: [], projects: [] };
 
@@ -77,7 +60,7 @@ beforeEach(() => {
   projects = [project()];
   syncPosts = 0;
   finishSync = undefined;
-  vi.stubGlobal("WebSocket", FakeWebSocket);
+  FakeWebSocket.install();
   vi.stubGlobal("fetch", async (input: string, init: RequestInit = {}) => {
     if (input === "/api/cards") return json(EMPTY);
     if (input === "/api/sync" && init.method === "POST") {
@@ -110,29 +93,15 @@ const text = () => host.textContent ?? "";
 const syncButton = () =>
   host.querySelector<HTMLButtonElement>(".sync-button") ?? expect.fail("no Sync button");
 
-async function until(check: () => boolean, what: string): Promise<void> {
-  const deadline = Date.now() + 10_000;
-  while (!check()) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}: ${text()}`);
-    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
-  }
-}
-
 async function render() {
   window.history.replaceState(null, "", "/");
   act(() => root.render(<App />));
   await until(() => text().includes("Nothing waiting for you"), "the queue");
 }
 
-async function press(key: string, target: EventTarget = document.body) {
-  await act(async () => {
-    target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
-  });
-}
-
 /** Another tab, or the hub start, changed the Sync state. */
 async function syncEvent() {
-  FakeWebSocket.last?.emit({ type: "sync" });
+  FakeWebSocket.last()?.emit({ type: "sync" });
 }
 
 describe("the Sync control", () => {

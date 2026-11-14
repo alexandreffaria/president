@@ -6,7 +6,7 @@
  */
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   CardActionResponse,
   CardResponse,
@@ -52,6 +52,15 @@ interface Call {
   cwd: string;
 }
 
+/** The services the tests started, closed before their temp folders are removed. */
+const services: ChatService[] = [];
+
+// Registered after helpers.ts's afterEach, so it runs before it (hooks run as a stack): a
+// fake-claude run still going never writes into a temp folder that is gone.
+afterEach(async () => {
+  await Promise.all(services.splice(0).map((chat) => chat.close()));
+});
+
 async function setup() {
   const root = await tempDir();
   const registry = new Registry(join(root, "config"));
@@ -71,6 +80,7 @@ async function setup() {
     env: { ...process.env, FAKE_CLAUDE_DIR: fakeDir, CLAUDE_CONFIG_DIR: claudeDir },
     now: () => now,
   });
+  services.push(chat);
   const app = createApp({ registry, bus, chat, staticDir: undefined });
   const request = (path: string, init: RequestInit = {}) =>
     app.request(`http://127.0.0.1:4747${path}`, init);

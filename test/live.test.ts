@@ -15,7 +15,7 @@ import type { HubEvent, LiveMessage } from "../src/core/api.ts";
 import { Registry } from "../src/server/registry.ts";
 import { type RunningHub, startHub } from "../src/server/server.ts";
 import { Debouncer, EventBus, HubWatcher, identity } from "../src/server/watcher.ts";
-import { cardText, copyDemoProject, tempDir } from "./helpers.ts";
+import { cardText, copyDemoProject, tempDir, until } from "./helpers.ts";
 
 /** Stats of `paths` wait for `until`; `held` and `released` count those calls. */
 interface Hold {
@@ -72,26 +72,19 @@ afterEach(async () => {
  * and then every 150 ms until then, for changes a watch that is still attaching could miss.
  * The default deadline is under vitest's 5 s test timeout, so a miss says what it waited for.
  */
-async function until<T>(
+/** How long a wait for the watcher or the socket gets. */
+const LIVE_WAIT = { timeoutMs: 4000 };
+
+/** Waits until one of `items` (a log that grows) matches; `poke` runs meanwhile. */
+function untilSeen<T>(
   items: T[],
   predicate: (item: T) => boolean,
   poke?: () => Promise<unknown>,
-  timeoutMs = 4_000,
-): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
-  let lastPoke = 0;
-  for (;;) {
-    const found = items.find(predicate);
-    if (found !== undefined) return found;
-    if (Date.now() > deadline) {
-      throw new Error(`timed out waiting for an event matching ${predicate}`);
-    }
-    if (poke && Date.now() - lastPoke >= 150) {
-      lastPoke = Date.now();
-      await poke();
-    }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
+): Promise<void> {
+  return until(() => items.some(predicate), `an event matching ${predicate}`, {
+    ...LIVE_WAIT,
+    ...(poke ? { poke } : {}),
+  });
 }
 
 /** Writes a fresh, valid card with id `n` into `dir`. */
@@ -124,7 +117,7 @@ async function untilNewCardSeen(log: Log, name: string, dir: string, also: strin
     const id = n++;
     return Promise.all([dir, ...also].map((to) => writeCard(to, id)));
   };
-  await until([0], seen, poke);
+  await until(seen, "the watcher to see a new card", { ...LIVE_WAIT, poke });
 }
 
 /** A watcher on a registry with the demo project; `setup` can change the registry first. */
@@ -185,7 +178,7 @@ describe("HubWatcher", () => {
     const dir = join(demo, "decisions");
     await writeFile(join(dir, "0005-new.md"), cardText({ id: '"0005"' }));
     await writeFile(join(dir, "0005-new.md"), cardText({ id: '"0005"', title: "Edited" }));
-    await until(events, (e) => e.type === "cards");
+    await untilSeen(events, (e) => e.type === "cards");
     expect(events.every((e) => e.type === "cards" && e.project === "demo")).toBe(true);
   });
 
@@ -221,7 +214,7 @@ describe("HubWatcher", () => {
     // writes have been delivered too (and must have been filtered out).
     const sentinel = join(dir, "0006-sentinel.md");
     await writeFile(sentinel, cardText({ id: '"0006"' }));
-    await until(fileEvents, (e) => e.path === sentinel);
+    await untilSeen(fileEvents, (e) => e.path === sentinel);
     expect(fileEvents.map((e) => e.path)).toEqual([sentinel]);
   });
 
@@ -230,9 +223,9 @@ describe("HubWatcher", () => {
     const other = await copyDemoProject();
     // A second Registry instance stands in for the CLI.
     await new Registry(join(registry.dir, "..")).add({ path: other, name: "other" });
-    await until(events, (e) => e.type === "projects");
+    await untilSeen(events, (e) => e.type === "projects");
     let n = 10;
-    await until(
+    await untilSeen(
       events,
       (e) => e.type === "cards" && e.project === "other",
       () => writeCard(join(other, "decisions"), n++),
@@ -447,7 +440,7 @@ describe("HubWatcher", () => {
       await started;
       // Nothing is added once closed (that would reopen chokidar), and every watch goes.
       expect(add.mock.calls.length).toBe(adds);
-      await until([0], () => watches().length === before);
+      await until(() => watches().length === before, "the watches to go back", LIVE_WAIT);
     },
   );
 
@@ -497,7 +490,7 @@ describe("HubWatcher", () => {
     });
     // No poke: a card written right after start() must be seen.
     await writeCard(join(demo, "decisions"), 5);
-    await until(events, (e) => e.type === "cards" && e.project === "demo");
+    await untilSeen(events, (e) => e.type === "cards" && e.project === "demo");
   });
 
   it("watches projects whose folders were missing at start once they come back (R11-2)", async () => {
@@ -519,7 +512,7 @@ describe("HubWatcher", () => {
     const dir = join(paths.get("clone") ?? "", "decisions");
     await mkdir(dir, { recursive: true });
     await writeCard(dir, 1);
-    await until(events, (e) => e.type === "cards" && e.project === "clone");
+    await untilSeen(events, (e) => e.type === "cards" && e.project === "clone");
   });
 
   it("stops looking for a project's folder once the project is unregistered", async () => {
@@ -547,13 +540,13 @@ describe("HubWatcher", () => {
       const before = watches();
       const { demo, watcher, fileEvents } = await watched(missing(["gone"]).setup);
       await writeCard(join(demo, "decisions"), 5);
-      await until(fileEvents, (e) => e.path.endsWith("0005-x.md"));
+      await untilSeen(fileEvents, (e) => e.path.endsWith("0005-x.md"));
       expect(vi.getTimerCount()).toBe(1);
       expect(watches()).toBeGreaterThan(before);
       await watcher.close();
       expect(vi.getTimerCount()).toBe(0);
       // A closed fs.watch handle is let go of a moment later.
-      await until([0], () => watches() === before);
+      await until(() => watches() === before, "the watches to go back", LIVE_WAIT);
     } finally {
       vi.useRealTimers();
     }
@@ -589,7 +582,7 @@ describe("running hub", () => {
       ws.once("open", () => resolve());
       ws.once("error", reject);
     });
-    await until(messages, (m) => m.type === "ready");
+    await untilSeen(messages, (m) => m.type === "ready");
     return { ws, messages, closed };
   }
 
@@ -635,7 +628,7 @@ describe("running hub", () => {
       file,
       (await readFile(file, "utf8")).replace("priority: normal", "priority: high"),
     );
-    await until(messages, (m) => m.type === "cards" && m.project === "demo");
+    await untilSeen(messages, (m) => m.type === "cards" && m.project === "demo");
   });
 
   it("keeps the API answering with more sockets open than browsers allow requests (R4-1)", async () => {
@@ -648,7 +641,7 @@ describe("running hub", () => {
       headers: { origin: running.url },
     });
     expect(removed.status).toBe(200);
-    for (const { messages } of sockets) await until(messages, (m) => m.type === "projects");
+    for (const { messages } of sockets) await untilSeen(messages, (m) => m.type === "projects");
   });
 
   it("refuses WebSockets from other origins and hosts (hijacking, DNS rebinding)", async () => {
@@ -703,7 +696,7 @@ describe("running hub", () => {
     // the pong arriving within one (short) heartbeat, which a busy machine may not manage.
     const { hub: running } = await hub({ heartbeatMs: 100 });
     const { messages } = await socket(running);
-    await until(messages, (m) => m.type === "ping");
+    await untilSeen(messages, (m) => m.type === "ping");
     expect(messages[0]).toEqual({ type: "ready" });
   });
 
@@ -733,7 +726,7 @@ describe("running hub", () => {
   it("answers a request that asks for another upgrade (curl --http2) as a plain one (R5-1)", async () => {
     const { hub: running } = await hub();
     const { received } = await rawRequest(running, h2c);
-    await until([0], () => received().includes('{"ok":true,"pid":'));
+    await until(() => received().includes('{"ok":true,"pid":'), "the health answer", LIVE_WAIT);
     expect(received()).toMatch(/^HTTP\/1\.1 200 /);
   });
 
@@ -750,8 +743,8 @@ describe("running hub", () => {
       "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
       "Origin: https://evil.example",
     ]);
-    await until([0], () => refused.received().includes(" 403 "));
-    await until([0], () => other.received().includes("200 OK"));
+    await until(() => refused.received().includes(" 403 "), "the refusal", LIVE_WAIT);
+    await until(() => other.received().includes("200 OK"), "the other answer", LIVE_WAIT);
     const started = Date.now();
     await running.close();
     expect(Date.now() - started).toBeLessThan(2000);

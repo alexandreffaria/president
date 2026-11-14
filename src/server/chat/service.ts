@@ -261,14 +261,20 @@ export class ChatService {
     this.#cleanupTimer.unref();
   }
 
-  /** Stops the runs in progress and waits for them to end. */
+  /**
+   * Stops the runs in progress and waits until the service is idle: every run (a reply, a
+   * summary, new options) has ended and released its card, so nothing writes to the state
+   * folder after this returns.
+   */
   async close(): Promise<void> {
     clearInterval(this.#cleanupTimer);
     this.#abort.abort();
-    await Promise.all([
-      ...[...this.#running.values()].map((run) => (typeof run === "string" ? undefined : run.done)),
-      ...this.#newOptions.values(),
-    ]);
+    while (this.#running.size > 0 || this.#newOptions.size > 0) {
+      await Promise.all([
+        ...[...this.#running.keys()].map((name) => this.#whenIdleNamed(name)),
+        ...this.#newOptions.values(),
+      ]);
+    }
   }
 
   async conversation(project: Project, id: string): Promise<ChatDto> {
@@ -1067,11 +1073,15 @@ export class ChatService {
 
   /** Waits until no run is going on for the card; reserve right after, with no await between. */
   async #whenIdle(key: CardKey): Promise<void> {
-    while (this.#running.has(keyName(key))) {
+    await this.#whenIdleNamed(keyName(key));
+  }
+
+  async #whenIdleNamed(name: string): Promise<void> {
+    while (this.#running.has(name)) {
       await new Promise<void>((resolve) => {
-        const list = this.#waiters.get(keyName(key)) ?? [];
+        const list = this.#waiters.get(name) ?? [];
         list.push(resolve);
-        this.#waiters.set(keyName(key), list);
+        this.#waiters.set(name, list);
       });
     }
   }

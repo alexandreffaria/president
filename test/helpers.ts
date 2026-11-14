@@ -24,6 +24,41 @@ export async function tempDir(prefix = "president-test-"): Promise<string> {
   return dir;
 }
 
+export interface UntilOptions {
+  /** How long to wait before giving up (default 5 s). */
+  timeoutMs?: number;
+  /** How long to wait between checks (default 10 ms). */
+  everyMs?: number;
+  /** Waits between checks instead of a plain timer (the web tests let React render). */
+  wait?: (ms: number) => Promise<unknown>;
+  /** What the timeout error adds after `what` (say, what the page shows). */
+  detail?: () => string;
+  /** Runs at most every 150 ms while waiting, to make what is waited for happen again. */
+  poke?: () => Promise<unknown>;
+}
+
+/** Checks until `check` holds, or fails with "timed out waiting for `what`". */
+export async function until(
+  check: () => boolean | Promise<boolean>,
+  what: string,
+  options: UntilOptions = {},
+): Promise<void> {
+  const { timeoutMs = 5000, everyMs = 10, detail, poke } = options;
+  const wait = options.wait ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const deadline = Date.now() + timeoutMs;
+  let lastPoke = 0;
+  while (!(await check())) {
+    if (Date.now() > deadline) {
+      throw new Error(`timed out waiting for ${what}${detail ? `: ${detail()}` : ""}`);
+    }
+    if (poke && Date.now() - lastPoke >= 150) {
+      lastPoke = Date.now();
+      await poke();
+    }
+    await wait(everyMs);
+  }
+}
+
 /** A copy of the demo project in a temp folder, safe to modify. */
 export async function copyDemoProject(name = "demo"): Promise<string> {
   const root = await tempDir();
