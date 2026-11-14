@@ -17,8 +17,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Windows: president is about to get a Windows tray/autostart helper, so the hub and its
-        # tests must work there too.
+        # Windows (20261112vzn8, 202611143v3q): the hub, Sync, the tray icon and the card chat
+        # run there too, so every test runs on both.
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
@@ -39,19 +39,11 @@ jobs:
         # are not checked here). A broken card fails CI.
         run: node bin/preside.js validate .
       - name: Test
-        if: runner.os != 'Windows'
+        # The chat tests' stand-in for Claude Code (test/fake-claude.mjs) is on PATH as
+        # `claude`, and on Windows as an npm-style claude.cmd (test/setup.ts).
         run: npm test
         env:
           # The card writer's property test: 1000 generated cards here, 100 locally.
-          FC_RUNS: "1000"
-      - name: Test (Windows)
-        if: runner.os == 'Windows'
-        # Card chat isn't ready for Windows yet: its runner spawns `claude` without resolving
-        # claude.exe / npm's claude.cmd, and its tests put test/fake-claude.mjs on PATH as a
-        # command. Open PRs change those files, so the fix comes after they merge; until then
-        # the chat tests don't run here.
-        run: npx vitest run --exclude test/chat.test.ts --exclude "test/web/chat-*.test.tsx"
-        env:
           FC_RUNS: "1000"
       - name: Build
         run: npm run build

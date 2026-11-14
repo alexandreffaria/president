@@ -20,11 +20,13 @@ import {
   realpathSync,
   rmSync,
   symlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { format } from "node:util";
 import { afterAll, afterEach, expect } from "vitest";
+import { nodeShim } from "./cmd-shim.ts";
 
 // On Windows the temp folder can come as a short 8.3 name (C:\Users\RUNNER~1\...), and
 // president resolves the paths it is given to their real, long names: tests compare those
@@ -43,24 +45,25 @@ process.env.CLAUDE_CONFIG_DIR = join(stateHome, "claude");
 // without one can never run the real Claude Code.
 mkdirSync(join(stateHome, "bin"));
 mkdirSync(join(stateHome, "fake"));
-try {
-  symlinkSync(join(import.meta.dirname, "fake-claude.mjs"), join(stateHome, "bin", "claude"));
-} catch (error) {
-  // Windows without Developer Mode can't make links.
-  if (process.platform !== "win32") throw error;
-  copyFileSync(join(import.meta.dirname, "fake-claude.mjs"), join(stateHome, "bin", "claude"));
-}
 let path = process.env.PATH ?? "";
 if (process.platform === "win32") {
-  // On Windows the stand-in can't take the real one's place: for a bare `spawn("claude")`,
-  // libuv tries only claude.com and claude.exe (first in the child's cwd, then in each PATH
-  // folder), never the extensionless stand-in, and a shell would find claude.cmd or
-  // claude.bat (npm's shim). So no PATH folder that has one of those stays.
+  // On Windows the stand-in is installed the way npm installs a Node script: a claude.cmd
+  // shim (what npm's cmd-shim writes) next to the script it starts, which president reads
+  // and runs with Node (src/server/chat/claude-command.ts).
+  copyFileSync(
+    join(import.meta.dirname, "fake-claude.mjs"),
+    join(stateHome, "bin", "fake-claude.mjs"),
+  );
+  writeFileSync(join(stateHome, "bin", "claude.cmd"), nodeShim("fake-claude.mjs"));
+  // A claude.exe or claude.com anywhere on PATH comes before any claude.cmd, so no PATH folder
+  // that has one stays (nor one with another claude.cmd or claude.bat, to be sure).
   const names = ["claude.exe", "claude.com", "claude.cmd", "claude.bat"];
   path = path
     .split(delimiter)
     .filter((dir) => !names.some((name) => existsSync(join(dir.replace(/^"(.*)"$/, "$1"), name))))
     .join(delimiter);
+} else {
+  symlinkSync(join(import.meta.dirname, "fake-claude.mjs"), join(stateHome, "bin", "claude"));
 }
 process.env.PATH = `${join(stateHome, "bin")}${delimiter}${path}`;
 process.env.FAKE_CLAUDE_DIR = join(stateHome, "fake");

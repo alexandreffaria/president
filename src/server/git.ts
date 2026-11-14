@@ -22,8 +22,8 @@
  * so the hub's status checks never make an agent's own git command fail.
  */
 import { execFileSync, spawn } from "node:child_process";
-import { join } from "node:path";
 import { findExecutable } from "./executable.ts";
+import { killTree } from "./process-tree.ts";
 
 export interface GitOptions {
   /** Extra variables for git, set after the GIT_* ones are removed (tests use this). */
@@ -180,37 +180,8 @@ export function runGit(cwd: string, args: string[], options: GitOptions = {}): P
     child.on("exit", () => {
       exited = true;
     });
-    const killGroup = (signal: NodeJS.Signals) => {
-      if (process.platform === "win32") {
-        // No process groups: taskkill /T stops git with everything it started (a hook, an
-        // alias's shell, ssh or git-remote-https), whose open pipes would otherwise keep the
-        // run from ending until they exit on their own. Never once git has exited: /T can't
-        // find the tree of a process that is gone, and Windows soon gives its PID to another
-        // process, which /T /F would kill with everything it started.
-        if (child.pid === undefined || exited) return;
-        // By its full path: a taskkill.exe in the hub's cwd (a project folder) would come first.
-        const taskkill = spawn(
-          join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe"),
-          ["/pid", String(child.pid), "/t", "/f"],
-          { stdio: "ignore", windowsHide: true },
-        );
-        const fallback = () => {
-          if (!exited) child.kill(signal);
-        };
-        taskkill.on("error", fallback);
-        // Access denied, say: git is still running, so at least git itself goes.
-        taskkill.on("exit", (code) => {
-          if (code !== 0) fallback();
-        });
-        return;
-      }
-      try {
-        if (child.pid !== undefined) process.kill(-child.pid, signal);
-      } catch {
-        // Already gone, or no process groups (Windows): stop git itself.
-        child.kill(signal);
-      }
-    };
+    // Git with everything it started (a hook, an alias's shell, ssh or git-remote-https).
+    const killGroup = (signal: NodeJS.Signals) => killTree(child, signal, () => exited);
     let killTimer: NodeJS.Timeout | undefined;
     const timer = setTimeout(() => {
       timedOut = true;
