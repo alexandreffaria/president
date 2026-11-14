@@ -3,8 +3,8 @@
  * flags #0004 (`readonly`) fixed, the message on standard input, and the reply read from
  * `--output-format stream-json`.
  *
- * Every run gets exactly these permission flags (docs/roadmap.md, "The session: read and
- * research only", says why each one is there; none may be dropped):
+ * Every run gets exactly these permission flags (docs/archive/roadmap-2026-11.md, "The
+ * session: read and research only", says why each one is there; none may be dropped):
  *
  *   --restricted --strict-mcp-config
  *   --tools "Read,Grep,Glob,WebSearch,WebFetch" --allowedTools "WebSearch,WebFetch"

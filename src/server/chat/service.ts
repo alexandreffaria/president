@@ -262,10 +262,12 @@ export class ChatService {
   }
 
   /**
-   * Stops the runs in progress and waits until the service is idle: every run (a reply, a
-   * summary, new options) started before it has ended and released its card. A request
-   * already on its way in can still reserve a card after this returns; its run stops at once,
-   * but may still write to the state folder.
+   * Stops the runs in progress and waits until no card is reserved and no new-options run is
+   * pending: every run (a reply, a summary, new options) and New conversation, including one
+   * reserved while it waits, has ended and released its card. It doesn't wait for a cleanup()
+   * already under way, or for writes that take no reservation (saving or closing a summary,
+   * recording a "neither", undo). A request that comes in after this returns has any run it
+   * starts stopped at once, but may still write to the state folder.
    */
   async close(): Promise<void> {
     clearInterval(this.#cleanupTimer);
