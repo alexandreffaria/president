@@ -30,7 +30,7 @@ answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.m
 | [202611147ch5](../decisions/202611147ch5-what-next-for-president.md) | What should the next two weeks be? | `freeze`: bug fixes, this plan and these cards; new features only when CellSignalMapper or geode asks |
 | [20261114509p](../decisions/20261114509p-which-president-questions-get-cards.md) | Which of president's own questions become cards? | `direction-only`: direction, UX, scope; mechanics listed in the PR |
 | [2026111459oa](../decisions/2026111459oa-chat-on-cards-scope.md) | How much of the chat stays? | `trim`: new options start at once, Undo cancels them |
-| [202611143v3q](../decisions/202611143v3q-windows-support.md) | How far does Windows support go? | `finish-windows`: `claude.cmd` too, chat tests on Windows CI |
+| [202611143v3q](../decisions/202611143v3q-windows-support.md) | How far does Windows support go? | `finish-windows`: `claude.cmd` too, chat tests on Windows CI (done, #44) |
 | [20261114zuct](../decisions/20261114zuct-review-loop-stopping-rule.md) | When does a review loop stop? | `all`: every finding, nits included, fixed and re-reviewed |
 | [20261114r0w8](../decisions/20261114r0w8-where-decisions-are-recorded.md) | Does the decisions table keep the reasons? | `one-line`: one line and a link per decision |
 | [2026111411fs](../decisions/2026111411fs-who-is-president-for.md) | Only for you, or a package others install? | `personal`: public repo, no npm release, Windows = your workstation |
@@ -67,15 +67,15 @@ answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.m
   session in every project loads it. Point to `docs/card-format.md` instead of repeating
   it, and move the rarely used parts ("New notes", "Changing a card") into a reference file
   the skill links to.
-- [ ] Update the stale parts of the Windows comments in `.github/workflows/ci.yml` (lines
-  20-21 and 49-52); the chat-test exclusion itself goes in section 6.
+- [x] Update the stale parts of the Windows comments in `.github/workflows/ci.yml` (lines
+  20-21 and 49-52); the chat-test exclusion itself goes in section 6. (#44)
 
 ### 3. Safety
 
-- [ ] Spawn `claude` by absolute path through `findExecutable`, as git is, on every OS.
+- [x] Spawn `claude` by absolute path through `findExecutable`, as git is, on every OS.
   `src/server/chat/runner.ts:165` spawns it by bare name in the project folder, so a
   `claude.exe` committed to a project (Windows), or an empty or relative PATH entry (Linux),
-  would run.
+  would run. (#44)
 - [x] foundations.md still says "Repo | Private on GitHub"; it's public now. (#43)
 
 ### 4. Refactors (no behaviour change; after section 6's chat trim, which cuts the same code)
@@ -107,7 +107,7 @@ answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.m
 - [ ] Chat trim (2026111459oa): new options start at once and Undo cancels the run; the
   waiting and other-tab "Start now" code goes (roadmap item 1). Do it before section 4's
   `CardView.tsx` and `chat/service.ts` splits.
-- [ ] Windows chat (202611143v3q): on top of section 3's absolute-path spawn, find npm's
-  `claude.cmd`, and run the chat tests on Windows CI (roadmap item 2).
+- [x] Windows chat (202611143v3q): on top of section 3's absolute-path spawn, find npm's
+  `claude.cmd`, and run the chat tests on Windows CI. (#44)
 - Freeze (202611147ch5): until 2026-11-28 nothing beyond this plan gets built, unless
   CellSignalMapper or geode asks for it.
