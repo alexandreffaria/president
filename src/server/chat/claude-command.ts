@@ -167,7 +167,9 @@ function realPath(path: string): string {
  * The Node options of a Node script: a `.js`/`.cjs`/`.mjs` file, or one whose `#!` line runs
  * `node` through env. With `env -S` that line's words after `node` are its options
  * (`#!/usr/bin/env -S node --no-warnings`), split on whitespace as env -S does for simple
- * cases. Undefined for anything else.
+ * cases; quotes, escapes and `$` aren't parsed, so a line with any of them gives undefined
+ * and the file runs as is. Without -S, env on Linux takes "node --flag" as one name, so the
+ * line gives no options. Undefined for anything else.
  */
 function nodeOptions(path: string): string[] | undefined {
   const script = SCRIPT_EXTENSIONS.has(extname(path).toLowerCase());
@@ -186,7 +188,10 @@ function nodeOptions(path: string): string[] | undefined {
   const line = head.split(/\r?\n/)[0] ?? "";
   const match = /^#!\s*\/usr\/bin\/env\s+(-S\s+)?node(?:[ \t]+(.*))?$/.exec(line);
   if (!match) return script ? [] : undefined;
-  return match[1] ? (match[2] ?? "").split(/[ \t]+/).filter(Boolean) : [];
+  if (!match[1]) return [];
+  const words = match[2] ?? "";
+  if (/["'\\$]/.test(words)) return undefined;
+  return words.split(/[ \t]+/).filter(Boolean);
 }
 
 function isTarget(path: string): boolean {

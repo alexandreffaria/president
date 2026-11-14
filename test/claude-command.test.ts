@@ -163,9 +163,27 @@ describe("finding claude", () => {
       file: process.execPath,
       args: ["--no-warnings", "--max-old-space-size=4096", cli],
     });
-    // Without -S, env takes "node --flag" as one name: no options.
+    // Without -S, env on Linux takes "node --flag" as one name: no options.
     await writeFile(cli, "#!/usr/bin/env node --no-warnings\n");
     expect(resolveClaude(cli)).toEqual({ file: process.execPath, args: [cli] });
+  });
+
+  it("runs a script whose `env -S` line quotes or escapes as is", async () => {
+    const dir = await realpath(await tempDir());
+    const cli = join(dir, "cli.js");
+    for (const line of [
+      '#!/usr/bin/env -S node --title="a b"',
+      "#!/usr/bin/env -S node --title='a b'",
+      "#!/usr/bin/env -S node --title=a\\ b",
+      "#!/usr/bin/env -S node --title=$HOME",
+    ]) {
+      await writeFile(cli, `${line}\n`);
+      // On Linux and macOS env -S reads the line itself; on Windows there is no env, and the
+      // script runs with Node, without options.
+      expect(resolveClaude(cli)).toEqual(
+        windows ? { file: process.execPath, args: [cli] } : { file: cli, args: [] },
+      );
+    }
   });
 
   it.skipIf(windows)("keeps them for a `claude` found on PATH", async () => {
@@ -398,6 +416,33 @@ describe("stopping a run", () => {
       expect(alive(grandchild)).toBe(true);
     } finally {
       grandchild ??= Number(await readFile(join(fake, "grandchild.pid"), "utf8").catch(() => 0));
+      if (grandchild && alive(grandchild)) process.kill(grandchild);
+    }
+  });
+
+  it("gives the answer of a run that left a process in its group, and stops that", {
+    timeout: 30_000,
+  }, async () => {
+    const fake = await tempDir();
+    await writeFile(join(fake, "script.json"), JSON.stringify([{ leaveBehind: "attached" }]));
+    const env = { ...process.env, FAKE_CLAUDE_DIR: fake };
+    let grandchild = 0;
+    try {
+      const started = Date.now();
+      const result = await run(await tempDir(), env, { bin: FAKE, timeoutMs: 60_000 });
+      grandchild = Number(await readFile(join(fake, "grandchild.pid"), "utf8"));
+      expect(result).toMatchObject({ ok: true, text: "Echo: Hello" });
+      expect(result.error).toBeUndefined();
+      expect(Date.now() - started).toBeLessThan(15_000);
+      // On Windows libuv's job already ended it with the stand-in (Node) or, if not, nothing
+      // can find it once the run has exited.
+      if (!windows) {
+        await until(() => !alive(grandchild), "the process left in the run's group to stop", {
+          timeoutMs: 10_000,
+        });
+      }
+    } finally {
+      grandchild ||= Number(await readFile(join(fake, "grandchild.pid"), "utf8").catch(() => 0));
       if (grandchild && alive(grandchild)) process.kill(grandchild);
     }
   });

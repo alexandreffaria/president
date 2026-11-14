@@ -10,7 +10,7 @@
  * - answers with the next entry of $FAKE_CLAUDE_DIR/script.json when there is one
  *   ({ lines?: object[], text?: string, structured?: object, stderr?: string, exit?: number,
  *   delayMs?: number, pauseMs?: number, gate?: string, lateTranscript?: boolean,
- *   grandchild?: boolean, exitEarly?: boolean, leaveBehind?: boolean }),
+ *   grandchild?: boolean, exitEarly?: boolean, leaveBehind?: true | "attached" }),
  *   otherwise
  *   with "Echo: "
  *   and the last line of its standard input. `structured` is the `--json-schema` answer,
@@ -20,7 +20,7 @@
  *   transcript only at the end of the run, as Claude Code may; `grandchild` starts a process
  *   that holds the run's output open for a minute, its pid in $FAKE_CLAUDE_DIR/grandchild.pid, and with
  *   `exitEarly` the stand-in then exits at once, leaving it running; `leaveBehind` starts one,
- *   detached, after answering, and leaves it running.
+ *   detached (not with "attached"), after answering, and leaves it running.
  */
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -122,5 +122,5 @@ for (const [i, line] of lines.entries()) {
   if (i === 0 && step.pauseMs) await new Promise((resolve) => setTimeout(resolve, step.pauseMs));
 }
 if (step.lateTranscript) writeTranscript();
-if (step.leaveBehind) startGrandchild(true);
+if (step.leaveBehind) startGrandchild(step.leaveBehind !== "attached");
 process.exit(step.exit ?? 0);

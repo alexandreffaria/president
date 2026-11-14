@@ -21,7 +21,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 import { withAbsolutePath } from "../executable.ts";
 import { isNotFound } from "../fs-utils.ts";
-import { closePipes, killTree } from "../process-tree.ts";
+import { killTree } from "../process-tree.ts";
 import { CLAUDE_NOT_FOUND, resolveClaude } from "./claude-command.ts";
 
 /** The tools that exist in the session (#0004): reading and research, nothing else. */
@@ -200,8 +200,10 @@ export function runClaude(request: RunRequest, handlers: RunHandlers = {}): Prom
       exited = true;
       // A process the run left behind may hold its output open, which would keep `close`, and
       // the answer, waiting until the run's timeout. Once the run has had time to be read to
-      // the end, its pipes are closed and it ends as it ended.
-      exitGrace = setTimeout(() => closePipes(child), EXIT_GRACE_MS);
+      // the end, what is left of it is stopped (its process group; on Windows nothing can be
+      // found) and its pipes are closed (killTree), and it ends as it ended: `stopped` stays
+      // unset, so its answer counts.
+      exitGrace = setTimeout(() => killGroup("SIGTERM"), EXIT_GRACE_MS);
       exitGrace.unref();
     });
     const killGroup = (signal: NodeJS.Signals) => killTree(child, signal, () => exited);
