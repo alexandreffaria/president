@@ -1860,7 +1860,131 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
       });
       expect(await (await start(t, at)).json()).toEqual({ started: true });
       expect((await settled(t)).newOptions?.state).toBe("written");
+      // A "to-start" note never reached the session: its run is a first one, not a retry.
+      const stdin = (await t.calls()).at(-1)?.stdin;
+      if (state === "started") expect(stdin).toContain("Your previous answer couldn't be written");
+      else expect(stdin).not.toContain("Your previous answer");
     }
+  });
+
+  it("a second Neither during the run replaces the run, which stays tracked", async () => {
+    const t = await setup();
+    await t.script([
+      { structured: ANSWER, gate: "first" },
+      { structured: ANSWER, gate: "second" },
+    ]);
+    await neither(t, "First note.");
+    await t.called(1);
+    const { at } = await neither(t);
+    await t.called(2);
+    const going = await t.conversation();
+    expect(going.running).toBe("options");
+    expect(going.newOptions).toEqual({ note: at, state: "started" });
+    // Still the card's run: a message is refused, and Undo would stop it.
+    expect((await t.post("/api/chats/demo/0002/messages", { text: "Hi" })).status).toBe(409);
+    await t.openGate("second");
+    const chat = await settled(t);
+    expect(chat.newOptions?.state).toBe("written");
+    expect(chat.messages.map((m) => [m.from, m.text])).toEqual([
+      ["you", "Neither: First note."],
+      ["hub", "Your newer note replaced this one, so the run stopped."],
+      ["you", `Neither: ${NOTE}`],
+      ["agent", `${ANSWER.message}\n\n(The options are now on the card.)`],
+    ]);
+    // close() waits for no leftover run.
+    await t.chat.close();
+  });
+
+  it("Undo, then Neither again at once: the undone run winds down and the new one runs", async () => {
+    const t = await setup();
+    await t.script([{ structured: ANSWER, gate: "first" }, { structured: ANSWER }]);
+    const { card } = await neither(t);
+    await t.called(1);
+    const undo = t.post("/api/cards/demo/0002/undo", { revision: card.revision });
+    expect((await undo).status).toBe(200);
+    const { at } = await neither(t, "Second note.");
+    const chat = await settled(t);
+    expect(chat.newOptions).toEqual({ note: at, state: "written" });
+    expect(chat.messages.map((m) => [m.from, m.text])).toEqual([
+      ["you", `Neither: ${NOTE}`],
+      ["hub", "You undid your note, so the run stopped."],
+      ["you", "Neither: Second note."],
+      ["agent", `${ANSWER.message}\n\n(The options are now on the card.)`],
+    ]);
+    expect(await t.calls()).toHaveLength(2);
+  });
+
+  /**
+   * Neither, Undo and Neither again while a reply goes on, so both runs wait for it: the
+   * undone one starts nothing, and only the new note's run reaches the session.
+   */
+  async function againWhileReplying(t: T) {
+    await t.script([{ text: "Yes.", gate: "reply" }, { structured: ANSWER }]);
+    const reply = t.send("Is IndexedDB available?");
+    await t.called(1);
+    const first = await neither(t);
+    const undo = await t.post("/api/cards/demo/0002/undo", { revision: first.card.revision });
+    expect(undo.status).toBe(200);
+    const second = await neither(t, "Second note.");
+    await t.openGate("reply");
+    await reply;
+    const chat = await settled(t);
+    expect(chat.newOptions).toEqual({ note: second.at, state: "written" });
+    expect(chat.messages.map((m) => [m.from, m.text])).toEqual([
+      ["you", "Is IndexedDB available?"],
+      ["agent", "Yes."],
+      ["you", "Neither: Second note."],
+      ["agent", `${ANSWER.message}\n\n(The options are now on the card.)`],
+    ]);
+    const calls = await t.calls();
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.stdin).toContain("Second note.");
+    return { first, second };
+  }
+
+  it("Undo and Neither again while a reply goes on: one run, for the new note", async () => {
+    await againWhileReplying(await setup());
+  });
+
+  it("a note made in the same second as an undone one is never taken for it", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-14T21:00:00.400Z"));
+    try {
+      const { first, second } = await againWhileReplying(await setup());
+      expect(second.at).toBe(first.at);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an Undo while the hub writes the options: the write is refused, and the panel says it was undone", async () => {
+    const t = await setup();
+    const before = await readFile(cardPath(t), "utf8");
+    let entered!: () => void;
+    const writing = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    t.chat.setCardWriter(async (_project, write) => {
+      entered();
+      await held;
+      return write();
+    });
+    await t.script([{ structured: ANSWER }]);
+    const { card } = await neither(t);
+    await writing;
+    expect((await t.post("/api/cards/demo/0002/undo", { revision: card.revision })).status).toBe(
+      200,
+    );
+    release();
+    const chat = await settled(t);
+    expect(chat.newOptions).toBeUndefined();
+    expect(chat.messages.at(-1)?.text).toBe("You undid your note, so the run stopped.");
+    expect(chat.messages.some((m) => m.text.startsWith("Couldn't write new options"))).toBe(false);
+    expect(await readFile(cardPath(t), "utf8")).toBe(before);
   });
 
   it("starts no run for a neither made on another machine (20261112ah6a wait)", async () => {

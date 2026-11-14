@@ -225,7 +225,7 @@ both want port 4747 (the icon then turns grey and says "port 4747 in use by anot
    |---|---|
    | `1`–`9` (`a`/`b` on A/B cards) | select an option, then `Enter` to decide (optionally type why first) |
    | `r` | show the agent's pick (hidden until you ask, and again each time you come back to the card); on a card without one, ask the chat for the agent's own view |
-   | `n` | neither: reject all options with a note; the card's own agent writes new ones right away, once the Undo notice closes. The same panel can also decide the card with what you typed as your own answer |
+   | `n` | neither: reject all options with a note; the card's own agent starts writing new ones at once; Undo stops it. The same panel can also decide the card with what you typed as your own answer |
    | `m` | add a note without deciding; also works on a decided card (the decision stays) |
    | `c` | show or hide the conversation with the card's agent (hiding only hides it; the conversation stays open) |
    | `d` | defer for a week: the card leaves the queue and comes back, marked "back from deferral", when the week is over |

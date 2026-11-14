@@ -658,7 +658,7 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111459oa)", 
     await until(() => text().includes("(The options are now on the card.)"), "the run's reply");
   });
 
-  it("New conversation, asking and sending are off while the run goes on (20261112lvbu)", async () => {
+  it("New conversation, asking, sending and Neither are off while the run goes on (20261112lvbu)", async () => {
     await script([{}, { structured: ANSWER, gate: "answer" }]);
     await io(async () =>
       (
@@ -678,8 +678,13 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111459oa)", 
     expect(button("Teach me")?.disabled).toBe(true);
     await typeInto(messageBox(), "Why drop the server?");
     expect(button("Send")?.disabled).toBe(true);
+    expect(button("Neither")?.disabled).toBe(true);
+    // n does nothing either: no Neither panel opens.
+    await press("n", document.body);
+    expect(host.querySelector("#panel-text")).toBeNull();
     await openGate("answer");
     await until(() => button("New conversation")?.disabled === false, "New conversation again");
     expect(button("Send")?.disabled).toBe(false);
+    expect(button("Neither")?.disabled).toBe(false);
   });
 });
