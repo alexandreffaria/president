@@ -43,6 +43,7 @@ options:
 resolution:
   choice: trim
   resolved_at: 2026-11-14T03:18:58Z
+applied_at: 2026-11-15T04:49:09Z
 ---
 
 ## Context
