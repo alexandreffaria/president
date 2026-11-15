@@ -649,10 +649,11 @@ export class ChatService {
       }
       const revealedNow =
         input.revealed && input.revision === current.revision ? revealOf(current) : undefined;
-      // A "to-start" record from before 2026111459oa: the session never had the note, so this
-      // is its first run, not a retry.
-      const retry =
-        record.state === "failed"
+      // The session never had the note (`unsent`, or a "to-start" record from before
+      // 2026111459oa): this is its first run, not a retry.
+      const retry = record.unsent
+        ? undefined
+        : record.state === "failed"
           ? record.error
           : record.state === "started"
             ? "the run stopped when president was shut down"
@@ -682,7 +683,10 @@ export class ChatService {
       ended();
     };
     try {
-      await this.store.updateEntry(key, (e) => ({ ...e, newOptions: { note, state: "started" } }));
+      await this.store.updateEntry(key, (e) => ({
+        ...e,
+        newOptions: { note, state: "started", unsent: true },
+      }));
     } catch (error) {
       forget();
       throw error;
@@ -715,7 +719,9 @@ export class ChatService {
     // Stopped while it waited for a reply: it ends at once, and nothing reached the session.
     if (!(await this.#reserveWhenIdle(key, run, stop))) return;
     try {
-      if (stop.aborted) return;
+      // Undone, or president shutting down (the record stays "started" and unsent, so the
+      // page offers Try again as a first run after a restart).
+      if (stop.aborted || this.#abort.signal.aborted) return;
       const card = await this.#card(project, key.id);
       // Undone, decided or rewritten by an agent while the run waited: nothing to write. (A
       // card that waits on the note has it as its last "neither"; `!neither` narrows the type.)
@@ -744,15 +750,22 @@ export class ChatService {
         jsonSchema: JSON.stringify(newOptionsSchema(card)),
         signal: stop,
         notice: save,
-        first: () =>
-          save(
+        first: async () => {
+          // From here the note reaches the session: a later Try again is a retry.
+          await this.store.updateEntry(key, (e) => {
+            if (e?.newOptions?.note !== note || !e.newOptions.unsent) return e;
+            const { unsent: _, ...record } = e.newOptions;
+            return { ...e, newOptions: record };
+          });
+          await save(
             retry
               ? this.#message(
                   "hub",
                   `Trying again to write new options from your note at ${neither.at}.`,
                 )
               : this.#message("you", `Neither: ${neither.note}`),
-          ),
+          );
+        },
       });
 
       let failure: string | undefined;
@@ -827,7 +840,17 @@ export class ChatService {
   async #newOptionsFailed(key: CardKey, note: string, error: string, waits = true): Promise<void> {
     await this.store.append(key, this.#message("hub", newOptionsFailure(error, waits)));
     await this.store.updateEntry(key, (e) =>
-      e?.newOptions?.note === note ? { ...e, newOptions: { note, state: "failed", error } } : e,
+      e?.newOptions?.note === note
+        ? {
+            ...e,
+            newOptions: {
+              note,
+              state: "failed",
+              error,
+              ...(e.newOptions.unsent ? { unsent: true as const } : {}),
+            },
+          }
+        : e,
     );
   }
 

@@ -72,6 +72,11 @@ export interface NewOptionsRecord {
   error?: string;
   /** "written": a hash of the options and pick the hub wrote (see optionsHash). */
   options?: string;
+  /**
+   * The note hasn't reached the session yet (the run waited behind a reply, then failed or
+   * president was shut down): Try again is then a first run, not a retry.
+   */
+  unsent?: true;
 }
 
 export interface CardKey {
