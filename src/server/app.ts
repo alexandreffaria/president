@@ -273,12 +273,7 @@ export function createApp(options: AppOptions): Hono {
     // written; otherwise the run starts now, and an Undo stops it (2026111459oa).
     const asked =
       action.type === "neither" ? await chat.newOptionsAsked(project, id, write) : undefined;
-    // A decision stops a run going on, which can no longer write the card.
-    const card =
-      asked?.card ??
-      (action.type === "resolve"
-        ? await chat.stoppingRun(project, id, write, "You decided the card, so the run stopped.")
-        : await write());
+    const card = asked?.card ?? (await write());
     writes.record(card.path, revision, card.revision);
     if (asked && !asked.started) {
       // The note is written: say so, rather than a bare 500 the page would read as unsaved.
@@ -324,11 +319,8 @@ export function createApp(options: AppOptions): Hono {
     const project = await requireProject(registry, c.req.param("project"));
     const { revision } = parseBody(RevisionSchema, await readJson(c.req.raw));
     const id = c.req.param("id");
-    const card = await chat.stoppingRun(
-      project,
-      id,
-      () => sync.writeCard(project, () => undoLastAction(project, id, revision)),
-      "You undid your note, so the run stopped.",
+    const card = await chat.undoing(project, id, () =>
+      sync.writeCard(project, () => undoLastAction(project, id, revision)),
     );
     writes.record(card.path, revision, card.revision);
     // Bookkeeping, as for summarySaved: the undo itself is done.

@@ -733,7 +733,8 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111459oa)", 
     await askForNewOptions();
     navigate("/card/demo/0002");
     await until(() => text().includes("Writing new options…"), "the run's status");
-    if (!messageBox()) await press("c");
+    // The card has a conversation, so the panel opens by itself (pressing c could race it).
+    await until(() => messageBox() !== null, "the conversation to open");
     await until(() => button("New conversation") !== undefined, "New conversation");
     expect(button("New conversation")?.disabled).toBe(true);
     expect(button("Teach me")?.disabled).toBe(true);

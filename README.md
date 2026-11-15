@@ -301,7 +301,7 @@ both want port 4747 (the icon then turns grey and says "port 4747 in use by anot
    **Ask for new options** (the Neither panel) records your note and sends it at once to the
    card's agent as a message in that conversation: "Neither: ...". Undo puts the card back and
    stops the run; your message stays in the conversation and in the agent's memory. Once the
-   new options are written, Undo is refused. Deciding the card meanwhile stops the run too.
+   new options are written, Undo is refused. Deciding the card meanwhile lets the run finish, and its options aren't written.
    One note at a time: while the run goes on, Neither is off for that card. The agent reads the project, researches, and
    answers with new options, which president writes to the card with the same checks as `preside update` (nothing is written
    if the card changed meanwhile, by you, an agent or Sync, or the options don't pass the

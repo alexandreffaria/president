@@ -590,26 +590,26 @@ export class ChatService {
   }
 
   /**
-   * Writes the card (`write`: an Undo, a decision) one after the other with starting runs.
-   * When the card then no longer waits on the note of its new-options run (the "neither" was
-   * undone, the card decided), the run is stopped, saying `why` in the panel, and its record
-   * dropped (2026111459oa `trim`). The card is written first, so the run can no longer write
-   * it (rewriteCard's revision check); an Undo after the run wrote its options is refused,
-   * since the card changed after the action. The "Neither" message stays in the
-   * conversation, and in the session.
+   * Undoes a card action (`undo`) one after the other with starting runs. When the card then
+   * no longer waits on the note of its new-options run (the "neither" was undone), the run is
+   * stopped and its record dropped (2026111459oa `trim`). The card is put back first, so the
+   * run can no longer write it (rewriteCard's revision check); once the run has written its
+   * options, the card changed after the action and the undo is refused. The "Neither"
+   * message stays in the conversation, and in the session. A decision doesn't stop the run
+   * (the owner's choice, 2026-11-15): its write is refused, and Try again is there if the
+   * decision is undone.
    */
-  async stoppingRun(
+  async undoing(
     project: Project,
     id: string,
-    write: () => Promise<LoadedCard>,
-    why: string,
+    undo: () => Promise<LoadedCard>,
   ): Promise<LoadedCard> {
     const key = { project: project.name, id };
     const k = keyName(key);
     return this.#runLock.run(k, async () => {
-      const card = await write();
+      const card = await undo();
       const run = this.#newOptions.get(k);
-      if (run && !waitsOn(card, run.note)) run.stop.abort(why);
+      if (run && !waitsOn(card, run.note)) run.stop.abort();
       const record = (await this.store.entry(key))?.newOptions;
       if (record && record.state !== "written" && !waitsOn(card, record.note)) {
         await this.#clearRecord(key, record.note);
@@ -707,7 +707,7 @@ export class ChatService {
     note: string,
     retry: string | undefined,
     revealedNow: string | undefined,
-    /** Aborted, with the panel line as its reason, by stoppingRun. */
+    /** Aborted by an Undo of the note (undoing). */
     stop: AbortSignal,
   ): Promise<void> {
     const run = new ChatRun();
@@ -749,8 +749,8 @@ export class ChatService {
       let failure: string | undefined;
       let written: LoadedCard | undefined;
       let message = "";
-      // Undone or decided: the card is already written, and the record gone.
-      const stopped = () => save(this.#message("hub", String(stop.reason)));
+      // Undone: the card is already back as it was, and the record gone.
+      const stopped = () => save(this.#message("hub", "You undid your note, so the run stopped."));
       if (stop.aborted) {
         await stopped();
         return;
@@ -801,7 +801,7 @@ export class ChatService {
         });
         this.#bus.emit({ type: "cards", project: project.name });
       } else if (stop.aborted) {
-        // Stopped while the hub wrote: the write was refused because the card was written.
+        // Stopped while the hub wrote: the write was refused because the card was put back.
         await stopped();
       } else {
         // Whether the card still waits on the note (not decided elsewhere, say, by Sync).

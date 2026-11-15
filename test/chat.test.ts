@@ -1971,10 +1971,10 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
     expect((await settled(t)).newOptions).toEqual({ note: second.at, state: "written" });
   });
 
-  it("a decision during the run stops it, and the panel says why", async () => {
+  it("a decision during the run lets it finish and be refused; after its Undo, Try again runs", async () => {
     const t = await setup();
-    await t.script([{ structured: ANSWER, gate: "answer" }]);
-    await neither(t);
+    await t.script([{ structured: ANSWER, gate: "answer" }, { structured: ANSWER }]);
+    const { at } = await neither(t);
     await t.called(1);
     const { revision } = await t.card();
     const decided = await t.post("/api/cards/demo/0002/actions", {
@@ -1983,15 +1983,25 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
       revision,
     });
     expect(decided.status).toBe(200);
+    const decidedCard = ((await decided.json()) as CardResponse & { ok: true }).card;
     const after = await readFile(cardPath(t), "utf8");
     expect(after).toMatch(/status: resolved/);
-    // Stopped: it ends although its answer is still held back by the gate.
-    const chat = await settled(t);
-    expect(chat.newOptions).toBeUndefined();
-    expect(chat.messages.at(-1)?.text).toBe("You decided the card, so the run stopped.");
+    // The run goes on (the owner's choice, 2026-11-15) and its write is refused.
+    expect((await t.conversation()).optionsRun).toBe(true);
     await t.openGate("answer");
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    const chat = await settled(t);
     expect(await readFile(cardPath(t), "utf8")).toBe(after);
+    // Never "the card waits": it is decided.
+    expect(chat.messages.at(-1)?.text).toBe(
+      "Couldn't write new options: you decided the card meanwhile.",
+    );
+    // Undo the decision: the card waits on the note again, and Try again is offered.
+    const undo = await t.post("/api/cards/demo/0002/undo", { revision: decidedCard.revision });
+    expect(undo.status).toBe(200);
+    expect((await t.conversation()).newOptions).toMatchObject({ note: at, state: "failed" });
+    expect(await (await start(t, at)).json()).toEqual({ started: true });
+    expect((await settled(t)).newOptions?.state).toBe("written");
+    expect(await t.calls()).toHaveLength(2);
   });
 
   it("a failed run never says the card waits when it no longer does", async () => {
