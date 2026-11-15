@@ -205,6 +205,34 @@ describe("cards API", () => {
     expect(one).toMatchObject({ ok: false, broken: { fileName: "0009-broken.md" } });
   });
 
+  it("shows a card whose earlier decision isn't text as broken", async () => {
+    const { request, demo } = await setup();
+    await writeFile(
+      join(demo, "decisions", "0009-broken.md"),
+      cardText({
+        id: '"0009"',
+        feedback: `
+  - at: 2026-11-10T09:00:00Z
+    type: reopen
+    note: Reopened.
+    previous_resolution:
+      choice: {toString: 1}`,
+      }),
+    );
+    const list = await json<CardListResponse>(request("/api/cards"));
+    expect(list.cards).toHaveLength(4);
+    expect(list.broken).toEqual([
+      {
+        project: "demo",
+        fileName: "0009-broken.md",
+        id: "0009",
+        errors: [
+          expect.stringMatching(/^feedback\[0\]\.previous_resolution\.choice: expected text/),
+        ],
+      },
+    ]);
+  });
+
   it("reports duplicate ids as broken", async () => {
     const { request, demo } = await setup();
     await writeFile(

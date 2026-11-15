@@ -696,6 +696,36 @@ describe("messages for common YAML slips (R5-14)", () => {
     ]);
   });
 
+  // A hand-edited earlier decision crashed `preside pending` (PR #53); now it's broken.
+  it("checks the earlier decision a reopen or undo keeps", () => {
+    const entry = (fields: string) => `
+  - at: 2026-11-10T00:00:00Z
+    type: undo
+    note: Took it back.${fields}`;
+    expect(
+      expectErrors(
+        cardText({
+          feedback:
+            entry("\n    previous_resolution:\n      choice: {toString: 1}") +
+            entry("\n    previous_resolution:\n      note: [warm]") +
+            entry("\n    previous_resolution: protomaps\n    previous_applied_at: yesterday"),
+        }),
+      ),
+    ).toEqual([
+      'feedback[0].previous_resolution.choice: expected text, but YAML read a "key: value" pair because the text contains ": "; put the whole text in quotes (line 19)',
+      "feedback[1].previous_resolution.choice: is required (line 24)",
+      "feedback[1].previous_resolution.note: Invalid input: expected string, received array (line 24)",
+      "feedback[2].previous_resolution: Invalid input: expected object, received string (line 28)",
+      "feedback[2].previous_applied_at: expected a date like 2026-11-10 or a timestamp like 2026-11-10T14:03:00Z (line 29)",
+    ]);
+    // Without resolved_at, and with a choice that is no longer an option, it's fine.
+    expectCard(
+      cardText({
+        feedback: entry("\n    previous_resolution:\n      choice: gone\n      note: warm"),
+      }),
+    );
+  });
+
   it("keeps comments that cut nothing", () => {
     const card = expectCard(
       cardText({

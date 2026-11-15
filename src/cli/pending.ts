@@ -223,10 +223,15 @@ export function pendingText(
   for (const w of warnings) log(`(warning) ${w.fileName}: ${w.message}`);
 }
 
-/** A decision for the agent: `"km"`, or `custom ("the human's answer")`, with its note. */
-function describeDecision(resolution: unknown): string {
-  const { choice, note } = (resolution ?? {}) as { choice?: unknown; note?: unknown };
-  const said =
-    typeof note === "string" && note.trim() ? ` (${continued(JSON.stringify(note))})` : "";
-  return choice === CUSTOM_CHOICE ? `custom${said}` : `"${String(choice)}"${said}`;
+/**
+ * A decision for the agent: `"km"`, or `custom ("the human's answer")`, with its note. The
+ * schema checks `previous_resolution` like `resolution` (a card with a `choice` that isn't
+ * text is broken), so both arrive here as text.
+ */
+function describeDecision(
+  resolution: { choice?: string | undefined; note?: string | undefined } | undefined,
+): string {
+  const { choice, note } = resolution ?? {};
+  const said = note?.trim() ? ` (${continued(JSON.stringify(note))})` : "";
+  return choice === CUSTOM_CHOICE ? `custom${said}` : `"${choice}"${said}`;
 }
