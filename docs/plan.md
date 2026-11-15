@@ -65,10 +65,10 @@ answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.m
   in the main checkout (the hub runs from it)", where cards and docs live, and the 509p
   rule: for president, cards only for direction, UX and scope; mechanics are listed in the
   PR under "Decided without a card". (#46)
-- [ ] Trim `skills/decision-cards/SKILL.md` from about 4k words toward 2k. Every agent
+- [x] Trim `skills/decision-cards/SKILL.md` from about 4k words toward 2k. Every agent
   session in every project loads it. Point to `docs/card-format.md` instead of repeating
   it, and move the rarely used parts ("New notes", "Changing a card") into a reference file
-  the skill links to.
+  the skill links to. (#48)
 - [x] Update the stale parts of the Windows comments in `.github/workflows/ci.yml` (lines
   20-21 and 49-52); the chat-test exclusion itself goes in section 6. (#44)
 
