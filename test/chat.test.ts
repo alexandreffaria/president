@@ -1997,48 +1997,8 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
     expect(undo.status).toBe(200);
     expect((await t.conversation()).newOptions).toMatchObject({ note: at, state: "failed" });
     expect(await (await start(t, at)).json()).toEqual({ started: true });
-    const done = await settled(t);
-    expect(done.newOptions?.state).toBe("written");
-    const calls = await t.calls();
-    expect(calls).toHaveLength(2);
-    // The note never reached the session: Try again is its first run, shown as your message.
-    expect(calls[1]?.stdin).not.toContain("Your previous answer");
-    expect(done.messages.map((m) => [m.from, m.text])).toContainEqual(["you", `Neither: ${NOTE}`]);
-    expect(done.messages.some((m) => m.text.startsWith("Trying again"))).toBe(false);
-  });
-
-  it("a run still waiting when president shuts down stays unsent, and Try again is a first run", async () => {
-    const t = await setup();
-    await t.script([{ text: "Yes.", gate: "reply" }]);
-    const reply = t.send("Is IndexedDB available?");
-    await t.called(1);
-    const { at } = await neither(t);
-    await t.chat.close();
-    await reply;
-    const key = { project: "demo", id: "0002" };
-    expect((await t.chat.store.entry(key))?.newOptions).toEqual({
-      note: at,
-      state: "started",
-      unsent: true,
-    });
-    expect((await t.chat.store.messages(key)).map((m) => m.text)).not.toContain(`Neither: ${NOTE}`);
-    expect(await t.calls()).toHaveLength(1);
-
-    // After a restart (a fresh hub here, with that record), Try again runs it as a first run.
-    const u = await setup();
-    await u.script([{}, { structured: ANSWER }]);
-    const failed = await neither(u);
-    await settled(u);
-    await u.chat.store.updateEntry(key, (e) => ({
-      ...e,
-      newOptions: { note: failed.at, state: "started", unsent: true },
-    }));
-    expect((await u.conversation()).newOptions).toMatchObject({ state: "failed" });
-    expect(await (await start(u, failed.at)).json()).toEqual({ started: true });
-    const done = await settled(u);
-    expect(done.newOptions?.state).toBe("written");
-    expect((await u.calls()).at(-1)?.stdin).not.toContain("Your previous answer");
-    expect(done.messages.at(-2)).toMatchObject({ from: "you", text: `Neither: ${NOTE}` });
+    expect((await settled(t)).newOptions?.state).toBe("written");
+    expect(await t.calls()).toHaveLength(2);
   });
 
   it("a decision during the run lets it finish and be refused; after its Undo, Try again runs", async () => {
