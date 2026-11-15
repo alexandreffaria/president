@@ -20,7 +20,7 @@ release, and Windows means the owner's workstation
 
 The detail and order are in [plan.md](plan.md):
 
-- Refactors with no behaviour change: split `createApp` and the agent commands.
+- Refactors with no behaviour change: split the agent commands.
 
 ## Not built, held by the freeze
 
