@@ -85,6 +85,8 @@ export type Output = { log: (line: string) => void; error: (line: string) => voi
  * pay for the YAML parser, zod and the server code.
  */
 const commands = () => import("./commands.ts");
+const agent = () => import("./agent.ts");
+const pending = () => import("./pending.ts");
 
 export async function run(argv: string[], out: Output = console): Promise<number> {
   const [command, ...rest] = argv;
@@ -99,15 +101,15 @@ export async function run(argv: string[], out: Output = console): Promise<number
       case "rm":
         return await (await commands()).remove(rest, out);
       case "validate":
-        return await (await commands()).validate(rest, out);
+        return await (await agent()).validate(rest, out);
       case "pending":
-        return await (await commands()).pending(rest, out);
+        return await (await pending()).pending(rest, out);
       case "applied":
-        return await (await commands()).applied(rest, out);
+        return await (await agent()).applied(rest, out);
       case "seen":
-        return await (await commands()).seen(rest, out);
+        return await (await agent()).seen(rest, out);
       case "update":
-        return await (await commands()).update(rest, out);
+        return await (await agent()).update(rest, out);
       case "demo":
         return await (await commands()).demo(rest, out);
       case "tray":
