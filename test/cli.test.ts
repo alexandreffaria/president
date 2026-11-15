@@ -707,7 +707,7 @@ describe("preside CLI", () => {
     it("says the card changed after a decision made and undone, as the skill expects", async () => {
       const skill = (
         await readFile(
-          join(import.meta.dirname, "..", "skills", "decision-cards", "SKILL.md"),
+          join(import.meta.dirname, "..", "skills", "decision-cards", "reference.md"),
           "utf8",
         )
       ).replace(/\s+/g, " ");
