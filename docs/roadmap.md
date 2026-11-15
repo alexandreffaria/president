@@ -18,9 +18,7 @@ release, and Windows means the owner's workstation
 
 ## Cleanup (no card needed)
 
-The detail and order are in [plan.md](plan.md):
-
-- Refactors with no behaviour change: split the agent commands.
+The 2026-11-14 cleanup is done ([plan.md](plan.md) section 4).
 
 ## Not built, held by the freeze
 

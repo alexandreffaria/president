@@ -117,6 +117,8 @@ async function human(demo: string, id: string, action: CardAction) {
 // test that happened to come first paid for out of its 5 s. Done here, outside any test.
 beforeAll(async () => {
   await import("../src/cli/commands.ts");
+  await import("../src/cli/agent.ts");
+  await import("../src/cli/pending.ts");
   await import("../src/server/server.ts");
 }, 60_000);
 
