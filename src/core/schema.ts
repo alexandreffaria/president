@@ -74,10 +74,23 @@ export const RecommendationSchema = z.looseObject({
   why: NonEmpty,
 });
 
+/**
+ * The decision a `reopen` or `undo` entry keeps (`previous_resolution`). Checked like
+ * `resolution`, except that `resolved_at` may be missing and `choice` isn't matched against
+ * the options, which may have changed since.
+ */
+export const PreviousResolutionSchema = z.looseObject({
+  choice: NonEmpty,
+  note: Text.optional(),
+  resolved_at: Timestamp.optional(),
+});
+
 export const FeedbackSchema = z.looseObject({
   at: Timestamp,
   note: NonEmpty,
   type: z.enum(FEEDBACK_TYPES).optional(),
+  previous_resolution: PreviousResolutionSchema.optional(),
+  previous_applied_at: Timestamp.optional(),
 });
 
 /**
@@ -260,6 +273,7 @@ function listOrNone(ids: string[]): string {
 export type CardOption = z.output<typeof OptionSchema>;
 export type Recommendation = z.output<typeof RecommendationSchema>;
 export type FeedbackEntry = z.output<typeof FeedbackSchema>;
+export type PreviousResolution = z.output<typeof PreviousResolutionSchema>;
 export type Resolution = z.output<typeof ResolutionSchema>;
 export type Withdrawn = z.output<typeof WithdrawnSchema>;
 /** Validated frontmatter, with defaults filled in. */

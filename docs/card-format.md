@@ -162,6 +162,11 @@ byte for byte.
       resolved_at: 2026-11-10T15:20:00Z
 ```
 
+`validate` checks `previous_resolution` like `resolution`: `choice` is required text, `note`
+is text and `resolved_at` a timestamp (it may be left out). `choice` isn't checked against
+the options, which may have changed since. `previous_applied_at` is a timestamp. A card that
+breaks these is broken, like any other.
+
 `chat` is the summary of a conversation the human had with an agent about the card (decision
 #0023): the agent drafted it and the human edited it. History labels it "Conversation summary",
 and `preside pending` prints it as `chat <time>: <text>`. Treat it like a note from the human.

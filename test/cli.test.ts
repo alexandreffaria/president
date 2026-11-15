@@ -310,6 +310,37 @@ describe("preside CLI", () => {
     expect(result.out).toContain(`Format: ${CARD_FORMAT_DOC}`);
   });
 
+  // It crashed `pending` midway through its output (PR #53).
+  it("lists a card whose earlier decision isn't text as broken", async () => {
+    const demo = await copyDemoProject();
+    await writeFile(
+      join(demo, "decisions", "0009-bad.md"),
+      cardText({
+        id: '"0009"',
+        feedback: `
+  - at: 2026-11-10T09:00:00Z
+    type: undo
+    note: Took back the decision.
+    previous_resolution:
+      choice: {toString: 1}`,
+      }),
+    );
+    const problem =
+      'feedback[0].previous_resolution.choice: expected text, but YAML read a "key: value" pair because the text contains ": "; put the whole text in quotes (line 19)';
+    await cli("add", demo);
+    const text = await cli("pending", demo);
+    expect(text).toMatchObject({ code: 0, err: "" });
+    expect(text.out).toContain(
+      `Broken cards (fix these; run \`preside validate\` for details):\n  0009-bad.md: ${problem}`,
+    );
+    const json = await cli("pending", demo, "--json");
+    expect(json).toMatchObject({ code: 0, err: "" });
+    expect(JSON.parse(json.out).broken).toEqual([{ file: "0009-bad.md", errors: [problem] }]);
+    const validated = await cli("validate", demo);
+    expect(validated.code).toBe(1);
+    expect(validated.err).toBe(`broken  0009-bad.md\n          - ${problem}`);
+  });
+
   // As the hub measures the file on disk, rounded up (R7-10).
   it("takes a card file of exactly the size limit and refuses one byte more", async () => {
     const demo = await copyDemoProject();

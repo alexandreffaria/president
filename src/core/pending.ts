@@ -2,7 +2,7 @@
  * What an agent still has to act on, card by card. Shared by `preside pending` and the
  * UI's "seen by an agent" markers.
  */
-import type { FeedbackEntry, Frontmatter } from "./schema.ts";
+import type { FeedbackEntry, Frontmatter, PreviousResolution } from "./schema.ts";
 
 type Card = Pick<Frontmatter, "status" | "feedback" | "applied_at" | "seen_at" | "resolution">;
 
@@ -19,7 +19,7 @@ export function needsApplying(card: Pick<Card, "status" | "applied_at">): boolea
 
 /** The decision a card had before the human reopened it. */
 export interface EarlierDecision {
-  resolution: unknown;
+  resolution: PreviousResolution;
   /** When an agent applied that earlier decision, if it did. */
   appliedAt: string | undefined;
 }
@@ -34,12 +34,8 @@ export function earlierDecision(card: Card): EarlierDecision | undefined {
   const reopened = card.feedback.findLast(
     (entry) => entry.type === "reopen" && entry.previous_resolution !== undefined,
   );
-  if (!reopened) return undefined;
-  const appliedAt = reopened.previous_applied_at;
-  return {
-    resolution: reopened.previous_resolution,
-    appliedAt: typeof appliedAt === "string" ? appliedAt : undefined,
-  };
+  if (!reopened?.previous_resolution) return undefined;
+  return { resolution: reopened.previous_resolution, appliedAt: reopened.previous_applied_at };
 }
 
 /**
