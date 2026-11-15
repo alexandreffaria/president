@@ -20,10 +20,8 @@ release, and Windows means the owner's workstation
 
 The detail and order are in [plan.md](plan.md):
 
-- Agent context: a short `CLAUDE.md`, a shorter decision-cards skill.
-- Refactors with no behaviour change: split `sync.ts`, `CardView.tsx`, `chat/service.ts`,
-  `createApp` and the agent commands.
-- Small extras: fewer highlight.js languages, exact toolchain versions.
+- Refactors with no behaviour change: split `chat/service.ts`, `createApp` and the agent
+  commands.
 
 ## Not built, held by the freeze
 
