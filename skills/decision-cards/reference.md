@@ -57,7 +57,7 @@ validate it again.
 ## A new card that fails its last check
 
 After you copy a new card into `<main>/decisions/` (step 7 of **Writing a card**),
-`preside validate <main>/decisions/<file>` must print `ok` and no `warning` line. If not:
+`preside validate <main>/decisions/<file>` must print `ok` and no `warning` line. Otherwise:
 
 - If it warns that a `depends_on` "is not a card in this project" (that card went away since
   you looked), the card is already in the human's queue: fix it with `preside update` (see

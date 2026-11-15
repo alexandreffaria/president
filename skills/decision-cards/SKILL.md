@@ -36,19 +36,21 @@ The **main folder** is the project folder registered with president, where the h
 answers are. A git worktree's `decisions/` is a copy without them: reading or marking cards
 there misses the answers and changes only that copy.
 
-- `<main>` below is the main folder's absolute path; replace it. In a worktree, don't `cd` there: pass it
-  to every `preside` command (`done:` lines are already absolute). It is the first entry of
-  `git worktree list` (plus the project's subfolder, if the project is one), and the warning
-  `preside` prints in a worktree names it. Never register a worktree with `preside add`.
-- **Never commit card files on your branch or in a pull request; Sync carries them** (the hub's button that
-  commits and pushes the main folder's card changes; for projects it skips, see
-  **Less common tasks**). That covers every card change you make, not only answers and
-  `applied`: no pull request carries a file under `decisions/`, not even one that only writes
-  cards. Stage files by path, never with `git add -A` or `git commit -a`: changes under
-  `decisions/` in `git status` are the human's and Sync's.
+- `<main>` below is the main folder's absolute path; replace it. In a worktree, don't `cd`
+  there: pass it to every `preside` command (`done:` lines are already absolute). It is the
+  first entry of `git worktree list` (plus the project's subfolder, if the project is one),
+  and the warning `preside` prints in a worktree names it. Never register a worktree with
+  `preside add`.
+- **Never commit card files on your branch or in a pull request; Sync carries them** (the
+  hub's button that commits and pushes the main folder's card changes). That covers every
+  card change you make, not only answers and `applied`: no pull request carries a file under
+  `decisions/`, not even one that only writes cards. Stage files by path, never with
+  `git add -A` or `git commit -a`: changes under `decisions/` in `git status` are the human's
+  and Sync's. Commit `decisions/` by hand only when the human asks (see **Projects Sync
+  skips** in `reference.md`).
 - A **new card** is drafted outside `<main>/decisions/`, reviewed, and only then copied in
   (**Writing a card**); a **rewrite** of an existing card goes straight to the main folder
-  with `preside update` (**Less common tasks**).
+  with `preside update` (see **Changing a card** in `reference.md`).
 
 ## At the start of a session
 
@@ -60,12 +62,12 @@ there misses the answers and changes only that copy.
 
    If a command says the project is not registered, run the `preside add` it prints, unless
    its path is a worktree. The project is named after its folder (to choose the name, see
-   **Less common tasks**).
+   **Naming a project** in `reference.md`).
 
    Outside the president repo, run `preside`, not `npx preside` (`npx` would fetch a package
    from npm instead of yours). Never run `npx president` anywhere (an unrelated package has
-   that name). If `preside` isn't installed, tell the human (setup is in the president README) and keep going; cards
-   work without the hub running.
+   that name). If `preside` isn't installed, tell the human (setup is in the president
+   README) and keep going; cards work without the hub running.
 
 2. See what is waiting for you, and handle all of it before new work:
 
@@ -74,8 +76,8 @@ there misses the answers and changes only that copy.
    ```
 
    It lists cards **resolved but not applied** (**Applying resolved cards**), cards that
-   **need new options** and **new notes from the human** you haven't read (both in
-   **Less common tasks**).
+   **need new options** and **new notes from the human** you haven't read (see **Cards that
+   need new options** and **New notes from the human** in `reference.md`).
 
    Each card ends with a `done:` line, e.g.
    `done: preside seen /abs/path/decisions/0012-x.md --token 2-0k3j5h2g9fd`. Once you have
@@ -235,11 +237,11 @@ it show?
    that list, and fix the draft if not; validate again if you changed it. Copy it into the
    main folder by absolute path, never over an existing file, and run
    `preside validate <main>/decisions/<file>`: it must print `ok` and no `warning` line.
-   If it warns about a `depends_on` or reports a duplicate id instead, see **Less common
-   tasks**.
+   If it warns about a `depends_on` or reports a duplicate id instead, see **A new card that
+   fails its last check** in `reference.md`.
 
-   Then delete the draft (and your scratch folder), so your branch never commits it. The card
-   is in the human's queue now; leave it uncommitted.
+   Then delete the draft (and the scratch folder, if you made one), so your branch never
+   commits it. The card is in the human's queue now; leave it uncommitted.
 
 ### What makes a good card
 
