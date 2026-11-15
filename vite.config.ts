@@ -29,8 +29,8 @@ export default defineConfig({
   build: {
     outDir: "../../dist/web",
     emptyOutDir: true,
-    // Served from localhost, so one ~200 kB (gzipped) bundle is fine; most of it is
-    // syntax highlighting for the languages agents put in code examples.
+    // Served from localhost, so one ~160 kB (gzipped) bundle is fine. Syntax highlighting
+    // loads only a few languages (src/web/components/highlight.ts).
     chunkSizeWarningLimit: 1000,
   },
   server: {
