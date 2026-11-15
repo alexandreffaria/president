@@ -48,7 +48,8 @@ on npm, where `preside` is an empty placeholder and `president` is someone else'
 ### Install the agent skill
 
 The skill in [skills/decision-cards/SKILL.md](skills/decision-cards/SKILL.md) teaches Claude Code
-when and how to write cards, and how to act on your answers.
+when and how to write cards, and how to act on your answers; the less common tasks are in
+[reference.md](skills/decision-cards/reference.md) next to it, which the skill reads when needed.
 
 **In this repo it's already active.** The repo commits a relative symlink,
 `.claude/skills/decision-cards` → `../../skills/decision-cards`, and Claude Code loads project

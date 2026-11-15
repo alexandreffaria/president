@@ -269,11 +269,12 @@ describe("docs/card-format.md", () => {
   });
 
   // An agent copies these snippets; none may show a comment that would cut its text (A).
-  it("shows no comment that cuts text in its YAML snippets, nor does SKILL.md", async () => {
+  it("shows no comment that cuts text in its YAML snippets, nor does the skill", async () => {
     const snippets: string[] = [];
     for (const file of [
       join(import.meta.dirname, "..", "docs", "card-format.md"),
       join(import.meta.dirname, "..", "skills", "decision-cards", "SKILL.md"),
+      join(import.meta.dirname, "..", "skills", "decision-cards", "reference.md"),
     ]) {
       const text = await readFile(file, "utf8");
       for (const match of text.matchAll(/^( *)```yaml\n([\s\S]*?)\n\1```$/gm)) {
@@ -836,12 +837,30 @@ describe("skills/decision-cards/SKILL.md", async () => {
     expect(example?.split(/\s+/).length).toBeLessThan(250);
   });
 
-  // A rewrite made again from a card deferred meanwhile keeps "deferred" (R8-5).
-  it("says to keep a rewritten card's status as it is, not to set one", () => {
-    expect(skill).toContain(
+  // A rewrite made again from a card deferred meanwhile keeps "deferred" (R8-5). The rewrite
+  // steps are in the skill's reference file.
+  it("says to keep a rewritten card's status as it is, not to set one", async () => {
+    const reference = await readFile(
+      join(import.meta.dirname, "..", "skills", "decision-cards", "reference.md"),
+      "utf8",
+    );
+    expect(reference).toContain(
       "Keep `feedback`, `id`, `created`, `status` and `defer_until` as they are.",
     );
-    expect(skill).not.toMatch(/Keep [^.]*`status: \w+`/);
+    for (const text of [skill, reference]) expect(text).not.toMatch(/Keep [^.]*`status: \w+`/);
+  });
+
+  // SKILL.md sends agents to reference.md for each of its sections, by a name it has.
+  it("points to every section of its reference file", async () => {
+    const reference = await readFile(
+      join(import.meta.dirname, "..", "skills", "decision-cards", "reference.md"),
+      "utf8",
+    );
+    const sections = [...reference.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
+    expect(sections.length).toBeGreaterThanOrEqual(5);
+    const index = skill.slice(skill.indexOf("## Less common tasks"));
+    for (const name of sections) expect(index, name).toContain(`**${name}**`);
+    expect(skill).toContain("`reference.md` in this");
   });
 
   it("has an open card example that is valid", () => {
