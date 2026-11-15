@@ -39,6 +39,7 @@ describe("code highlighting", () => {
     for (const [lang, sample] of samples) {
       const code = render(`\`\`\`${lang}\n${sample}\n\`\`\``);
       expect(code.classList.contains("hljs"), lang).toBe(true);
+      expect(code.classList.contains(`language-${lang}`), lang).toBe(true);
       expect(code.querySelector("[class^='hljs-']"), lang).not.toBeNull();
     }
   });
