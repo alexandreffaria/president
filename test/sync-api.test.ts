@@ -16,7 +16,7 @@ import { createApp } from "../src/server/app.ts";
 import { revisionOf } from "../src/server/cards.ts";
 import { Registry } from "../src/server/registry.ts";
 import { startHub } from "../src/server/server.ts";
-import { SyncService } from "../src/server/sync.ts";
+import { SyncService } from "../src/server/sync/service.ts";
 import { EventBus } from "../src/server/watcher.ts";
 import { gitSandbox, type Sandbox } from "./git-sandbox.ts";
 import { DEMO_PROJECT, tempDir, until } from "./helpers.ts";

@@ -37,7 +37,7 @@
  *                                            new one from the card and its summaries.
  *                                            Answers the conversation (ChatDto)
  *   GET    /api/sync                         per project: answers not synced, card changes on
- *                                            the remote, the last Sync's result (sync.ts)
+ *                                            the remote, the last Sync's result (sync/)
  *   POST   /api/sync                         {}  runs Sync in every project; answers when done
  *   GET    /api/events                       a WebSocket of live events (the route below;
  *                                            server.ts serves it, web/live.ts connects)
@@ -85,7 +85,7 @@ import { ChatService } from "./chat/service.ts";
 import { UserError } from "./errors.ts";
 import type { Registry } from "./registry.ts";
 import { localOnly } from "./security.ts";
-import { SyncService } from "./sync.ts";
+import { SyncService } from "./sync/service.ts";
 import type { EventBus } from "./watcher.ts";
 
 export interface AppOptions {

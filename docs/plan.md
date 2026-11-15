@@ -82,8 +82,8 @@ answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.m
 
 ### 4. Refactors (no behaviour change; section 6's chat trim, which cut the same code, is done)
 
-- [ ] Split `src/server/sync.ts` (1.3k lines): `Repo` to `sync/repo.ts`, and `runSequence`
-  (360 lines, 19 branches) into named checks, with `SyncService` in its own file.
+- [x] Split `src/server/sync.ts` (1.3k lines): `Repo` to `sync/repo.ts`, and `runSequence`
+  (360 lines, 19 branches) into named checks, with `SyncService` in its own file. (#49)
 - [ ] Split `src/web/views/CardView.tsx` (1.6k lines; unblocked by the chat trim). Make hooks
   for loading, actions and
   focus return, and move `ActionBar`, `DeferMenu`, `StatusNotice` and `BrokenCard` into

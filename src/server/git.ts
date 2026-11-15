@@ -1,5 +1,5 @@
 /**
- * Runs git for Sync (see sync.ts). Every call:
+ * Runs git for Sync (see sync/sequence.ts). Every call:
  *
  * - spawns git by its absolute path, found on PATH and never in the folder it runs in (see
  *   executable.ts), with an argument array, never a shell string;

@@ -11,13 +11,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { revisionOf } from "../src/server/cards.ts";
 import { gitEnv, localEnvVars, runGit } from "../src/server/git.ts";
-import {
-  commitMessage,
-  fetchRepo,
-  repoStatus,
-  syncRepo,
-  syncRepoDetailed,
-} from "../src/server/sync.ts";
+import { commitMessage } from "../src/server/sync/messages.ts";
+import { syncRepo, syncRepoDetailed } from "../src/server/sync/sequence.ts";
+import { fetchRepo, repoStatus } from "../src/server/sync/status.ts";
 import { gitSandbox, type Sandbox } from "./git-sandbox.ts";
 
 // Each test runs a few dozen git commands; with several suites at once on a busy machine that
