@@ -323,6 +323,7 @@ Read the section of `reference.md` (in this skill's folder) when:
   `reopen`, `undo`, `chat`, or a `neither` the hub already answered).
 - **A new card that fails its last check**: step 7's validate of your copy in
   `<main>/decisions/` warns about a `depends_on` or reports a duplicate id.
-- **Withdrawing a card**: an open or deferred card no longer matters.
+- **Withdrawing a card**: an open or deferred card no longer matters (withdraw it; don't
+  delete the file or change its `status`).
 - **Projects Sync skips**: the project isn't the top folder of its git repository or has
   submodules, Sync says it skips it, or the human asks you to commit `decisions/` by hand.
