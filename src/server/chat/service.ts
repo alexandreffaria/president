@@ -22,52 +22,33 @@
  */
 import { randomUUID } from "node:crypto";
 import { readdir } from "node:fs/promises";
-import { z } from "zod";
 import { timestamp } from "../../core/actions.ts";
 import {
   type ChatAsk,
   type ChatCloseResponse,
   type ChatDto,
   type ChatMessageDto,
-  type ChatStreamEvent,
   type ChatSummaryResponse,
   isNewConversation,
   NEW_CONVERSATION,
-  type NewOptionsRunDto,
   type StartNewOptionsResponse,
 } from "../../core/api.ts";
 import { parseCardFileName } from "../../core/card-file.ts";
-import { newOptionsFailure } from "../../core/new-options.ts";
-import type { RawFrontmatter } from "../../core/schema.ts";
-import {
-  type BodySections,
-  demoteSectionHeadings,
-  FENCE_CLOSE,
-  FENCE_OPEN,
-  replaceOptionSections,
-  splitSections,
-} from "../../core/sections.ts";
-import { findCard, isIgnoredFile, type LoadedCard, rewriteCard } from "../cards.ts";
+import { findCard, isIgnoredFile, type LoadedCard } from "../cards.ts";
 import { UserError } from "../errors.ts";
-import { isNotFound, KeyedMutex } from "../fs-utils.ts";
+import { isNotFound } from "../fs-utils.ts";
 import { decisionsDirOf, type Project, type Registry } from "../registry.ts";
 import type { EventBus } from "../watcher.ts";
+import { type CardWriter, NewOptionsRuns } from "./new-options.ts";
 import {
   ASK_LABEL,
   askRequest,
   isViewAsked,
-  lastNeither,
-  newOptionsRequest,
-  newOptionsSchema,
-  optionCount,
-  optionsHash,
   pickHash,
   pickLine,
   revealOf,
   sessionInstructions,
   startOverNote,
-  summaryFromCopy,
-  summaryRequest,
   withPickLine,
 } from "./prompts.ts";
 import {
@@ -77,55 +58,11 @@ import {
   runClaude,
   transcriptExists,
 } from "./runner.ts";
-import {
-  type CardKey,
-  ChatStore,
-  defaultStateDir,
-  type NewOptionsRecord,
-  type SessionEntry,
-} from "./store.ts";
+import { CardRuns, ChatRun, keyName } from "./runs.ts";
+import { type CardKey, ChatStore, defaultStateDir, type SessionEntry } from "./store.ts";
+import { Summaries } from "./summaries.ts";
 
-/**
- * Writes a card through whatever guards the hub's writes (Sync refuses them while it runs in
- * the project); `write` does the writing.
- */
-export type CardWriter = (
-  project: Project,
-  write: () => Promise<LoadedCard>,
-) => Promise<LoadedCard>;
-
-/** The `--json-schema` answer of a new-options run (prompts.ts newOptionsSchema). */
-const NewOptionsAnswer = z.object({
-  message: z.string().trim().min(1),
-  options: z
-    .array(
-      z.object({
-        id: z.string(),
-        title: z.string(),
-        summary: z.string(),
-        pros: z.array(z.string()),
-        cons: z.array(z.string()),
-        details: z.string().optional(),
-      }),
-    )
-    .min(1),
-  recommendation: z.object({ option: z.string(), why: z.string() }),
-});
-
-/** Whether the card still waits for new options on the note recorded at `note`. */
-function waitsOn(card: LoadedCard, note: string): boolean {
-  return (
-    card.frontmatter.status !== "resolved" &&
-    card.frontmatter.needs_new_options === true &&
-    lastNeither(card)?.at === note
-  );
-}
-
-/** A reason as a clause after a colon: "The run failed." becomes "the run failed". */
-function clause(text: string): string {
-  const trimmed = text.trim().replace(/\.$/, "");
-  return /^[A-Z][a-z]/.test(trimmed) ? trimmed[0]?.toLowerCase() + trimmed.slice(1) : trimmed;
-}
+export type { CardWriter } from "./new-options.ts";
 
 /** How long a copy is kept after its card or project was first found gone (202611114wet). */
 export const KEEP_MISSING_MS = 30 * 24 * 3600 * 1000;
@@ -158,41 +95,47 @@ export interface SendInput {
   revision?: string | undefined;
 }
 
-type Listener = (event: ChatStreamEvent) => void;
-
-/** A run in progress: its events so far, replayed to whoever subscribes. */
-export class ChatRun {
-  readonly #events: ChatStreamEvent[] = [];
-  readonly #listeners = new Set<Listener>();
-  #ended = false;
-  readonly done: Promise<void>;
-  #resolve!: () => void;
-
-  constructor() {
-    this.done = new Promise((resolve) => {
-      this.#resolve = resolve;
-    });
-  }
-
-  emit(event: ChatStreamEvent): void {
-    this.#events.push(event);
-    for (const listener of this.#listeners) listener(event);
-    if (event.type === "done" || event.type === "error") {
-      this.#ended = true;
-      this.#listeners.clear();
-      this.#resolve();
-    }
-  }
-
-  /** Every event so far, then each new one until the run ends. */
-  subscribe(listener: Listener): () => void {
-    for (const event of this.#events) listener(event);
-    if (!this.#ended) this.#listeners.add(listener);
-    return () => this.#listeners.delete(listener);
-  }
+/** One turn of the card's session (ChatService #converse). */
+export interface Turn {
+  text: string;
+  /** The pick the page says the human revealed with this message (pickHash). */
+  revealedNow: string | undefined;
+  jsonSchema?: string;
+  /** Stops the run, besides the hub shutting down. */
+  signal?: AbortSignal;
+  /** Saves a line from president (the start-over notice). */
+  notice: (message: ChatMessageDto) => Promise<void>;
+  first: () => Promise<void>;
+  onText?: (text: string) => void;
+  onActivity?: (text: string) => void;
 }
 
-const keyName = ({ project, id }: CardKey) => `${project}/${id}`;
+/** What ChatService shares with new-options.ts and summaries.ts. */
+export interface ChatHost {
+  readonly store: ChatStore;
+  readonly runs: CardRuns;
+  readonly bus: EventBus;
+  /** Claude Code's folder, where its transcripts are. */
+  readonly claudeDir: string;
+  card(project: Project, id: string): Promise<LoadedCard>;
+  conversation(project: Project, id: string): Promise<ChatDto>;
+  converse(
+    project: Project,
+    card: LoadedCard,
+    key: CardKey,
+    entry: SessionEntry | undefined,
+    turn: Turn,
+  ): Promise<RunResult>;
+  run(
+    request: Pick<
+      RunRequest,
+      "cwd" | "session" | "message" | "appendSystemPrompt" | "jsonSchema" | "signal"
+    >,
+    handlers?: Parameters<typeof runClaude>[1],
+  ): Promise<RunResult>;
+  message(from: ChatMessageDto["from"], text: string): ChatMessageDto;
+  changed(key: CardKey): void;
+}
 
 export class ChatService {
   readonly store: ChatStore;
@@ -203,40 +146,10 @@ export class ChatService {
   readonly #env: NodeJS.ProcessEnv | undefined;
   readonly #timeoutMs: number | undefined;
   readonly #now: () => Date;
-  /** Cards with a run going on (a reply, a summary, new options): one at a time per card. */
-  readonly #running = new Map<string, ChatRun | "summary" | "new">();
-  /** Who waits for a card's run to end (#nextRelease). */
-  readonly #waiters = new Map<string, (() => void)[]>();
-  /**
-   * The new-options run of each card, from its start until it has ended (also while it waits
-   * for a reply to end, or winds down after an Undo): its note's time, when it ends, and what
-   * stops it (Undo). One at a time: a second "neither" is refused meanwhile (newOptionsAsked).
-   */
-  readonly #newOptions = new Map<
-    string,
-    { note: string; done: Promise<void>; stop: AbortController }
-  >();
-  /** The runs in #running that are new-options runs (`running: "options"`). */
-  readonly #optionRuns = new WeakSet<ChatRun>();
-  /** One at a time per card: starting a new-options run, undoing its note. */
-  readonly #runLock = new KeyedMutex();
-  #writeCard: CardWriter = (_project, write) => write();
-  /**
-   * Cards whose run is starting a new session: Claude Code may not have written its
-   * transcript yet, which doesn't mean it forgot the conversation.
-   */
-  readonly #starting = new Set<string>();
-  /**
-   * Card revisions written by saving a summary (or by Decide without summary), and the ids of
-   * closes ("Close without summary", `close: true`), with what to put back if that is undone.
-   * Only a close is undone with `reopen`; a card write is undone by undoing it (`undone`).
-   */
-  readonly #summaryWrites = new Map<
-    string,
-    { key: CardKey; before: SessionEntry | undefined; close: boolean }
-  >();
-  /** How many messages the summary last offered for a card covers. */
-  readonly #offered = new Map<string, number>();
+  /** Which card has a run going on, and its new-options run (runs.ts). */
+  readonly #runs = new CardRuns();
+  readonly #newOptions: NewOptionsRuns;
+  readonly #summaries: Summaries;
   readonly #abort = new AbortController();
   #cleanupTimer: NodeJS.Timeout | undefined;
 
@@ -249,11 +162,26 @@ export class ChatService {
     this.#env = options.env;
     this.#timeoutMs = options.timeoutMs;
     this.#now = options.now ?? (() => new Date());
+    const host: ChatHost = {
+      store: this.store,
+      runs: this.#runs,
+      bus,
+      claudeDir: this.#claudeDir,
+      card: (project, id) => this.#card(project, id),
+      conversation: (project, id) => this.conversation(project, id),
+      converse: (project, card, key, entry, turn) =>
+        this.#converse(project, card, key, entry, turn),
+      run: (request, handlers) => this.#run(request, handlers),
+      message: (from, text) => this.#message(from, text),
+      changed: (key) => this.#changed(key),
+    };
+    this.#newOptions = new NewOptionsRuns(host);
+    this.#summaries = new Summaries(host);
   }
 
   /** How the new-options run writes the card (the app passes Sync's guard). */
   setCardWriter(writer: CardWriter): void {
-    this.#writeCard = writer;
+    this.#newOptions.setCardWriter(writer);
   }
 
   /** Cleans up now and once a day (202611114wet). */
@@ -276,10 +204,10 @@ export class ChatService {
   async close(): Promise<void> {
     clearInterval(this.#cleanupTimer);
     this.#abort.abort();
-    while (this.#running.size > 0 || this.#newOptions.size > 0) {
+    while (this.#runs.active) {
       await Promise.all([
-        ...[...this.#running.keys()].map((name) => this.#whenIdleNamed(name)),
-        ...[...this.#newOptions.values()].map((run) => run.done),
+        ...this.#runs.reservedNames().map((name) => this.#runs.whenIdle(name)),
+        ...this.#runs.newOptionsDone(),
       ]);
     }
   }
@@ -289,14 +217,14 @@ export class ChatService {
     // Read before the copy and the record: a run that ends while they are read is still
     // reported as going on (the page reads again when it ends), never as over with what the
     // record said before it ended.
-    const run = this.#running.get(keyName(key));
-    const optionsRun = this.#newOptions.has(keyName(key));
+    const run = this.#runs.reservation(keyName(key));
+    const optionsRun = this.#runs.hasNewOptionsRun(keyName(key));
     // A new-options run counts from its start, also while it waits for a reply to end.
     const running: ChatDto["running"] =
       run === "summary"
         ? "summary"
         : run instanceof ChatRun
-          ? this.#optionRuns.has(run)
+          ? this.#runs.isOptionsRun(run)
             ? "options"
             : "reply"
           : optionsRun
@@ -304,7 +232,7 @@ export class ChatService {
             : false;
     const [messages, entry] = await Promise.all([this.store.messages(key), this.store.entry(key)]);
     const newOptions =
-      entry?.newOptions && (await this.#visibleRun(project, key, entry.newOptions));
+      entry?.newOptions && (await this.#newOptions.visibleRun(project, key, entry.newOptions));
     return {
       messages,
       unsummarized: entry?.unsummarized === true,
@@ -312,54 +240,11 @@ export class ChatService {
       // longer has, never during a new session's first run (before its transcript exists).
       remembers:
         !entry?.session ||
-        this.#starting.has(keyName(key)) ||
+        this.#runs.isStartingSession(keyName(key)) ||
         (await transcriptExists(this.#claudeDir, entry.session)),
       running,
       optionsRun,
       ...(newOptions ? { newOptions } : {}),
-    };
-  }
-
-  /**
-   * The record of the card's new-options run as the page shows it: only while it is about the
-   * card as it is now (the note is still the one the card waits on, or the options are still
-   * the ones the hub wrote).
-   */
-  async #visibleRun(
-    project: Project,
-    key: CardKey,
-    record: NewOptionsRecord,
-  ): Promise<NewOptionsRunDto | undefined> {
-    const found = await findCard(project, key.id).catch(() => undefined);
-    if (!found?.ok) return undefined;
-    const card = found.card;
-    if (record.state === "written") {
-      return record.options === optionsHash(card.frontmatter)
-        ? { note: record.note, state: "written" }
-        : undefined;
-    }
-    if (!waitsOn(card, record.note)) return undefined;
-    // "started", or "to-start" kept from before 2026111459oa.
-    const unended = (state: string | undefined) => state !== "failed" && state !== "written";
-    if (
-      unended(record.state) &&
-      !this.#newOptions.has(keyName(key)) &&
-      // Read again: the run may have ended (and saved how) while this was reading.
-      unended((await this.store.entry(key))?.newOptions?.state ?? "written") &&
-      !this.#newOptions.has(keyName(key))
-    ) {
-      // president stopped while it ran (the record is on disk, the run was in this process),
-      // or before 2026111459oa while the note waited to be sent ("to-start").
-      return {
-        note: record.note,
-        state: "failed",
-        error: "the run stopped when president was shut down",
-      };
-    }
-    return {
-      note: record.note,
-      state: record.state,
-      ...(record.error ? { error: record.error } : {}),
     };
   }
 
@@ -371,9 +256,9 @@ export class ChatService {
   async send(project: Project, id: string, input: SendInput): Promise<ChatRun> {
     const card = await this.#card(project, id);
     const key = { project: project.name, id: card.id };
-    if (this.#newOptions.has(keyName(key))) throw this.#busy(key);
+    if (this.#runs.hasNewOptionsRun(keyName(key))) throw this.#runs.busyError(key);
     const run = new ChatRun();
-    this.#reserve(key, run);
+    this.#runs.reserve(key, run);
     void this.#reply(project, card, key, input, run)
       .catch((error: unknown) => {
         console.error("[chat]", error);
@@ -384,7 +269,7 @@ export class ChatService {
         });
       })
       .finally(() => {
-        this.#release(key);
+        this.#runs.release(key);
         this.#changed(key);
       });
     return run;
@@ -457,19 +342,7 @@ export class ChatService {
     card: LoadedCard,
     key: CardKey,
     entry: SessionEntry | undefined,
-    turn: {
-      text: string;
-      /** The pick the page says the human revealed with this message (pickHash). */
-      revealedNow: string | undefined;
-      jsonSchema?: string;
-      /** Stops the run, besides the hub shutting down. */
-      signal?: AbortSignal;
-      /** Saves a line from president (the start-over notice). */
-      notice: (message: ChatMessageDto) => Promise<void>;
-      first: () => Promise<void>;
-      onText?: (text: string) => void;
-      onActivity?: (text: string) => void;
-    },
+    turn: Turn,
   ): Promise<RunResult> {
     const fresh = entry?.fresh === true;
     let resume =
@@ -491,8 +364,8 @@ export class ChatService {
     let viewAsked: string | undefined;
     const attempt = async (): Promise<RunResult> => {
       const session = resume && entry?.session ? entry.session : randomUUID();
-      if (resume) this.#starting.delete(keyName(key));
-      else this.#starting.add(keyName(key));
+      if (resume) this.#runs.resumesSession(keyName(key));
+      else this.#runs.startsSession(keyName(key));
       // The first answer since the human asked for the agent's view on a card without a pick
       // gives it (20261112irpn); a structured answer (new options) can't, so it waits.
       const asksNow =
@@ -568,275 +441,29 @@ export class ChatService {
    * `trim`). One note at a time: refused, before the write, while the card's run goes on or
    * winds down after an Undo. `started: false`: the note is written but its run couldn't be.
    */
-  async newOptionsAsked(
+  newOptionsAsked(
     project: Project,
     id: string,
     write: () => Promise<LoadedCard>,
   ): Promise<{ card: LoadedCard; started: boolean }> {
-    const key = { project: project.name, id };
-    const k = keyName(key);
-    return this.#runLock.run(k, async () => {
-      if (this.#newOptions.has(k)) throw this.#busy(key);
-      const card = await write();
-      const note = lastNeither(card);
-      try {
-        if (note) await this.#startRun(project, key, note.at);
-        return { card, started: true };
-      } catch (error) {
-        console.error("[chat] recording a new-options run:", error);
-        return { card, started: false };
-      }
-    });
+    return this.#newOptions.newOptionsAsked(project, id, write);
   }
 
   /**
-   * Undoes a card action (`undo`) one after the other with starting runs. When the card then
-   * no longer waits on the note of its new-options run (the "neither" was undone), the run is
-   * stopped and its record dropped (2026111459oa `trim`). The card is put back first, so the
-   * run can no longer write it (rewriteCard's revision check); once the run has written its
-   * options, the card changed after the action and the undo is refused. The "Neither"
-   * message stays in the conversation, and in the session. A decision doesn't stop the run
-   * (the owner's choice, 2026-11-15): its write is refused, and Try again is there if the
-   * decision is undone.
+   * Undoes a card action (`undo`) one after the other with starting runs, and stops the card's
+   * new-options run when the card no longer waits on its note (new-options.ts).
    */
-  async undoing(
-    project: Project,
-    id: string,
-    undo: () => Promise<LoadedCard>,
-  ): Promise<LoadedCard> {
-    const key = { project: project.name, id };
-    const k = keyName(key);
-    return this.#runLock.run(k, async () => {
-      const card = await undo();
-      const run = this.#newOptions.get(k);
-      if (run && !waitsOn(card, run.note)) run.stop.abort();
-      const record = (await this.store.entry(key))?.newOptions;
-      if (record && record.state !== "written" && !waitsOn(card, record.note)) {
-        await this.#clearRecord(key, record.note);
-        this.#changed(key);
-      }
-      return card;
-    });
+  undoing(project: Project, id: string, undo: () => Promise<LoadedCard>): Promise<LoadedCard> {
+    return this.#newOptions.undoing(project, id, undo);
   }
 
-  /**
-   * Try again (202611111gpm): starts the run again for the note recorded at `input.note`,
-   * after it failed or president was shut down during it. None while one is going on, for a
-   * note the card no longer waits on, or with no record on this machine (20261112ah6a);
-   * `started: false` then. The run itself goes on after this returns.
-   */
-  async startNewOptions(
+  /** Try again (202611111gpm): starts the run again for the note recorded at `input.note`. */
+  startNewOptions(
     project: Project,
     id: string,
     input: { note: string; revealed?: boolean | undefined; revision?: string | undefined },
   ): Promise<StartNewOptionsResponse> {
-    const card = await this.#card(project, id);
-    const key = { project: project.name, id: card.id };
-    const k = keyName(key);
-    return this.#runLock.run(k, async () => {
-      const current = await this.#card(project, id);
-      const record = (await this.store.entry(key))?.newOptions;
-      if (
-        !record ||
-        record.note !== input.note ||
-        record.state === "written" ||
-        // Going on now. A "started" record without a run is one president was shut down
-        // during: it can be tried again.
-        this.#newOptions.has(k) ||
-        !waitsOn(current, record.note)
-      ) {
-        return { started: false };
-      }
-      const revealedNow =
-        input.revealed && input.revision === current.revision ? revealOf(current) : undefined;
-      // A "to-start" record from before 2026111459oa: the session never had the note, so this
-      // is its first run, not a retry.
-      const retry =
-        record.state === "failed"
-          ? record.error
-          : record.state === "started"
-            ? "the run stopped when president was shut down"
-            : undefined;
-      await this.#startRun(project, key, record.note, retry, revealedNow);
-      return { started: true };
-    });
-  }
-
-  /**
-   * Records the run as started and starts it, in the background; call under #runLock, with
-   * no run on the card (newOptionsAsked and startNewOptions refuse then).
-   */
-  async #startRun(
-    project: Project,
-    key: CardKey,
-    note: string,
-    retry?: string,
-    revealedNow?: string,
-  ): Promise<void> {
-    const k = keyName(key);
-    const { promise: done, resolve: ended } = Promise.withResolvers<void>();
-    const run = { note, done, stop: new AbortController() };
-    this.#newOptions.set(k, run);
-    const forget = () => {
-      if (this.#newOptions.get(k) === run) this.#newOptions.delete(k);
-      ended();
-    };
-    try {
-      await this.store.updateEntry(key, (e) => ({ ...e, newOptions: { note, state: "started" } }));
-    } catch (error) {
-      forget();
-      throw error;
-    }
-    const stop = run.stop.signal;
-    void this.#writeNewOptions(project, key, note, retry, revealedNow, stop)
-      .catch(async (error: unknown) => {
-        console.error("[chat]", error);
-        if (!stop.aborted)
-          await this.#newOptionsFailed(key, note, "internal error; see the server log");
-      })
-      .finally(() => {
-        forget();
-        this.#changed(key);
-      });
-    this.#changed(key);
-  }
-
-  async #writeNewOptions(
-    project: Project,
-    key: CardKey,
-    note: string,
-    retry: string | undefined,
-    revealedNow: string | undefined,
-    /** Aborted by an Undo of the note (undoing). */
-    stop: AbortSignal,
-  ): Promise<void> {
-    const run = new ChatRun();
-    this.#optionRuns.add(run);
-    // Stopped while it waited for a reply: it ends at once, and nothing reached the session.
-    if (!(await this.#reserveWhenIdle(key, run, stop))) return;
-    try {
-      if (stop.aborted) return;
-      const card = await this.#card(project, key.id);
-      // Undone, decided or rewritten by an agent while the run waited: nothing to write. (A
-      // card that waits on the note has it as its last "neither"; `!neither` narrows the type.)
-      // Only an undone note loses its record; otherwise the run failed, so Try again is there
-      // if the card waits on the note again (a decision undone, 2026-11-15).
-      const neither = lastNeither(card);
-      if (!neither || !waitsOn(card, note)) {
-        if (stop.aborted) await this.#clearRecord(key, note);
-        else {
-          const why =
-            card.frontmatter.status === "resolved"
-              ? "you decided the card meanwhile"
-              : "the card changed while the run waited";
-          await this.#newOptionsFailed(key, note, why, false);
-        }
-        return;
-      }
-      const entry = await this.store.entry(key);
-      const save = async (message: ChatMessageDto) => {
-        await this.store.append(key, message);
-        this.#changed(key);
-      };
-      const result = await this.#converse(project, card, key, entry, {
-        text: newOptionsRequest(card, neither, retry),
-        revealedNow,
-        jsonSchema: JSON.stringify(newOptionsSchema(card)),
-        signal: stop,
-        notice: save,
-        first: () =>
-          save(
-            retry
-              ? this.#message(
-                  "hub",
-                  `Trying again to write new options from your note at ${neither.at}.`,
-                )
-              : this.#message("you", `Neither: ${neither.note}`),
-          ),
-      });
-
-      let failure: string | undefined;
-      let written: LoadedCard | undefined;
-      let message = "";
-      // Undone: the card is already back as it was, and the record gone.
-      const stopped = () => save(this.#message("hub", "You undid your note, so the run stopped."));
-      if (stop.aborted) {
-        await stopped();
-        return;
-      }
-      if (!result.ok) {
-        failure = clause(result.error ?? "the run failed");
-      } else {
-        const answer = NewOptionsAnswer.safeParse(result.structured);
-        if (!answer.success) {
-          failure =
-            result.structured === undefined
-              ? "the agent answered without the options"
-              : "the agent's answer wasn't in the expected form";
-        } else {
-          message = answer.data.message.trim();
-          try {
-            const content = newCardContent(card, answer.data);
-            written = await this.#writeCard(project, () =>
-              rewriteCard(project, key.id, card, content),
-            );
-          } catch (error) {
-            if (!(error instanceof UserError)) throw error;
-            failure = clause(error.message);
-          }
-        }
-      }
-
-      if (written) {
-        const hash = optionsHash(written.frontmatter);
-        await this.store.append(
-          key,
-          this.#message("agent", `${message}\n\n(The options are now on the card.)`),
-        );
-        // A run doesn't make the conversation "not summarized" (202611111gpm
-        // `shown-no-reminder`), and a pick revealed before is not the new one (2026111272fu).
-        // A view asked for on the card without a pick (20261112irpn) reveals nothing about the
-        // new options either: the chat is neutral about them until r, with no word of an
-        // earlier pick, since there was none.
-        await this.store.updateEntry(key, (e) => {
-          if (e?.newOptions?.note !== note) return e;
-          const next: SessionEntry = {
-            ...e,
-            newOptions: { note, state: "written", options: hash },
-          };
-          if (isViewAsked(e?.revealed)) delete next.revealed;
-          else if (e?.revealed) next.revealed = "replaced";
-          return next;
-        });
-        this.#bus.emit({ type: "cards", project: project.name });
-      } else if (stop.aborted) {
-        // Stopped while the hub wrote: the write was refused because the card was put back.
-        await stopped();
-      } else {
-        // Whether the card still waits on the note (not decided elsewhere, say, by Sync).
-        const now = await findCard(project, key.id).catch(() => undefined);
-        const waits = now?.ok === true && waitsOn(now.card, note);
-        await this.#newOptionsFailed(key, note, failure ?? "the run failed", waits);
-      }
-    } finally {
-      run.emit({ type: "done", message: undefined });
-      this.#release(key);
-    }
-  }
-
-  async #newOptionsFailed(key: CardKey, note: string, error: string, waits = true): Promise<void> {
-    await this.store.append(key, this.#message("hub", newOptionsFailure(error, waits)));
-    await this.store.updateEntry(key, (e) =>
-      e?.newOptions?.note === note ? { ...e, newOptions: { note, state: "failed", error } } : e,
-    );
-  }
-
-  async #clearRecord(key: CardKey, note: string): Promise<void> {
-    await this.store.updateEntry(key, (e) => {
-      if (e?.newOptions?.note !== note) return e;
-      const { newOptions: _, ...rest } = e;
-      return rest;
-    });
+    return this.#newOptions.startNewOptions(project, id, input);
   }
 
   /**
@@ -851,8 +478,8 @@ export class ChatService {
   async newConversation(project: Project, id: string): Promise<ChatDto> {
     const card = await this.#card(project, id);
     const key = { project: project.name, id: card.id };
-    if (this.#newOptions.has(keyName(key))) throw this.#busy(key);
-    this.#reserve(key, "new");
+    if (this.#runs.hasNewOptionsRun(keyName(key))) throw this.#runs.busyError(key);
+    this.#runs.reserve(key, "new");
     try {
       const messages = await this.store.messages(key);
       const last = messages.at(-1);
@@ -866,7 +493,7 @@ export class ChatService {
         await this.store.append(key, this.#message("hub", NEW_CONVERSATION));
       }
     } finally {
-      this.#release(key);
+      this.#runs.release(key);
       this.#changed(key);
     }
     return this.conversation(project, card.id);
@@ -876,179 +503,39 @@ export class ChatService {
    * Has the session write a summary of the messages after the last saved summary, and returns
    * it for the human to edit. Nothing is saved.
    */
-  async summarize(
+  summarize(
     project: Project,
     id: string,
     input: Omit<SendInput, "text">,
   ): Promise<ChatSummaryResponse> {
-    const card = await this.#card(project, id);
-    const key = { project: project.name, id: card.id };
-    this.#reserve(key, "summary");
-    this.#changed(key);
-    try {
-      const [entry, messages] = await Promise.all([
-        this.store.entry(key),
-        this.store.messages(key),
-      ]);
-      const since = Math.min(entry?.summarized ?? 0, messages.length);
-      const unsaid = messages.slice(since).filter((m) => m.from !== "hub");
-      if (unsaid.length === 0) {
-        throw new UserError("there is nothing new in this conversation to summarize", {
-          status: 409,
-          code: "nothing_to_summarize",
-        });
-      }
-      const revealedNow =
-        input.revealed && input.revision === card.revision ? revealOf(card) : undefined;
-      const line = pickLine(card, revealedNow ?? entry?.revealed);
-      // Messages to cover from before a New conversation (20261112lvbu): the session now
-      // resumed never had them, so the summary is written from the copy.
-      const divider = messages.findLastIndex(isNewConversation);
-      const spans = divider > since && messages.slice(since, divider).some((m) => m.from !== "hub");
-      let result: RunResult | undefined;
-      let fromCopy = true;
-      if (!spans && entry?.session && (await transcriptExists(this.#claudeDir, entry.session))) {
-        fromCopy = false;
-        result = await this.#run({
-          cwd: project.path,
-          session: { resume: entry.session },
-          message: withPickLine(line, summaryRequest(since > 0)),
-        });
-        if (!result.ok && result.sessionNotFound) {
-          fromCopy = true;
-          result = undefined;
-        }
-      }
-      result ??= await this.#run({
-        cwd: project.path,
-        session: { oneOff: true },
-        message: withPickLine(line, summaryFromCopy(card, messages.slice(since), since > 0)),
-        appendSystemPrompt: sessionInstructions(card),
-      });
-      const summary = result.text.trim();
-      if (!result.ok || !summary) {
-        throw new UserError(
-          `Couldn't write the summary: ${result.error ?? "the agent wrote nothing."}`,
-          {
-            status: 422,
-            code: "summary_failed",
-          },
-        );
-      }
-      this.#offered.set(keyName(key), messages.length);
-      return { summary, fromCopy };
-    } finally {
-      this.#release(key);
-      this.#changed(key);
-    }
+    return this.#summaries.summarize(project, id, input);
   }
 
   /**
-   * Ends the conversation without a summary ("Close without summary" in the summary box;
-   * 202611111ky9 `remind`: the reminder lasts "until you close the conversation, saving its
-   * summary or not"). Nothing is written to the card. The messages so far stay in the hub's
-   * copy, and the next summary covers only what comes after them.
-   *
-   * `decision`: the revision of a decision made with "Decide without summary", which closes
-   * the conversation too (20261112hq3k `ends`); undoing that decision (`undone`) reopens it.
-   * Without it, the close is undone with `reopen` and the returned `closed`.
+   * Ends the conversation without a summary ("Close without summary"; with `decision`, a
+   * decision made with "Decide without summary"). See summaries.ts.
    */
-  async closeWithoutSummary(
+  closeWithoutSummary(
     project: Project,
     id: string,
     options: { decision?: string } = {},
   ): Promise<ChatCloseResponse> {
-    const card = await this.#card(project, id);
-    const key = { project: project.name, id: card.id };
-    // A decision is already written: a reply still coming in is left to mark itself.
-    if (options.decision === undefined && this.#running.has(keyName(key))) {
-      throw this.#busy(key);
-    }
-    let before: SessionEntry | undefined;
-    await this.store.updateEntry(key, async (entry) => {
-      before = entry;
-      if (!entry) return entry;
-      // Counted under the entry's lock, as in summarySaved.
-      const messages = await this.store.messages(key);
-      const next: SessionEntry = { ...entry, summarized: messages.length };
-      delete next.unsummarized;
-      return next;
-    });
-    this.#offered.delete(keyName(key));
-    const closed = options.decision ?? randomUUID();
-    // A close made by a decision is undone with the decision, never with `reopen`.
-    if (before) this.#remember(closed, key, before, options.decision === undefined);
-    this.#changed(key);
-    return { chat: await this.conversation(project, card.id), closed };
+    return this.#summaries.closeWithoutSummary(project, id, options);
   }
 
-  /**
-   * Undoes `closeWithoutSummary` (its notice's Undo): the conversation is "not summarized"
-   * again, and the next summary covers what it covered before the close.
-   */
-  async reopen(project: Project, id: string, closed: string): Promise<ChatDto> {
-    const card = await this.#card(project, id);
-    const write = this.#summaryWrites.get(closed);
-    if (!write?.close || write.key.project !== project.name || write.key.id !== card.id) {
-      throw new UserError("this close can no longer be undone", {
-        status: 409,
-        code: "not_undoable",
-      });
-    }
-    await this.undone(closed);
-    return this.conversation(project, card.id);
+  /** Undoes `closeWithoutSummary` (its notice's Undo). */
+  reopen(project: Project, id: string, closed: string): Promise<ChatDto> {
+    return this.#summaries.reopen(project, id, closed);
   }
 
-  /**
-   * A summary was saved on the card (the `chat` action, or a decision carrying one), which
-   * wrote `revision`: the conversation counts as summarized up to the messages that summary
-   * was written from.
-   */
-  async summarySaved(project: Project, id: string, revision: string): Promise<void> {
-    const key = { project: project.name, id };
-    const offered = this.#offered.get(keyName(key));
-    this.#offered.delete(keyName(key));
-    let before: SessionEntry | undefined;
-    await this.store.updateEntry(key, async (entry) => {
-      before = entry;
-      // Counted under the entry's lock: a message saved in between keeps its mark.
-      const messages = await this.store.messages(key);
-      const through = offered ?? messages.length;
-      const covered = Math.min(through, messages.length);
-      const next: SessionEntry = { ...entry, summarized: covered };
-      // A message sent while the summary was being edited is still not summarized; hub lines
-      // (a New conversation's divider, 20261112lvbu) are nothing to summarize.
-      if (messages.slice(covered).every((m) => m.from === "hub")) delete next.unsummarized;
-      return next;
-    });
-    this.#remember(revision, key, before, false);
-    this.#changed(key);
+  /** A summary was saved on the card, which wrote `revision`. */
+  summarySaved(project: Project, id: string, revision: string): Promise<void> {
+    return this.#summaries.summarySaved(project, id, revision);
   }
 
-  /** What an undo of `write` (a card revision, or a close's id) puts back; the last 200. */
-  #remember(write: string, key: CardKey, before: SessionEntry | undefined, close: boolean): void {
-    this.#summaryWrites.set(write, { key, before, close });
-    if (this.#summaryWrites.size > 200) {
-      this.#summaryWrites.delete(this.#summaryWrites.keys().next().value as string);
-    }
-  }
-
-  /**
-   * An undo took back the write that produced `revision`; a summary in it is unsaved again,
-   * and a close in it (Decide without summary, or `reopen`) is undone.
-   */
-  async undone(revision: string): Promise<void> {
-    const write = this.#summaryWrites.get(revision);
-    if (!write) return;
-    this.#summaryWrites.delete(revision);
-    await this.store.updateEntry(write.key, (entry) => {
-      const next: SessionEntry = { ...entry };
-      if (write.before?.unsummarized) next.unsummarized = true;
-      if (write.before?.summarized === undefined) delete next.summarized;
-      else next.summarized = write.before.summarized;
-      return next;
-    });
-    this.#changed(write.key);
+  /** An undo took back the write that produced `revision` (a summary, a close). */
+  undone(revision: string): Promise<void> {
+    return this.#summaries.undone(revision);
   }
 
   /**
@@ -1077,7 +564,7 @@ export class ChatService {
       } else if (!since) {
         await this.store.setMissingSince(key, timestamp(now));
       } else if (now.getTime() - Date.parse(since) >= KEEP_MISSING_MS) {
-        if (!this.#running.has(keyName(key))) await this.store.forget(key);
+        if (!this.#runs.isReserved(keyName(key))) await this.store.forget(key);
       }
     }
   }
@@ -1091,64 +578,6 @@ export class ChatService {
       });
     }
     return found.card;
-  }
-
-  #reserve(key: CardKey, run: ChatRun | "summary" | "new"): void {
-    if (this.#running.has(keyName(key))) throw this.#busy(key);
-    this.#running.set(keyName(key), run);
-  }
-
-  /** Why the card refuses another run: what holds it. */
-  #busy(key: CardKey): UserError {
-    const options = this.#newOptions.get(keyName(key));
-    // A stopped run still on the card is one being stopped (its process, or its write).
-    const message = options?.stop.signal.aborted
-      ? "the new-options run on this card is still stopping; try again in a moment"
-      : options
-        ? "new options are being written on this card; wait for them, or undo your note first"
-        : this.#running.get(keyName(key)) === "new"
-          ? "a new conversation is being started on this card; try again in a moment"
-          : "the agent is still answering on this card; wait for it to finish";
-    return new UserError(message, { status: 409, code: "chat_busy" });
-  }
-
-  /** The card's run (a reply, a summary) ended: the next one may start. */
-  #release(key: CardKey): void {
-    this.#running.delete(keyName(key));
-    this.#starting.delete(keyName(key));
-    const waiting = this.#waiters.get(keyName(key)) ?? [];
-    this.#waiters.delete(keyName(key));
-    for (const wake of waiting) wake();
-  }
-
-  /**
-   * Waits until no run is going on for the card, then reserves it for `run`: the check and
-   * the reservation have no await between them, so of several waiters woken together one
-   * reserves and the others wait again. False, without reserving, once `stop` is aborted.
-   */
-  async #reserveWhenIdle(key: CardKey, run: ChatRun, stop: AbortSignal): Promise<boolean> {
-    const name = keyName(key);
-    const stopped = new Promise<void>((resolve) =>
-      stop.addEventListener("abort", () => resolve(), { once: true }),
-    );
-    while (!stop.aborted && this.#running.has(name)) {
-      await Promise.race([this.#nextRelease(name), stopped]);
-    }
-    if (stop.aborted) return false;
-    this.#running.set(name, run);
-    return true;
-  }
-
-  #nextRelease(name: string): Promise<void> {
-    return new Promise<void>((resolve) => {
-      const list = this.#waiters.get(name) ?? [];
-      list.push(resolve);
-      this.#waiters.set(name, list);
-    });
-  }
-
-  async #whenIdleNamed(name: string): Promise<void> {
-    while (this.#running.has(name)) await this.#nextRelease(name);
   }
 
   #run(
@@ -1204,146 +633,4 @@ async function cardIds(project: Project): Promise<Set<string> | "unknown" | unde
   } catch (error) {
     return isNotFound(error) ? undefined : "unknown";
   }
-}
-
-/** Whether `markdown` has a `<!--` with no later `-->`, outside code fences. */
-function unclosedHtmlComment(markdown: string): boolean {
-  // Fences follow the section splitter's rules (FENCE_OPEN/FENCE_CLOSE), so the two agree.
-  let fence: string | null = null;
-  let open = false;
-  for (const line of markdown.split("\n")) {
-    if (fence !== null) {
-      const close = FENCE_CLOSE.exec(line)?.[1];
-      if (close && close[0] === fence[0] && close.length >= fence.length) fence = null;
-      continue;
-    }
-    if (!open) {
-      const marker = FENCE_OPEN.exec(line)?.[1];
-      if (marker) {
-        fence = marker;
-        continue;
-      }
-    }
-    let at = 0;
-    while (at < line.length) {
-      if (open) {
-        const end = line.indexOf("-->", at);
-        if (end < 0) break;
-        at = end + 3;
-        open = false;
-        continue;
-      }
-      const comment = line.indexOf("<!--", at);
-      if (comment < 0) break;
-      // An inline code span (a backtick run closed by an equal run on the line) before the
-      // comment hides what it holds; an unmatched run is literal text.
-      const tick = /`+/g;
-      tick.lastIndex = at;
-      const run = tick.exec(line);
-      if (run && run.index < comment) {
-        const closer = new RegExp(`(?<!\`)${run[0]}(?!\`)`, "g");
-        closer.lastIndex = run.index + run[0].length;
-        const shut = closer.exec(line);
-        at = shut ? shut.index + run[0].length : run.index + run[0].length;
-        continue;
-      }
-      at = comment + 4;
-      open = true;
-    }
-  }
-  return open;
-}
-
-/**
- * The card with the run's options (#0007): `options`, their `## Option` sections and
- * `recommendation` replaced, `needs_new_options` removed; everything else as the run read it.
- * The answer is model-written, so it must stay inside its sections: ids, titles and summaries
- * on one line, the option count the card's kind takes, and `details` that neither end their
- * section (its level-2 headings become level 3) nor run past it (an unclosed code fence). An
- * option without details (left out or blank) gets no section, so cards stay short. The new
- * body is read back to check that: exactly the sections with details, and the context and the
- * appendix (`## Sources`, notes) as they were. Otherwise a UserError says what was wrong.
- */
-function newCardContent(
-  card: LoadedCard,
-  answer: z.output<typeof NewOptionsAnswer>,
-): { raw: RawFrontmatter; body: string } {
-  const refuse = (problem: string): never => {
-    throw new UserError(`the agent's options didn't pass the card checks (${problem})`, {
-      status: 422,
-      code: "invalid_card",
-    });
-  };
-  const { min, max } = optionCount(card);
-  const count = answer.options.length;
-  if (count < min || count > max) {
-    const takes = min === max ? `${min}` : `${min} to ${max}`;
-    refuse(`it wrote ${count} option${count === 1 ? "" : "s"}; this card takes ${takes}`);
-  }
-  const multiline = (text: string) => /[\r\n\u2028\u2029]/.test(text);
-  for (const option of answer.options) {
-    if (multiline(option.id) || multiline(option.title) || multiline(option.summary)) {
-      refuse("an option's id, title or summary has a line break in it");
-    }
-  }
-  if (multiline(answer.recommendation.option)) refuse("the pick has a line break in it");
-
-  const raw: RawFrontmatter = {
-    ...card.raw,
-    options: answer.options.map(({ id, title, summary, pros, cons }) => ({
-      id,
-      title,
-      summary,
-      pros,
-      cons,
-    })),
-    recommendation: answer.recommendation,
-  };
-  delete raw.needs_new_options;
-  // Every line ending as "\n", so no lone "\r" (or U+2028/U+2029) hides a heading or a fence.
-  const details = answer.options.map((option) =>
-    (option.details ?? "").replace(/\r\n?|[\u2028\u2029]/g, "\n"),
-  );
-  if (details.some(unclosedHtmlComment)) refuse("an option's details open an HTML comment");
-  const sections = answer.options
-    .map((option, i) => ({
-      id: option.id,
-      title: option.title.trim(),
-      markdown: demoteSectionHeadings(details[i] ?? "").trim(),
-    }))
-    .filter((section) => section.markdown !== "");
-  const body = replaceOptionSections(card.body, sections);
-
-  // Read back: exactly the sections with details, and the rest of the body as it was. When
-  // the old option sections were removed and none written, a body without option sections
-  // may split its text between context and appendix at another heading (a second context
-  // section), so only the text, with the spaces at its line ends, must be the same. Such a
-  // second section then shows below the options, and the card's changes say the context
-  // and the notes below the options changed: accepted, since cards keep one context section.
-  const before = splitSections(card.body);
-  const after = splitSections(body);
-  const rest = (s: BodySections) =>
-    [s.context, s.appendix]
-      .filter((t) => t !== "")
-      .join("\n\n")
-      .replace(/[ \t]+$/gm, "");
-  const restKept =
-    (after.context === before.context && after.appendix === before.appendix) ||
-    (sections.length === 0 && before.options.length > 0 && rest(after) === rest(before));
-  const same =
-    restKept &&
-    after.options.length === sections.length &&
-    after.options.every((written, i) => {
-      const wanted = sections[i];
-      return (
-        wanted !== undefined &&
-        written.id === wanted.id &&
-        (written.heading ?? "") === wanted.title &&
-        written.markdown === wanted.markdown
-      );
-    });
-  if (!same) {
-    refuse("an option's text runs outside its section, for example an unclosed code fence");
-  }
-  return { raw, body };
 }

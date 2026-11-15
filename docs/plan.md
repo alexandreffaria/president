@@ -88,8 +88,8 @@ answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.m
   for loading, actions and
   focus return, and move `ActionBar`, `DeferMenu`, `StatusNotice` and `BrokenCard` into
   `components/`. (#50)
-- [ ] Split `src/server/chat/service.ts` (1.3k lines; unblocked by the chat trim): the run
-  bookkeeping into one class, and new options and summaries into their own files.
+- [x] Split `src/server/chat/service.ts` (1.3k lines; unblocked by the chat trim): the run
+  bookkeeping into one class, and new options and summaries into their own files. (#51)
 - [ ] Split `createApp` in `src/server/app.ts` into route files.
 - [ ] Move the agent-facing commands out of `src/cli/commands.ts`, and split `pending()` into
   collect, text and json.
