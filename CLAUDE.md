@@ -11,7 +11,7 @@ A local web app where coding agents put decision cards in front of a human. See 
 - `skills/decision-cards`: the skill agents load to write and apply cards.
 - `docs`: the project docs (below).
 - `test`: Vitest tests; `test/web` for the UI.
-- `tray`: the tray icons (`linux`, `windows`).
+- `tray`: the tray helper's source (`linux`: TypeScript, `windows`: C#).
 - `bin`: `preside.js`, the CLI entry point.
 - `decisions`: president's own decision cards.
 
