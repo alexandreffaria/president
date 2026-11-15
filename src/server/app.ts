@@ -39,7 +39,7 @@
  *   GET    /api/sync                         per project: answers not synced, card changes on
  *                                            the remote, the last Sync's result (sync/)
  *   POST   /api/sync                         {}  runs Sync in every project; answers when done
- *   GET    /api/events                       a WebSocket of live events (the route below;
+ *   GET    /api/events                       a WebSocket of live events (routes/events.ts;
  *                                            server.ts serves it, web/live.ts connects)
  *
  * Every card write carries the revision the client saw, so nobody decides on text they
