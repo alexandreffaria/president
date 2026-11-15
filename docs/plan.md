@@ -61,10 +61,10 @@ answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.m
 
 ### 2. Agent context
 
-- [ ] Add a short `CLAUDE.md` (under 300 words): layout, the check commands, "never branch
+- [x] Add a short `CLAUDE.md` (under 300 words): layout, the check commands, "never branch
   in the main checkout (the hub runs from it)", where cards and docs live, and the 509p
   rule: for president, cards only for direction, UX and scope; mechanics are listed in the
-  PR under "Decided without a card".
+  PR under "Decided without a card". (#46)
 - [ ] Trim `skills/decision-cards/SKILL.md` from about 4k words toward 2k. Every agent
   session in every project loads it. Point to `docs/card-format.md` instead of repeating
   it, and move the rarely used parts ("New notes", "Changing a card") into a reference file
