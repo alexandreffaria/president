@@ -96,9 +96,9 @@ answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.m
 
 ### 5. Small extras
 
-- [ ] Load only a few highlight.js languages (the web bundle is 635 kB, likely mostly highlight).
-- [ ] Pin exact versions of the new toolchain (TypeScript 7, vite 8, vitest 5) in
-  `package.json`.
+- [x] Load only a few highlight.js languages (the web bundle is 635 kB, likely mostly highlight). (#47)
+- [x] Pin exact versions of the new toolchain (TypeScript 7, vite 8, vitest 5) in
+  `package.json`. (#47)
 
 ### 6. What the 2026-11-14 cards decided
 
