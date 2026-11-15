@@ -1,7 +1,7 @@
 import { memo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
-import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
+import { rehypeHighlightSome } from "./highlight.ts";
 
 const components: Components = {
   // Links in cards point at sources; open them without leaving the queue.
@@ -41,7 +41,7 @@ export const Markdown = memo(function Markdown(props: {
     <div className={`markdown ${props.className ?? ""}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[[rehypeHighlight, { detect: false, ignoreMissing: true }]]}
+        rehypePlugins={[rehypeHighlightSome]}
         components={props.imagesAsLinks ? noImages : components}
       >
         {props.children}
