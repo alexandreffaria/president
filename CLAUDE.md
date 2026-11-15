@@ -37,7 +37,8 @@ and syncs from it. Work in a git worktree.
 
 ## Cards and docs
 
-- Cards live in `decisions/`. Never commit them in a pull request; Sync carries them.
+- Cards live in the main checkout's `decisions/` (see the decision-cards skill). Never
+  commit them in a pull request; Sync carries them.
 - `docs/foundations.md`: settled decisions.
 - `docs/plan.md`: the current tracker. Tick an item in the PR that does it.
 - `docs/roadmap.md`: unbuilt work.
