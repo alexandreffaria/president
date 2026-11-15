@@ -36,11 +36,11 @@ The **main folder** is the project folder registered with president, where the h
 answers are. A git worktree's `decisions/` is a copy without them: reading or marking cards
 there misses the answers and changes only that copy.
 
-- `<main>` below is the main folder's absolute path. In a worktree, don't `cd` there: pass it
+- `<main>` below is the main folder's absolute path; replace it. In a worktree, don't `cd` there: pass it
   to every `preside` command (`done:` lines are already absolute). It is the first entry of
   `git worktree list` (plus the project's subfolder, if the project is one), and the warning
   `preside` prints in a worktree names it. Never register a worktree with `preside add`.
-- **Never commit card files in a pull request; Sync carries them** (the hub's button that
+- **Never commit card files on your branch or in a pull request; Sync carries them** (the hub's button that
   commits and pushes the main folder's card changes; for projects it skips, see
   **Less common tasks**). That covers every card change you make, not only answers and
   `applied`: no pull request carries a file under `decisions/`, not even one that only writes
@@ -63,8 +63,8 @@ there misses the answers and changes only that copy.
    **Less common tasks**).
 
    Outside the president repo, run `preside`, not `npx preside` (`npx` would fetch a package
-   from npm instead of yours), and never `npx president` (an unrelated package). If `preside`
-   isn't installed, tell the human (setup is in the president README) and keep going; cards
+   from npm instead of yours). Never run `npx president` anywhere (an unrelated package has
+   that name). If `preside` isn't installed, tell the human (setup is in the president README) and keep going; cards
    work without the hub running.
 
 2. See what is waiting for you, and handle all of it before new work:
@@ -155,7 +155,6 @@ options:
 ...
 ````
 
-
    Filled in, at a good length:
 
 ~~~~markdown
@@ -197,7 +196,6 @@ options:
 A new user's trip list is empty: one line of text and a New trip button. Which line should
 it show?
 ~~~~
-
 
    An `open` card needs no options; the human answers in their own words:
 
@@ -278,7 +276,6 @@ resolution:
   resolved_at: 2026-11-10T15:20:00Z
 ```
 
-
 For each one `preside pending <main>` lists:
 
 1. Read the whole card, including the resolution's `note` and the new notes `pending` shows.
@@ -306,7 +303,8 @@ For each one `preside pending <main>` lists:
 - Only edit cards to apply the steps here and in `reference.md`. Never resolve a card
   yourself, and never change a `resolution` the human made.
 - Never overwrite an existing card (with a write, a temp file and a rename, or an editor):
-  change it only with `preside update`, except to fix a broken one.
+  change it only with `preside update` (see **Changing a card** in `reference.md`), except to
+  fix a broken one.
 - president keeps unknown frontmatter fields, so you can add your own bookkeeping fields to
   an open or deferred card, through `preside update`. A decided card can't be changed.
 
