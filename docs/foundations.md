@@ -61,8 +61,8 @@ first five were settled before president had cards. Work not built yet is in
 | 2026-11-12 | The change notice says when Sync brought the newer card. | [20261112xp4s](../decisions/20261112xp4s-notice-after-sync.md) |
 | 2026-11-12 | Unsynced answers in a project Sync skips get their own line. | [20261112l9vh](../decisions/20261112l9vh-unsynced-count-skipped-projects.md) |
 | 2026-11-12 | The new pick after "Neither" is hidden again, in the run's message and the chat. | [2026111272fu](../decisions/2026111272fu-new-pick-and-neutral-chat.md) |
-| 2026-11-12 | The "Neither" message is sent only once Undo is gone. | [20261112160s](../decisions/20261112160s-undo-new-options-turn.md) |
-| 2026-11-12 | A second tab can start the waiting run, and Undo is then refused. | [20261112dfik](../decisions/20261112dfik-second-tab-during-wait.md) |
+| 2026-11-12 | ~~The "Neither" message is sent only once Undo is gone.~~ Undone by 59oa. | [20261112160s](../decisions/20261112160s-undo-new-options-turn.md) |
+| 2026-11-12 | ~~A second tab can start the waiting run, and Undo is then refused.~~ Undone by 59oa. | [20261112dfik](../decisions/20261112dfik-second-tab-during-wait.md) |
 | 2026-11-12 | No always-on server: a hub on each machine; Sync moves the cards between them. | [2026111276n0](../decisions/2026111276n0-hub-on-your-server.md) |
 | 2026-11-12 | The Windows tray icon shows how many cards are waiting. | [20261112vzn8](../decisions/20261112vzn8-tray-icon-on-windows.md) |
 | 2026-11-12 | A withdrawn card can't be deferred. | [20261112tiuq](../decisions/20261112tiuq-defer-withdrawn-card.md) |
@@ -78,7 +78,7 @@ first five were settled before president had cards. Work not built yet is in
 | 2026-11-13 | Cards with 10 or more options get a warning. | [20261113oew6](../decisions/20261113oew6-cap-options-at-9.md) |
 | 2026-11-14 | Two-week feature freeze: bug fixes, the cleanup plan and these cards; new features only when CellSignalMapper or geode asks. | [202611147ch5](../decisions/202611147ch5-what-next-for-president.md) |
 | 2026-11-14 | For president, cards only for direction, UX and scope; agents decide mechanics and list them in the PR. | [20261114509p](../decisions/20261114509p-which-president-questions-get-cards.md) |
-| 2026-11-14 | Keep the chat; after "Neither" new options start at once and Undo cancels them (undoes 160s, dfik). | [2026111459oa](../decisions/2026111459oa-chat-on-cards-scope.md) |
+| 2026-11-14 | Keep the chat; after "Neither" new options start at once and Undo cancels them, one note at a time (undoes 160s, dfik). | [2026111459oa](../decisions/2026111459oa-chat-on-cards-scope.md) |
 | 2026-11-14 | Finish Windows: the hub finds npm's `claude.cmd`, and the chat tests run on Windows CI. | [202611143v3q](../decisions/202611143v3q-windows-support.md) |
 | 2026-11-14 | A PR's review loop runs until every finding, nits included, is fixed and reviewed again. | [20261114zuct](../decisions/20261114zuct-review-loop-stopping-rule.md) |
 | 2026-11-14 | One line per decision here, reasons in the card; the old roadmap is archived. | [20261114r0w8](../decisions/20261114r0w8-where-decisions-are-recorded.md) |

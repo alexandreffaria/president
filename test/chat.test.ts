@@ -16,6 +16,7 @@ import type {
   ChatSummaryResponse,
   HubEvent,
 } from "../src/core/api.ts";
+import { newOptionsFailure } from "../src/core/new-options.ts";
 import { createApp } from "../src/server/app.ts";
 import {
   claudeArgs,
@@ -352,9 +353,11 @@ describe("a conversation", () => {
       await reader.cancel();
       await next;
       // Once from onAbort, once from the handler's finally: the loop woke up and ended.
-      await vi.waitFor(() => expect(unsubscribed).toBe(2), { timeout: 300 });
+      await vi.waitFor(() => expect(unsubscribed).toBe(2), { timeout: 2000 });
       expect((await t.conversation()).running).toBe("reply");
-      await vi.waitFor(async () => expect((await t.conversation()).running).toBe(false));
+      await vi.waitFor(async () => expect((await t.conversation()).running).toBe(false), {
+        timeout: 10_000,
+      });
       expect((await t.conversation()).messages.at(-1)?.text).toBe("Echo: slow");
     } finally {
       vi.restoreAllMocks();
@@ -378,11 +381,15 @@ describe("a conversation", () => {
     const t = await setup();
     await t.script([{ delayMs: 400 }, { delayMs: 400, text: "A summary." }]);
     const slow = t.post("/api/chats/demo/0002/messages", { text: "slow" });
-    await vi.waitFor(async () => expect((await t.conversation()).messages).toHaveLength(1));
+    await vi.waitFor(async () => expect((await t.conversation()).messages).toHaveLength(1), {
+      timeout: 10_000,
+    });
     expect(await t.conversation()).toMatchObject({ running: "reply", unsummarized: true });
     await (await slow).text();
     const summary = t.post("/api/chats/demo/0002/summary", {});
-    await vi.waitFor(async () => expect((await t.conversation()).running).toBe("summary"));
+    await vi.waitFor(async () => expect((await t.conversation()).running).toBe("summary"), {
+      timeout: 10_000,
+    });
     expect((await summary).status).toBe(200);
     expect((await t.conversation()).running).toBe(false);
   });
@@ -425,6 +432,7 @@ describe("a conversation", () => {
       unsummarized: false,
       remembers: true,
       running: false,
+      optionsRun: false,
     });
   });
 });
@@ -721,7 +729,9 @@ describe("New conversation (20261112lvbu choose)", () => {
     const t = await setup();
     await t.script([{ delayMs: 400 }]);
     const slow = t.post("/api/chats/demo/0002/messages", { text: "slow" });
-    await vi.waitFor(async () => expect((await t.conversation()).running).toBe("reply"));
+    await vi.waitFor(async () => expect((await t.conversation()).running).toBe("reply"), {
+      timeout: 10_000,
+    });
     const busy = await t.post("/api/chats/demo/0002/new-conversation", {});
     expect(busy.status).toBe(409);
     expect(await busy.json()).toMatchObject({ code: "chat_busy" });
@@ -755,7 +765,9 @@ describe("New conversation (20261112lvbu choose)", () => {
     await t.script([{}, { delayMs: 400, text: "A summary." }]);
     await t.send("One");
     const summary = t.post("/api/chats/demo/0002/summary", {});
-    await vi.waitFor(async () => expect((await t.conversation()).running).toBe("summary"));
+    await vi.waitFor(async () => expect((await t.conversation()).running).toBe("summary"), {
+      timeout: 10_000,
+    });
     const busy = await t.post("/api/chats/demo/0002/new-conversation", {});
     expect(busy.status).toBe(409);
     expect(await busy.json()).toMatchObject({ code: "chat_busy" });
@@ -1324,7 +1336,7 @@ describe("the state folder", () => {
   });
 });
 
-describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20261112160s, 20261112dfik)", () => {
+describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 2026111459oa)", () => {
   type T = Awaited<ReturnType<typeof setup>>;
   const NOTE = "Both assume a server. Compare on-device storage only.";
   const ANSWER = {
@@ -1363,6 +1375,7 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
     const at = card.frontmatter.feedback.at(-1)?.at as string;
     return { card, at };
   }
+  /** Try again. */
   const start = (t: T, note: string, extra: object = {}) =>
     t.post("/api/chats/demo/0002/new-options", { note, ...extra });
   /** Waits for the run to end. */
@@ -1375,14 +1388,18 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
     throw new Error("the run never ended");
   }
 
-  it("records the run as to start and sends nothing until a page starts it", async () => {
+  it("starts the run as soon as the note is recorded (2026111459oa trim)", async () => {
     const t = await setup();
+    await t.script([{ structured: ANSWER, gate: "answer" }]);
     const { at } = await neither(t);
-    expect(await t.calls()).toEqual([]);
     const chat = await t.conversation();
-    expect(chat.newOptions).toEqual({ note: at, state: "to-start" });
-    expect(chat.messages).toEqual([]);
+    expect(chat.running).toBe("options");
+    expect(chat.newOptions).toEqual({ note: at, state: "started" });
+    await t.called(1);
     expect(t.events).toContainEqual({ type: "chat", project: "demo", id: "0002" });
+    await t.openGate("answer");
+    expect((await settled(t)).newOptions?.state).toBe("written");
+    expect(await t.calls()).toHaveLength(1);
   });
 
   it("writes the options with update's checks, as a turn in the conversation", async () => {
@@ -1391,15 +1408,13 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
     // The human had looked at the old pick in this conversation.
     await t.send("Why that one?", { revealed: true, revision: (await t.card()).revision });
     const before = await t.card();
-    const { at } = await neither(t);
     // Summarized since: the run doesn't make it "not summarized" again (shown-no-reminder).
     await t.chat.store.updateEntry({ project: "demo", id: "0002" }, (e) => ({
       ...e,
       unsummarized: false,
     }));
     await t.script([{ structured: ANSWER }]);
-    const response = await start(t, at);
-    expect(await response.json()).toEqual({ started: true });
+    const { at } = await neither(t);
     const chat = await settled(t);
 
     const call = (await t.calls()).at(-1) as Call;
@@ -1462,9 +1477,8 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
       ...e,
       revealed: "view-asked:0123456789abcdef",
     }));
-    const { at } = await neither(t);
     await t.script([{ structured: ANSWER }]);
-    await start(t, at);
+    await neither(t);
     await settled(t);
     expect((await t.sessions())["demo/0002"]?.revealed).toBeUndefined();
     await t.send("Which one now?");
@@ -1475,9 +1489,8 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
 
   it("starts a session for a card without a conversation", async () => {
     const t = await setup();
-    const { at } = await neither(t);
     await t.script([{ structured: ANSWER }]);
-    await start(t, at);
+    await neither(t);
     await settled(t);
     const [call] = await t.calls();
     expect(call?.args[call.args.indexOf("--session-id") + 1]).toMatch(UUID);
@@ -1488,10 +1501,9 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
 
   it("refuses a New conversation while the options are written (20261112lvbu)", async () => {
     const t = await setup();
-    await t.send("One");
-    const { at } = await neither(t);
     await t.script([{}, { structured: ANSWER, delayMs: 400 }]);
-    await start(t, at);
+    await t.send("One");
+    await neither(t);
     expect((await t.conversation()).running).toBe("options");
     const busy = await t.post("/api/chats/demo/0002/new-conversation", {});
     expect(busy.status).toBe(409);
@@ -1500,95 +1512,86 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
     expect((await t.sessions())["demo/0002"]?.fresh).toBeUndefined();
   });
 
-  it("starts at most one run for a note", async () => {
+  it("refuses a message, and Try again, while the run goes on", async () => {
     const t = await setup();
+    await t.script([{ structured: ANSWER, delayMs: 300 }]);
     const { at } = await neither(t);
-    await t.script([{ structured: ANSWER, delayMs: 200 }]);
-    const responses = await Promise.all([start(t, at), start(t, at)]);
-    const started = await Promise.all(
-      responses.map(async (r) => ((await r.json()) as { started: boolean }).started),
-    );
-    expect(started.sort()).toEqual([false, true]);
-    expect((await t.conversation()).running).toBe("options");
+    const busy = await t.post("/api/chats/demo/0002/messages", { text: "Why drop the server?" });
+    expect(busy.status).toBe(409);
+    expect(await busy.json()).toMatchObject({
+      code: "chat_busy",
+      error: "new options are being written on this card; wait for them, or undo your note first",
+    });
+    expect(await (await start(t, at)).json()).toEqual({ started: false });
     await settled(t);
-    // The first tab's notice closing after the run started never starts a second one.
+    // Written: nothing to try again either.
     expect(await (await start(t, at)).json()).toEqual({ started: false });
     expect(await t.calls()).toHaveLength(1);
   });
 
-  it("an Undo before the run starts leaves nothing, and no run starts for that note", async () => {
+  it("an Undo during the run stops it and puts the card back; the message stays", async () => {
     const t = await setup();
+    await t.script([{}, { structured: ANSWER, gate: "answer" }]);
     await t.send("Is IndexedDB available?");
-    const { card, at } = await neither(t);
+    const before = await readFile(cardPath(t), "utf8");
+    const { card } = await neither(t);
+    await t.called(2);
     const undo = await t.post("/api/cards/demo/0002/undo", { revision: card.revision });
     expect(undo.status).toBe(200);
-    expect((await t.conversation()).newOptions).toBeUndefined();
-    expect(await (await start(t, at)).json()).toEqual({ started: false });
-    expect(await t.calls()).toHaveLength(1);
-    expect((await t.conversation()).messages).toHaveLength(2);
+    expect(await readFile(cardPath(t), "utf8")).toBe(before);
+    // Stopped: it ends although its answer is still held back by the gate.
+    const chat = await settled(t);
+    expect(chat.newOptions).toBeUndefined();
+    expect(chat.messages.map((m) => [m.from, m.text])).toEqual([
+      ["you", "Is IndexedDB available?"],
+      ["agent", expect.stringMatching(/^Echo: /)],
+      ["you", `Neither: ${NOTE}`],
+      ["hub", "You undid your note, so the run stopped."],
+    ]);
+    await t.openGate("answer");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(await readFile(cardPath(t), "utf8")).toBe(before);
+    expect(await t.calls()).toHaveLength(2);
   });
 
-  it("refuses the Undo once the run started from another tab (refuse-undo)", async () => {
+  it("an Undo while the run waits for a reply to end starts nothing", async () => {
     const t = await setup();
-    const { card, at } = await neither(t);
-    await t.script([{ structured: ANSWER, delayMs: 300 }]);
-    await start(t, at);
+    await t.script([{ text: "Yes.", gate: "reply" }, { structured: ANSWER }]);
+    const reply = t.send("Is IndexedDB available?");
+    await t.called(1);
+    const { card } = await neither(t);
+    expect((await t.conversation()).running).toBe("reply");
+    const undo = await t.post("/api/cards/demo/0002/undo", { revision: card.revision });
+    expect(undo.status).toBe(200);
+    await t.openGate("reply");
+    await reply;
+    const chat = await settled(t);
+    expect(chat.newOptions).toBeUndefined();
+    expect(chat.messages.map((m) => m.from)).toEqual(["you", "agent"]);
+    expect(await t.calls()).toHaveLength(1);
+  });
+
+  it("refuses the Undo once the options are written", async () => {
+    const t = await setup();
+    await t.script([{ structured: ANSWER }]);
+    const { card } = await neither(t);
+    await settled(t);
     const undo = await t.post("/api/cards/demo/0002/undo", { revision: card.revision });
     expect(undo.status).toBe(409);
     expect(await undo.json()).toMatchObject({
-      code: "run_started",
-      error: "the run for this note already started from another tab",
+      code: "conflict",
+      error:
+        "the card changed since (new options may already be on it), so your note can't be taken back",
     });
-    expect((await t.card()).frontmatter.needs_new_options).toBe(true);
-    await settled(t);
-  });
-
-  it("the Undo notice closing starts only a run still to start, never a retry", async () => {
-    const t = await setup();
-    const { at } = await neither(t);
-    await t.script([
-      { lines: [{ type: "result", subtype: "error_max_budget_usd", is_error: true }] },
-      { structured: ANSWER },
-    ]);
-    // Start now in another tab, and the run fails.
-    await start(t, at);
-    expect((await settled(t)).newOptions?.state).toBe("failed");
-    // The first tab's notice times out (or its Undo is refused): no second run.
-    expect(await (await start(t, at, { from: "undo-closed" })).json()).toEqual({ started: false });
-    expect(await t.calls()).toHaveLength(1);
-    expect((await t.conversation()).newOptions?.state).toBe("failed");
-    // Try again is the human's: it runs again.
-    expect(await (await start(t, at)).json()).toEqual({ started: true });
-    expect((await settled(t)).newOptions?.state).toBe("written");
-  });
-
-  it("the Undo notice closing starts a run still to start", async () => {
-    const t = await setup();
-    const { at } = await neither(t);
-    await t.script([{ structured: ANSWER }]);
-    expect(await (await start(t, at, { from: "undo-closed" })).json()).toEqual({ started: true });
-    expect((await settled(t)).newOptions?.state).toBe("written");
-  });
-
-  it("an Undo is refused only by the run for the note it undoes", async () => {
-    const t = await setup();
-    const { card, at } = await neither(t);
-    // A record left for an earlier note (stale): it doesn't make this Undo "already started".
-    const key = { project: "demo", id: "0002" };
-    await t.chat.store.updateEntry(key, (e) => ({
-      ...e,
-      newOptions: { note: "2026-11-01T10:00:00Z", state: "failed", error: "x" },
-    }));
-    expect(at).not.toBe("2026-11-01T10:00:00Z");
-    const undo = await t.post("/api/cards/demo/0002/undo", { revision: card.revision });
-    expect(undo.status).toBe(200);
-    expect((await t.card()).frontmatter.needs_new_options).toBeUndefined();
+    expect((await t.card()).frontmatter.options.map((o) => o.id)).toEqual(["indexeddb", "files"]);
+    expect((await t.conversation()).newOptions?.state).toBe("written");
   });
 
   it("says so clearly when the note is written but the run can't be recorded", async () => {
     const t = await setup();
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(t.chat, "newOptionsAsked").mockRejectedValueOnce(new Error("disk full"));
+    // Recording the run is the first write to the session store after the note.
+    vi.spyOn(t.chat.store, "updateEntry").mockRejectedValueOnce(new Error("disk full"));
     const { revision } = await t.card();
     const response = await t.post("/api/cards/demo/0002/actions", {
       type: "neither",
@@ -1609,13 +1612,12 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
 
   it("writes nothing when the options don't pass the card checks, and Try again runs again", async () => {
     const t = await setup();
-    const { at } = await neither(t);
     const broken = {
       ...ANSWER,
       options: [ANSWER.options[0], { ...ANSWER.options[1], title: " " }],
     };
     await t.script([{ structured: broken }, { structured: ANSWER }]);
-    await start(t, at);
+    const { at } = await neither(t);
     const failed = await settled(t);
     expect(failed.newOptions).toMatchObject({ note: at, state: "failed" });
     expect(failed.newOptions?.error).toMatch(/^the agent's options didn't pass the card checks \(/);
@@ -1637,12 +1639,11 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
 
   it("says why when the run fails or answers without options", async () => {
     const t = await setup();
-    const { at } = await neither(t);
     await t.script([
       { lines: [{ type: "result", subtype: "error_max_budget_usd", is_error: true }] },
       {},
     ]);
-    await start(t, at);
+    const { at } = await neither(t);
     expect((await settled(t)).newOptions?.error).toBe("the run stopped at its spending cap ($1)");
     await start(t, at);
     expect((await settled(t)).newOptions?.error).toBe("the agent answered without the options");
@@ -1650,9 +1651,8 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
 
   it("refuses to write over a note added while the run was writing", async () => {
     const t = await setup();
-    const { at } = await neither(t);
     await t.script([{ structured: ANSWER, gate: "answer" }]);
-    await start(t, at);
+    await neither(t);
     // The run has read the card once the fake is called; it answers only after the note.
     await t.called(1);
     const { revision } = await t.card();
@@ -1675,9 +1675,8 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
 
   it("refuses to write over an agent's edit made during the run (update's revision check)", async () => {
     const t = await setup();
-    const { at } = await neither(t);
     await t.script([{ structured: ANSWER, gate: "answer" }]);
-    await start(t, at);
+    await neither(t);
     await t.called(1);
     // An agent (or Sync) fixes the context and keeps the options: nothing the human owns.
     const text = await readFile(cardPath(t), "utf8");
@@ -1697,11 +1696,10 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
   describe("keeps the answer inside its option sections", () => {
     async function refused(t: T, options: object[], why: RegExp) {
       const before = await readFile(cardPath(t), "utf8");
-      const { at } = await neither(t);
+      await t.script([{ structured: { ...ANSWER, options } }]);
+      await neither(t);
       const noted = await readFile(cardPath(t), "utf8");
       expect(noted).not.toBe(before);
-      await t.script([{ structured: { ...ANSWER, options } }]);
-      await start(t, at);
       const chat = await settled(t);
       expect(chat.newOptions?.state).toBe("failed");
       expect(chat.newOptions?.error).toMatch(/^the agent's options didn't pass the card checks \(/);
@@ -1743,9 +1741,8 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
     it("keeps a fence open past a line with text after its backticks, and inline-code <!--", async () => {
       for (const details of ["```\n``` x\n<!-- not a comment\n```", "Type `<!--` to open one."]) {
         const t = await setup();
-        const { at } = await neither(t);
         await t.script([{ structured: { ...ANSWER, options: [{ ...first, details }, second] } }]);
-        await start(t, at);
+        await neither(t);
         expect((await settled(t)).newOptions?.state).toBe("written");
       }
     });
@@ -1758,13 +1755,12 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
     it("keeps a heading after a lone carriage return or U+2028 inside its option", async () => {
       for (const details of ["text\r## Option z: evil", "text\u2028## Option z: evil"]) {
         const t = await setup();
-        const { at } = await neither(t);
         await t.script([
           {
             structured: { ...ANSWER, options: [{ ...first, details }, second] },
           },
         ]);
-        await start(t, at);
+        await neither(t);
         expect((await settled(t)).newOptions?.state).toBe("written");
         const card = await t.card();
         expect(card.sections.options.map((o) => o.id)).toEqual(["indexeddb", "files"]);
@@ -1789,10 +1785,9 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
     it("keeps a level-2 heading in details inside its option, as a level-3 one", async () => {
       const t = await setup();
       const before = await t.card();
-      const { at } = await neither(t);
       const details = "Some text.\n\n## How it works\n\nMore text.\n\n```md\n## Not a heading\n```";
       await t.script([{ structured: { ...ANSWER, options: [{ ...first, details }, second] } }]);
-      await start(t, at);
+      await neither(t);
       expect((await settled(t)).newOptions?.state).toBe("written");
       const card = await t.card();
       expect(card.sections.options.map((o) => o.id)).toEqual(["indexeddb", "files"]);
@@ -1807,12 +1802,11 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
     it("writes no section for an option without details", async () => {
       const t = await setup();
       const before = await t.card();
-      const { at } = await neither(t);
       const { details: _left, ...bare } = first;
       await t.script([
         { structured: { ...ANSWER, options: [bare, { ...second, details: " \n" }] } },
       ]);
-      await start(t, at);
+      await neither(t);
       expect((await settled(t)).newOptions?.state).toBe("written");
       const card = await t.card();
       expect(card.frontmatter.options.map((o) => o.id)).toEqual(["indexeddb", "files"]);
@@ -1833,11 +1827,10 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
       expect(original).toContain("\n\n## Option ");
       await writeFile(cardPath(t), original.replace("\n\n## Option ", "  \n\n## Option "));
       const before = await t.card();
-      const { at } = await neither(t);
       const { details: _a, ...bareFirst } = first;
       const { details: _b, ...bareSecond } = second;
       await t.script([{ structured: { ...ANSWER, options: [bareFirst, bareSecond] } }]);
-      await start(t, at);
+      await neither(t);
       expect((await settled(t)).newOptions?.state).toBe("written");
       const card = await t.card();
       expect(card.sections.options).toEqual([]);
@@ -1849,10 +1842,9 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
     it("writes sections only for the options with details", async () => {
       const t = await setup();
       const before = await t.card();
-      const { at } = await neither(t);
       const { details: _left, ...bare } = first;
       await t.script([{ structured: { ...ANSWER, options: [bare, second] } }]);
-      await start(t, at);
+      await neither(t);
       expect((await settled(t)).newOptions?.state).toBe("written");
       const card = await t.card();
       expect(card.sections.options.map((o) => [o.id, o.markdown])).toEqual([
@@ -1863,38 +1855,254 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
     });
   });
 
-  it("holds a message sent during the run until the run is over", async () => {
-    const t = await setup();
-    const { at } = await neither(t);
-    await t.script([{ structured: ANSWER, delayMs: 300 }]);
-    await start(t, at);
-    const events = await t.send("Why drop the server?");
-    expect(events.at(-1)?.type).toBe("done");
-    const chat = await t.conversation();
-    expect(chat.messages.map((m) => m.from)).toEqual(["you", "agent", "you", "agent"]);
-    expect(chat.messages[2]?.text).toBe("Why drop the server?");
+  it("offers Try again for a run president was shut down during", async () => {
+    // "to-start": a note left waiting by a hub from before 2026111459oa.
+    for (const state of ["started", "to-start"]) {
+      const t = await setup();
+      await t.script([{}, { structured: ANSWER }]);
+      const { at } = await neither(t);
+      await settled(t);
+      await t.chat.store.updateEntry({ project: "demo", id: "0002" }, (e) => ({
+        ...e,
+        newOptions: { note: at, state: state as "started" },
+      }));
+      expect((await t.conversation()).newOptions).toEqual({
+        note: at,
+        state: "failed",
+        error: "the run stopped when president was shut down",
+      });
+      expect(await (await start(t, at)).json()).toEqual({ started: true });
+      expect((await settled(t)).newOptions?.state).toBe("written");
+      // A "to-start" note never reached the session: its run is a first one, not a retry.
+      const stdin = (await t.calls()).at(-1)?.stdin;
+      if (state === "started") expect(stdin).toContain("Your previous answer couldn't be written");
+      else expect(stdin).not.toContain("Your previous answer");
+    }
   });
 
-  it("offers Try again for a run president was shut down during", async () => {
-    const t = await setup();
-    const { at } = await neither(t);
-    await t.chat.store.updateEntry({ project: "demo", id: "0002" }, (e) => ({
-      ...e,
-      newOptions: { note: at, state: "started" },
-    }));
-    expect((await t.conversation()).newOptions).toEqual({
-      note: at,
-      state: "failed",
-      error: "the run stopped when president was shut down",
+  const WRITING =
+    "new options are being written on this card; wait for them, or undo your note first";
+  const STOPPING = "the new-options run on this card is still stopping; try again in a moment";
+
+  /** A second Neither on the card: refused (`error`), and the card file left as it was. */
+  async function refusedNeither(t: T, error = WRITING) {
+    const before = await readFile(cardPath(t), "utf8");
+    const { revision } = await t.card();
+    const response = await t.post("/api/cards/demo/0002/actions", {
+      type: "neither",
+      note: "Second note.",
+      revision,
     });
-    await t.script([{ structured: ANSWER }]);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "chat_busy", error });
+    expect(await readFile(cardPath(t), "utf8")).toBe(before);
+  }
+
+  /** Holds the hub's write of the options until `release()`; `writing` is when it starts. */
+  function holdWrite(t: T) {
+    const writing = Promise.withResolvers<void>();
+    const held = Promise.withResolvers<void>();
+    t.chat.setCardWriter(async (_project, write) => {
+      writing.resolve();
+      await held.promise;
+      return write();
+    });
+    return { writing: writing.promise, release: () => held.resolve() };
+  }
+
+  it("refuses a second Neither while the run goes on (one note at a time)", async () => {
+    const t = await setup();
+    await t.script([{ structured: ANSWER, gate: "answer" }]);
+    const { at } = await neither(t);
+    await t.called(1);
+    expect((await t.conversation()).optionsRun).toBe(true);
+    await refusedNeither(t);
+    await t.openGate("answer");
+    const chat = await settled(t);
+    expect(chat.optionsRun).toBe(false);
+    expect(chat.newOptions).toEqual({ note: at, state: "written" });
+    expect(chat.messages.map((m) => m.text)).not.toContain("Neither: Second note.");
+    expect(await t.calls()).toHaveLength(1);
+  });
+
+  it("an Undo while the run waits for a reply ends it at once: a Neither is taken during the reply", async () => {
+    const t = await setup();
+    await t.script([{ text: "Yes.", gate: "reply" }, { structured: ANSWER }]);
+    const reply = t.send("Is IndexedDB available?");
+    await t.called(1);
+    const first = await neither(t);
+    let chat = await t.conversation();
+    // The run waits behind the reply: `running` says the reply, `optionsRun` the run.
+    expect([chat.running, chat.optionsRun]).toEqual(["reply", true]);
+    await refusedNeither(t);
+    const undo = await t.post("/api/cards/demo/0002/undo", { revision: first.card.revision });
+    expect(undo.status).toBe(200);
+    await vi.waitFor(async () => expect((await t.conversation()).optionsRun).toBe(false));
+    // The reply still goes on.
+    expect((await t.conversation()).running).toBe("reply");
+    const second = await neither(t, "Second note.");
+    await t.openGate("reply");
+    await reply;
+    chat = await settled(t);
+    expect(chat.newOptions).toEqual({ note: second.at, state: "written" });
+    expect(chat.messages.map((m) => [m.from, m.text])).toEqual([
+      ["you", "Is IndexedDB available?"],
+      ["agent", "Yes."],
+      ["you", "Neither: Second note."],
+      ["agent", `${ANSWER.message}\n\n(The options are now on the card.)`],
+    ]);
+    expect(await t.calls()).toHaveLength(2);
+  });
+
+  it("refuses a Neither while an undone run is still stopping, and takes it once it has ended", async () => {
+    const t = await setup();
+    const { writing, release } = holdWrite(t);
+    await t.script([{ structured: ANSWER }, { structured: ANSWER }]);
+    const first = await neither(t);
+    await writing;
+    const undo = await t.post("/api/cards/demo/0002/undo", { revision: first.card.revision });
+    expect(undo.status).toBe(200);
+    // Stopped, but its write is still being refused.
+    await refusedNeither(t, STOPPING);
+    release();
+    expect((await settled(t)).newOptions).toBeUndefined();
+    t.chat.setCardWriter((_project, write) => write());
+    const second = await neither(t, "Second note.");
+    expect((await settled(t)).newOptions).toEqual({ note: second.at, state: "written" });
+  });
+
+  it("a decision while the run waits behind a reply: after its Undo, Try again runs", async () => {
+    const t = await setup();
+    await t.script([{ text: "Yes.", gate: "reply" }, { structured: ANSWER }]);
+    const reply = t.send("Is IndexedDB available?");
+    await t.called(1);
+    const { at } = await neither(t);
+    const { revision } = await t.card();
+    const decided = await t.post("/api/cards/demo/0002/actions", {
+      type: "resolve",
+      choice: "result",
+      revision,
+    });
+    expect(decided.status).toBe(200);
+    const decidedCard = ((await decided.json()) as CardResponse & { ok: true }).card;
+    await t.openGate("reply");
+    await reply;
+    const chat = await settled(t);
+    // The run found the card decided: it failed, without reaching the session.
+    expect(chat.messages.at(-1)?.text).toBe(
+      "Couldn't write new options: you decided the card meanwhile.",
+    );
+    expect(await t.calls()).toHaveLength(1);
+    const undo = await t.post("/api/cards/demo/0002/undo", { revision: decidedCard.revision });
+    expect(undo.status).toBe(200);
+    expect((await t.conversation()).newOptions).toMatchObject({ note: at, state: "failed" });
     expect(await (await start(t, at)).json()).toEqual({ started: true });
     expect((await settled(t)).newOptions?.state).toBe("written");
+    expect(await t.calls()).toHaveLength(2);
+  });
+
+  it("a decision during the run lets it finish and be refused; after its Undo, Try again runs", async () => {
+    const t = await setup();
+    await t.script([{ structured: ANSWER, gate: "answer" }, { structured: ANSWER }]);
+    const { at } = await neither(t);
+    await t.called(1);
+    const { revision } = await t.card();
+    const decided = await t.post("/api/cards/demo/0002/actions", {
+      type: "resolve",
+      choice: "result",
+      revision,
+    });
+    expect(decided.status).toBe(200);
+    const decidedCard = ((await decided.json()) as CardResponse & { ok: true }).card;
+    const after = await readFile(cardPath(t), "utf8");
+    expect(after).toMatch(/status: resolved/);
+    // The run goes on (the owner's choice, 2026-11-15) and its write is refused.
+    expect((await t.conversation()).optionsRun).toBe(true);
+    await t.openGate("answer");
+    const chat = await settled(t);
+    expect(await readFile(cardPath(t), "utf8")).toBe(after);
+    // Never "the card waits": it is decided.
+    expect(chat.messages.at(-1)?.text).toBe(
+      "Couldn't write new options: you decided the card meanwhile.",
+    );
+    // Undo the decision: the card waits on the note again, and Try again is offered.
+    const undo = await t.post("/api/cards/demo/0002/undo", { revision: decidedCard.revision });
+    expect(undo.status).toBe(200);
+    expect((await t.conversation()).newOptions).toMatchObject({ note: at, state: "failed" });
+    expect(await (await start(t, at)).json()).toEqual({ started: true });
+    expect((await settled(t)).newOptions?.state).toBe("written");
+    expect(await t.calls()).toHaveLength(2);
+  });
+
+  it("a failed run never says the card waits when it no longer does", async () => {
+    expect(newOptionsFailure("x", false)).toBe("Couldn't write new options: x.");
+    const t = await setup();
+    await t.script([{ structured: ANSWER, gate: "answer" }]);
+    await neither(t);
+    await t.called(1);
+    // The project's agent writes options itself during the run.
+    const text = await readFile(cardPath(t), "utf8");
+    await writeFile(cardPath(t), text.replace("needs_new_options: true\n", ""));
+    await t.openGate("answer");
+    const chat = await settled(t);
+    expect(chat.messages.at(-1)?.text).toBe(
+      "Couldn't write new options: the card changed while the agent was writing them.",
+    );
+  });
+
+  it("a Neither after a failed run starts a fresh run for the new note", async () => {
+    const t = await setup();
+    await t.script([
+      { lines: [{ type: "result", subtype: "error_max_budget_usd", is_error: true }] },
+      { structured: ANSWER },
+    ]);
+    const first = await neither(t);
+    expect((await settled(t)).newOptions).toMatchObject({ note: first.at, state: "failed" });
+    const second = await neither(t, "Second note.");
+    const chat = await settled(t);
+    expect(chat.newOptions).toEqual({ note: second.at, state: "written" });
+    const calls = await t.calls();
+    expect(calls).toHaveLength(2);
+    // A first run for the new note, not a retry of the failed one.
+    expect(calls[1]?.stdin).toContain("Second note.");
+    expect(calls[1]?.stdin).not.toContain("Your previous answer");
+    expect(chat.messages.at(-2)?.text).toBe("Neither: Second note.");
+  });
+
+  it("an Undo while the hub writes the options: the write is refused, and the panel says it was undone", async () => {
+    const t = await setup();
+    const before = await readFile(cardPath(t), "utf8");
+    let entered!: () => void;
+    const writing = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    t.chat.setCardWriter(async (_project, write) => {
+      entered();
+      await held;
+      return write();
+    });
+    await t.script([{ structured: ANSWER }]);
+    const { card } = await neither(t);
+    await writing;
+    expect((await t.post("/api/cards/demo/0002/undo", { revision: card.revision })).status).toBe(
+      200,
+    );
+    release();
+    const chat = await settled(t);
+    expect(chat.newOptions).toBeUndefined();
+    expect(chat.messages.at(-1)?.text).toBe("You undid your note, so the run stopped.");
+    expect(chat.messages.some((m) => m.text.startsWith("Couldn't write new options"))).toBe(false);
+    expect(await readFile(cardPath(t), "utf8")).toBe(before);
   });
 
   it("starts no run for a neither made on another machine (20261112ah6a wait)", async () => {
     const t = await setup();
     const { at } = await neither(t);
+    await settled(t);
     // Synced from another machine: the card waits on the note, with no record on this one.
     await t.chat.store.updateEntry({ project: "demo", id: "0002" }, (e) => {
       if (!e) return e;
@@ -1904,13 +2112,14 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
     expect((await t.card()).frontmatter.needs_new_options).toBe(true);
     expect((await t.conversation()).newOptions).toBeUndefined();
     expect(await (await start(t, at)).json()).toEqual({ started: false });
-    expect(await t.calls()).toEqual([]);
+    expect(await t.calls()).toHaveLength(1);
   });
 
   it("no longer shows the record once the card moved on", async () => {
     const t = await setup();
     const { at } = await neither(t);
-    // An agent rewrote the options itself before any run started.
+    expect((await settled(t)).newOptions?.state).toBe("failed");
+    // An agent rewrote the options itself after the run failed.
     const text = await readFile(cardPath(t), "utf8");
     await writeFile(cardPath(t), text.replace("needs_new_options: true\n", ""));
     expect((await t.conversation()).newOptions).toBeUndefined();

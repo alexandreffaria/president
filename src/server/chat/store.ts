@@ -10,7 +10,7 @@
  *                             saved summary covers (#0024), which pick the human revealed
  *                             in it, or that they asked for the agent's view on a card
  *                             without one (2026111272fu, 20261112irpn), and the new-options
- *                             run's record (#0007, 20261112160s)
+ *                             run's record (#0007, 2026111459oa)
  *   chats/<project>/<id>.jsonl  the hub's copy of the messages it showed (#0018), one
  *                             ChatMessageDto per line
  *   missing.json              { "<project>/<id>": when the card or its project was first found
@@ -57,10 +57,10 @@ export interface SessionEntry {
    */
   revealed?: string;
   /**
-   * The run that writes new options from the card's latest "neither" note (#0007): "to
-   * start" when the note is recorded, "started" once the run starts, then "written" or
-   * "failed" (20261112160s, 20261112dfik). Kept on disk, so a page opened after a reload or
-   * a restart can still offer Start now or Try again.
+   * The run that writes new options from the card's latest "neither" note (#0007):
+   * "started" when the note is recorded, then "written" or "failed"; an Undo of the note
+   * drops it (2026111459oa). Kept on disk, so a page opened after a reload or a restart can
+   * still offer Try again.
    */
   newOptions?: NewOptionsRecord;
 }
@@ -68,7 +68,7 @@ export interface SessionEntry {
 export interface NewOptionsRecord {
   /** The note's `feedback` time. */
   note: string;
-  state: "to-start" | "started" | "failed" | "written";
+  state: "started" | "failed" | "written";
   error?: string;
   /** "written": a hash of the options and pick the hub wrote (see optionsHash). */
   options?: string;
