@@ -1971,6 +1971,36 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
     expect((await settled(t)).newOptions).toEqual({ note: second.at, state: "written" });
   });
 
+  it("a decision while the run waits behind a reply: after its Undo, Try again runs", async () => {
+    const t = await setup();
+    await t.script([{ text: "Yes.", gate: "reply" }, { structured: ANSWER }]);
+    const reply = t.send("Is IndexedDB available?");
+    await t.called(1);
+    const { at } = await neither(t);
+    const { revision } = await t.card();
+    const decided = await t.post("/api/cards/demo/0002/actions", {
+      type: "resolve",
+      choice: "result",
+      revision,
+    });
+    expect(decided.status).toBe(200);
+    const decidedCard = ((await decided.json()) as CardResponse & { ok: true }).card;
+    await t.openGate("reply");
+    await reply;
+    const chat = await settled(t);
+    // The run found the card decided: it failed, without reaching the session.
+    expect(chat.messages.at(-1)?.text).toBe(
+      "Couldn't write new options: you decided the card meanwhile.",
+    );
+    expect(await t.calls()).toHaveLength(1);
+    const undo = await t.post("/api/cards/demo/0002/undo", { revision: decidedCard.revision });
+    expect(undo.status).toBe(200);
+    expect((await t.conversation()).newOptions).toMatchObject({ note: at, state: "failed" });
+    expect(await (await start(t, at)).json()).toEqual({ started: true });
+    expect((await settled(t)).newOptions?.state).toBe("written");
+    expect(await t.calls()).toHaveLength(2);
+  });
+
   it("a decision during the run lets it finish and be refused; after its Undo, Try again runs", async () => {
     const t = await setup();
     await t.script([{ structured: ANSWER, gate: "answer" }, { structured: ANSWER }]);

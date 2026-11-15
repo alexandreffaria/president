@@ -301,14 +301,15 @@ both want port 4747 (the icon then turns grey and says "port 4747 in use by anot
    **Ask for new options** (the Neither panel) records your note and sends it at once to the
    card's agent as a message in that conversation: "Neither: ...". Undo puts the card back and
    stops the run; your message stays in the conversation and in the agent's memory. Once the
-   new options are written, Undo is refused. Deciding the card meanwhile lets the run finish, and its options aren't written.
-   One note at a time: while the run goes on, Neither is off for that card. The agent reads the project, researches, and
-   answers with new options, which president writes to the card with the same checks as `preside update` (nothing is written
+   new options are written, Undo is refused. Deciding the card meanwhile lets the run finish,
+   and its options aren't written. One note at a time: while the run goes on, Neither is off
+   for that card. The agent reads the project, researches, and answers with new options, which
+   president writes to the card with the same checks as `preside update` (nothing is written
    if the card changed meanwhile, by you, an agent or Sync, or the options don't pass the
-   checks; the page says why and offers **Try again**). The card then says "New options, written from your note at
-   21:00", with the new pick hidden like any other until you press `r`, also in the
-   conversation. The card stays in `preside pending` for the project's working agent, who
-   reads your note and options it didn't write.
+   checks; the page says why and offers **Try again**). The card then says "New options,
+   written from your note at 21:00", with the new pick hidden like any other until you press
+   `r`, also in the conversation. The card stays in `preside pending` for the project's
+   working agent, who reads your note and options it didn't write.
 
    Notes (`m`) reach agents through `preside pending`, which lists notes they haven't read yet.
    An agent marks a card handled with a token from `pending` that records what it was shown, so

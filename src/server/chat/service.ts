@@ -717,11 +717,20 @@ export class ChatService {
     try {
       if (stop.aborted) return;
       const card = await this.#card(project, key.id);
-      // Decided, undone or rewritten by an agent while the run waited: nothing to write. (A
+      // Undone, decided or rewritten by an agent while the run waited: nothing to write. (A
       // card that waits on the note has it as its last "neither"; `!neither` narrows the type.)
+      // Only an undone note loses its record; otherwise the run failed, so Try again is there
+      // if the card waits on the note again (a decision undone, 2026-11-15).
       const neither = lastNeither(card);
       if (!neither || !waitsOn(card, note)) {
-        if (!stop.aborted) await this.#clearRecord(key, note);
+        if (stop.aborted) await this.#clearRecord(key, note);
+        else {
+          const why =
+            card.frontmatter.status === "resolved"
+              ? "you decided the card meanwhile"
+              : "the card changed while the run waited";
+          await this.#newOptionsFailed(key, note, why, false);
+        }
         return;
       }
       const entry = await this.store.entry(key);
