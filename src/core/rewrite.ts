@@ -1,8 +1,8 @@
 /**
  * What an agent's rewrite of a card may change, shared by `preside update` (cli/commands.ts)
- * and the hub's own new-options run (#0007, server/chat/service.ts): what the human owns must
- * be in the rewrite exactly as it is in the card now, so a note added since the rewrite was
- * made (or a decision, an undo) shows up as a difference and the card is left alone.
+ * and the hub's own new-options run (#0007, server/chat/new-options.ts): what the human owns
+ * must be in the rewrite exactly as it is in the card now, so a note added since the rewrite
+ * was made (or a decision, an undo) shows up as a difference and the card is left alone.
  */
 import { deepEqual } from "./equal.ts";
 import type { Frontmatter } from "./schema.ts";

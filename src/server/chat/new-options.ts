@@ -233,8 +233,8 @@ export class NewOptionsRuns {
   }
 
   /**
-   * Records the run as started and starts it, in the background; call under the card's run lock, with
-   * no run on the card (newOptionsAsked and startNewOptions refuse then).
+   * Records the run as started and starts it, in the background; call under the card's run
+   * lock, with no run on the card (newOptionsAsked and startNewOptions refuse then).
    */
   async #startRun(
     project: Project,
