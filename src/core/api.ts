@@ -247,7 +247,7 @@ export type LiveMessage = HubEvent | { type: "ready" } | { type: "ping" };
 export const HEARTBEAT_MS = 25_000;
 
 /**
- * How one project's Sync ended (see server/sync.ts):
+ * How one project's Sync ended (see server/sync/):
  *
  * - "synced": committed, pulled and pushed.
  * - "nothing": no card changes here or on the remote, so nothing was changed.

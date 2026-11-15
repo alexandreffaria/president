@@ -484,7 +484,7 @@ How it fits together:
   stuck on a slow disk) closes the socket and shows Offline too. The page reconnects with
   backoff (0.5 s doubling to 3 s) and refetches everything when it is back. The handshake passes the same Host and
   Origin checks as writes, so another site can't open one.
-- Sync (`src/server/sync.ts`) runs the steps in [card #0001](decisions/0001-sync-across-machines.md)
+- Sync (`src/server/sync/`) runs the steps in [card #0001](decisions/0001-sync-across-machines.md)
   ("How Sync works in git"), one project after another and never two at once in the same
   project. Each step is a spawned `git` with an argument list (no shell), run in the
   registered project folder without the inherited variables that point git at another

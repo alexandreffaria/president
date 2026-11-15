@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll } from "vitest";
 import { gitEnv } from "../src/server/git.ts";
-import type { SyncOptions } from "../src/server/sync.ts";
+import type { SyncOptions } from "../src/server/sync/repo.ts";
 import { tempDir } from "./helpers.ts";
 
 export interface Sandbox {

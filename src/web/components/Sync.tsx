@@ -2,7 +2,7 @@
  * Sync (card #0001): the top bar's Sync button (and the `s` key), the "3 answers not
  * synced" and "3 card changes on the remote, press Sync" counts, and the report of the last
  * Sync of each project, and a line per project Sync skips that has answers not synced
- * (20261112l9vh). The server does the git work (server/sync.ts); every tab shows the same
+ * (20261112l9vh). The server does the git work (server/sync/); every tab shows the same
  * state, refetched when cards change or a Sync starts or ends.
  */
 import {

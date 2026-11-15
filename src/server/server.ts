@@ -18,7 +18,8 @@ import { createApp } from "./app.ts";
 import { type ChatOptions, ChatService } from "./chat/service.ts";
 import { fileError, UserError } from "./errors.ts";
 import { Registry } from "./registry.ts";
-import { type SyncOptions, SyncService } from "./sync.ts";
+import type { SyncOptions } from "./sync/repo.ts";
+import { SyncService } from "./sync/service.ts";
 import { EventBus, HubWatcher } from "./watcher.ts";
 
 export const HOST = "127.0.0.1";
