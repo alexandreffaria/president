@@ -1664,6 +1664,20 @@ describe("keeping the hub's copy (202611114wet)", () => {
     expect(call?.args[at + 1]).toBe(wt);
     const system = call?.args[(call?.args.indexOf("--append-system-prompt") ?? -2) + 1];
     expect(system).toContain(`The card is the file ${file}`);
+
+    // The branch is merged and the worktree goes: the resumed session is told the new place.
+    const moved = join(t.demo, "decisions", "20261116wtcd-question.md");
+    await writeFile(moved, await readFile(file, "utf8"));
+    await git("worktree", "remove", "--force", wt);
+    forgetCheckouts();
+    await t.send("Still there?", {}, "20261116wtcd");
+    const next = (await t.calls()).at(-1);
+    expect(next?.args).toContain("--resume");
+    expect(next?.args).not.toContain("--add-dir");
+    expect(next?.stdin).toContain(`The card's file is now ${moved}; read it there.`);
+    // Told once: the turn after doesn't repeat it.
+    await t.send("Thanks", {}, "20261116wtcd");
+    expect((await t.calls()).at(-1)?.stdin).not.toContain("The card's file is now");
   });
 
   it("passes no --add-dir for a card in the project's folder", async () => {

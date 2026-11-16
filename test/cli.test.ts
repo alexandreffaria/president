@@ -1323,7 +1323,7 @@ describe("preside CLI", () => {
       }
       expect(await cli("add", ".")).toMatchObject({
         code: 1,
-        err: `preside: ${join(repo, "src")} has no decisions/ folder. Create it, or add --create to make one here.`,
+        err: `preside: ${join(repo, "src")} has no decisions/ folder. Add --create to make one here.`,
       });
       // --create makes decisions/ in the folder given, never in a parent.
       expect((await cli("add", ".", "--create")).out).toBe(`Registered src (${join(repo, "src")})`);
@@ -1356,7 +1356,7 @@ describe("preside CLI", () => {
         expect(await cli(command, "decisions")).toEqual({ code: 1, out: "", err: inner });
       }
       expect((await cli("add", "decisions")).err).toBe(
-        `preside: ${join(root, "decisions")} has no decisions/ folder. Create it, or add --create to make one here.`,
+        `preside: ${join(root, "decisions")} has no decisions/ folder. Add --create to make one here.`,
       );
     } finally {
       cwd.mockRestore();
