@@ -231,13 +231,13 @@ function mergeCopies(byCheckout: LoadedCard[][]): { cards: LoadedCard[]; broken:
  * two branches.
  */
 function cardsAmong(copies: LoadedCard[]): LoadedCard[][] {
-  const groups: LoadedCard[][] = [];
+  let groups: LoadedCard[][] = [];
   for (const copy of copies) {
     const same = (other: LoadedCard) =>
       other.fileName === copy.fileName || other.frontmatter.created === copy.frontmatter.created;
-    const group = groups.find((g) => g.some(same));
-    if (group) group.push(copy);
-    else groups.push([copy]);
+    // Every group the copy links joins it (one renamed copy can tie two together).
+    const linked = groups.filter((g) => g.some(same));
+    groups = [...groups.filter((g) => !linked.includes(g)), [...linked.flat(), copy]];
   }
   return groups;
 }

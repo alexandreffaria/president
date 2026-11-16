@@ -29,13 +29,9 @@ export async function add(args: string[], out: Output): Promise<number> {
     options: { name: { type: "string" }, create: { type: "boolean" } },
   });
   const path = resolve(single(positionals, "add <path>"));
-  // A hint, not a refusal: the human may register a worktree on purpose.
-  const other = await registeredCheckout(path, await new Registry().list().catch(() => []));
-  if (other && !(await sameFolder(other.at, path))) {
-    out.error(
-      `preside: warning: ${path} is another checkout of ${other.project.name}'s git repository (registered at ${other.at}); the hub already shows the cards of every checkout of it, so registering this one too shows them twice. Run \`preside remove ${shellQuote(path)}\` to undo.`,
-    );
-  }
+  const registry = new Registry();
+  // Before registering: afterwards this folder is a registered checkout itself.
+  const other = await registeredCheckout(path, await registry.list().catch(() => []));
   if (
     !values.create &&
     (await isDirectory(path)) &&
@@ -44,11 +40,17 @@ export async function add(args: string[], out: Output): Promise<number> {
   ) {
     throw noDecisionsError(path, " Create it, or add --create to make one here.");
   }
-  const { project, alreadyRegistered, renamedFrom } = await new Registry().add({
+  const { project, alreadyRegistered, renamedFrom } = await registry.add({
     path,
     name: values.name,
     createDecisions: values.create,
   });
+  // A hint, not a refusal: the human may register a worktree on purpose.
+  if (!alreadyRegistered && other && !(await sameFolder(other.at, path))) {
+    out.error(
+      `preside: warning: ${path} is another checkout of ${other.project.name}'s git repository (registered at ${other.at}); the hub already shows the cards of every checkout of it, so registering this one too shows them twice. Run \`preside remove ${shellQuote(path)}\` to undo.`,
+    );
+  }
   if (await sameFolder(project.path, DEMO_SOURCE)) {
     out.error(
       "preside: warning: this is president's own sample folder, tracked in git; every click in the UI changes its files. To try president, run `preside demo` instead: it works on a copy.",

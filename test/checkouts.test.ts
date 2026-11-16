@@ -385,6 +385,26 @@ describe("the same id on two branches", () => {
     );
   });
 
+  it("is one card when a renamed copy ties two copies together", async () => {
+    const { main, wt, project } = await repoWithWorktree();
+    const third = resolve(main, "..", "trips-third");
+    await git(main, "worktree", "add", "-q", "-b", "third", third);
+    const id = '"20261116link"';
+    // x at t1, y at t2, and x at t2: the last links the first two.
+    await writeFile(join(main, "decisions", "20261116link-x.md"), cardText({ id }));
+    await writeFile(
+      join(wt, "decisions", "20261116link-y.md"),
+      cardText({ id, created: "2026-11-16T01:00:00Z" }),
+    );
+    await writeFile(
+      join(third, "decisions", "20261116link-x.md"),
+      cardText({ id, created: "2026-11-16T01:00:00Z" }),
+    );
+    const { cards, broken } = await loadProjectCards(await withCheckouts(project));
+    expect(cards.filter((c) => c.id === "20261116link")).toHaveLength(1);
+    expect(broken.some((b) => b.id === "20261116link")).toBe(false);
+  });
+
   it("is one card when an agent renamed its file on its branch", async () => {
     const { main, wt, project } = await repoWithWorktree();
     const id = '"20261116move"';

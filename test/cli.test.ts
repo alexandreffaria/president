@@ -1438,6 +1438,20 @@ describe("preside CLI", () => {
     await cli("add", join(sub, "app"));
     expect((await cli("pending", join(subWt, "app"))).err).toBe("");
 
+    // A worktree whose branch has no decisions/ yet: nothing pending, no error, and add
+    // refuses without the twice-shown warning, since nothing gets registered.
+    const bare = join(dirname(main), "wt-none");
+    await git(main, "worktree", "add", "-q", "-b", "none", bare);
+    await rm(join(bare, "decisions"), { recursive: true });
+    const none = await cli("pending", bare);
+    expect(none).toMatchObject({ code: 0, out: "Nothing pending." });
+    expect(none.err).toMatch(/has no decisions\/ folder yet: no card is on this branch/);
+    const refused = await cli("add", bare);
+    expect(refused.code).toBe(1);
+    expect(refused.err).not.toMatch(/warning/);
+    // validate still says the folder is missing.
+    expect((await cli("validate", bare)).code).toBe(1);
+
     // add warns about registering a worktree of a registered folder, and still registers.
     const added = await cli("add", wt);
     expect(added).toMatchObject({ code: 0, out: `Registered wt (${wt})` });
