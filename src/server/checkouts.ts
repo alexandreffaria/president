@@ -7,9 +7,10 @@
  * project a worktree belongs to.
  *
  * The answer is cached for a moment (CACHE_MS) and shared by concurrent callers, so a listing
- * of every project, or a watcher poll, runs git at most once per project per moment. Git
- * failing (not installed, not a repository, a timeout) leaves just the folder itself, and so
- * does a folder no checkout holds (a bare repository's own folder).
+ * of every project, or a watcher poll, runs git at most once per project per moment. When git
+ * gives no answer (a timeout, or it can't start), the last answer for the folder is kept.
+ * Otherwise a folder outside git, or one no checkout holds (a bare repository's own folder),
+ * is just itself.
  */
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
@@ -29,6 +30,8 @@ export interface HubProject extends Project {
 }
 
 const CACHE_MS = 1000;
+/** How many folders' last answers are kept (far more than anyone registers). */
+const MAX_ANSWERS = 200;
 const GIT_TIMEOUT_MS = 5000;
 
 const cache = new Map<string, { at: number; checkouts: Promise<Checkout[]> }>();
@@ -75,7 +78,13 @@ async function listCheckouts(folder: string): Promise<Checkout[]> {
   // No answer at all (code null): keep the last one. Not a repository (an exit code): alone.
   if (list.code === null) return lastAnswer.get(folder) ?? alone;
   const checkouts = list.code === 0 ? await fromWorktreeList(folder, list.stdout) : alone;
+  lastAnswer.delete(folder);
   lastAnswer.set(folder, checkouts);
+  // Folders asked about long ago (projects since removed) don't pile up.
+  for (const old of lastAnswer.keys()) {
+    if (lastAnswer.size <= MAX_ANSWERS) break;
+    lastAnswer.delete(old);
+  }
   return checkouts;
 }
 
