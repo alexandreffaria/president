@@ -33,6 +33,11 @@ export function cardCheckout(project: { path: string }, card: LoadedCard): strin
   return checkout === project.path ? [] : [checkout];
 }
 
+/** Added to the pick line when the card's file is no longer where the session was told. */
+export function cardMovedLine(card: Pick<LoadedCard, "path">): string {
+  return `The card's file is now ${card.path}; read it there.`;
+}
+
 export function sessionInstructions(card: LoadedCard): string {
   return [
     `You are talking with the human about one decision card in president, a hub where coding agents ask a human to decide things. The card is the file ${card.path} (project "${card.project}", card id ${card.id}). Read it before your first answer, and read it again whenever the human says it changed: its options, its sections and its \`feedback\` (the human's earlier notes; entries with \`type: chat\` summarize earlier conversations about it).`,

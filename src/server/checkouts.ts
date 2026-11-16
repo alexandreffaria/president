@@ -125,9 +125,16 @@ async function fromWorktreeList(folder: string, output: string): Promise<Checkou
     .sort((a, b) => b.real.length - a.real.length)[0];
   if (!own) return alone;
   const inside = relative(own.real, here);
-  const others = entries
-    .filter((entry) => entry !== own)
-    .map((entry) => ({ path: resolve(entry.path, inside), branch: entry.branch }));
+  const others: Checkout[] = [];
+  for (const entry of entries) {
+    if (entry === own) continue;
+    const path = resolve(entry.path, inside);
+    // The project's subfolder must be inside that checkout: a branch that made it a link to
+    // somewhere else doesn't get that place read or written.
+    const real = await realOrMissing(path);
+    if (real !== undefined && real !== entry.real && !real.startsWith(entry.real + sep)) continue;
+    others.push({ path, branch: entry.branch });
+  }
   return [{ path: folder, branch: own.branch }, ...others];
 }
 
@@ -156,6 +163,11 @@ export function parseWorktreeList(output: string): WorktreeEntry[] {
     entries.push({ path: resolve(raw), branch });
   }
   return entries;
+}
+
+/** The real path, or undefined when nothing is there (a branch without the subfolder). */
+async function realOrMissing(path: string): Promise<string | undefined> {
+  return realpath(path).catch(() => undefined);
 }
 
 async function real(path: string): Promise<string> {

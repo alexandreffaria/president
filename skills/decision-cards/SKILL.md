@@ -55,18 +55,17 @@ human's answer into the card file where it is.
 
 ## At the start of a session
 
-1. Make sure the project is registered with the hub (safe to repeat). Register the project's
-   folder, the first entry of `git worktree list` (plus the subfolder, if the project is one;
-   in a bare repository, the checkout the human chose), not another worktree: the hub
-   already shows every checkout of a registered folder.
+1. Make sure the project is registered with the hub. `preside pending <project>` (step 2)
+   says so when no checkout of it is registered; only then register it, from its folder:
+   the first entry of `git worktree list` (plus the subfolder, if the project is one; in a
+   bare repository, the checkout the human chose), not another worktree, since the hub
+   already shows every checkout of a registered folder:
 
    ```sh
    preside add <folder> --create
    ```
 
-   If a command says the project is not registered, run the `preside add` it prints, unless
-   its path is a worktree: then register the first `git worktree list` entry instead. The
-   project is named after its folder (to choose the name, see **Naming a project** in
+   The project is named after its folder (to choose the name, see **Naming a project** in
    `reference.md`).
 
    Outside the president repo, run `preside`, not `npx preside` (`npx` would fetch a package

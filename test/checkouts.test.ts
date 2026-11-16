@@ -126,6 +126,13 @@ describe("checkoutsOf", () => {
       { path: join(root, "app"), branch: "main" },
       { path: join(wt, "app"), branch: "feat" },
     ]);
+    // A worktree whose branch made the subfolder a link to elsewhere is left out.
+    await rm(join(wt, "app"), { recursive: true });
+    await symlink(await tempDir(), join(wt, "app"), "junction");
+    forgetCheckouts();
+    expect(await checkoutsOf({ path: join(root, "app") })).toEqual([
+      { path: join(root, "app"), branch: "main" },
+    ]);
   });
 
   it("leaves out bare repositories, prunable worktrees and quoted paths", () => {
@@ -320,6 +327,8 @@ describe("cards in every checkout", () => {
     const hub = await withCheckouts(project);
     const found = await findCard(hub, "0001");
     expect(found.ok && found.card.path).toBe(join(wt, "decisions", "0001-offline-storage.md"));
+    // A card that is nowhere is just not there, not "decisions/ does not exist".
+    await expect(findCard(hub, "20261116none")).rejects.toThrow(/no card "20261116none"/);
     // No error while a worktree has a decisions/ folder: the folder's branch has no cards.
     const loaded = await loadProjectCards(hub);
     expect(loaded.error).toBeUndefined();

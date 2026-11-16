@@ -22,6 +22,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { readdir } from "node:fs/promises";
+import { join } from "node:path";
 import { timestamp } from "../../core/actions.ts";
 import {
   type ChatAsk,
@@ -38,13 +39,14 @@ import { findCard, isIgnoredFile, type LoadedCard } from "../cards.ts";
 import { checkoutsOf, type HubProject } from "../checkouts.ts";
 import { UserError } from "../errors.ts";
 import { isNotFound } from "../fs-utils.ts";
-import { decisionsDirOf, type Project, type Registry } from "../registry.ts";
+import { DECISIONS_DIR, decisionsDirOf, type Project, type Registry } from "../registry.ts";
 import type { EventBus } from "../watcher.ts";
 import { type CardWriter, NewOptionsRuns } from "./new-options.ts";
 import {
   ASK_LABEL,
   askRequest,
   cardCheckout,
+  cardMovedLine,
   isViewAsked,
   pickHash,
   pickLine,
@@ -378,16 +380,23 @@ export class ChatService {
       viewAsked = asksNow ? revealed : undefined;
       // What this machine's entry holds until then: the reveal, unless it is that view.
       const stored = asksNow ? (resume ? entry?.revealed : undefined) : revealed;
+      // A resumed session knows where the card was when it was last told: say so if it moved.
+      // Kept only for a card outside the project's own decisions/ (the usual place).
+      const usual = join(project.path, DECISIONS_DIR, card.fileName);
+      const told = entry?.cardPath ?? usual;
+      const moved = resume && told !== card.path ? ` ${cardMovedLine(card)}` : "";
+      const cardPath = card.path === usual ? undefined : card.path;
       const message = withPickLine(
-        pickLine(card, revealed, asksNow),
+        pickLine(card, revealed, asksNow) + moved,
         startOver ? `${startOverNote(card, fresh)}\n\n${turn.text}` : turn.text,
       );
       if (resume) {
-        await this.store.updateEntry(key, (e) => ({
-          ...e,
-          session,
-          ...(stored ? { revealed: stored } : {}),
-        }));
+        await this.store.updateEntry(key, (e) => {
+          const next: SessionEntry = { ...e, session, ...(stored ? { revealed: stored } : {}) };
+          if (cardPath) next.cardPath = cardPath;
+          else delete next.cardPath;
+          return next;
+        });
       }
       return this.#run(
         {
@@ -407,6 +416,8 @@ export class ChatService {
             entryWrite = this.store
               .updateEntry(key, (e) => {
                 const next: SessionEntry = { ...e, session };
+                if (cardPath) next.cardPath = cardPath;
+                else delete next.cardPath;
                 delete next.fresh;
                 if (stored) next.revealed = stored;
                 else delete next.revealed;

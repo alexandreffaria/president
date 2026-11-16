@@ -528,8 +528,13 @@ export async function findCard(project: CardScope, id: string): Promise<FindCard
     if (twin) return { ok: false, broken: twin };
   }
   if (problem) return { ok: false, broken: problem };
+  // The folder's problem, unless it only lacks decisions/ while another checkout has one
+  // (as in loadProjectCards): then the card is simply not there.
   const first = found[0];
-  if (first && "error" in first) throw new UserError(first.error, { status: 404 });
+  const elsewhere = found.some((result) => !("error" in result));
+  if (first && "error" in first && !(first.missing && elsewhere)) {
+    throw new UserError(first.error, { status: 404 });
+  }
   throw new UserError(`no card "${id}" in project "${project.name}"`, { status: 404 });
 }
 
