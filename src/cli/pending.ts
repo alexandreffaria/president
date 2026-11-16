@@ -52,7 +52,10 @@ export async function pending(args: string[], out: Output): Promise<number> {
   return 0;
 }
 
-/** `dir` is a checkout of a registered project, other than the registered one, with no decisions/. */
+/**
+ * `dir` is a checkout of a registered project, other than the registered one, with no
+ * decisions/.
+ */
 async function noCardsYet(dir: string): Promise<boolean> {
   if (!(await isDirectory(dir))) return false;
   if ((await lstatIfThere(join(dir, DECISIONS_DIR))) !== undefined) return false;

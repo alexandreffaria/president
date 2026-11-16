@@ -486,15 +486,15 @@ How it fits together:
   own writes happened since, so a change made in another tab, even one this tab missed, is not
   blamed on an agent. That memory is kept nowhere but in the running hub: after the hub
   restarts, a change from another tab that this tab missed is reported as an agent's change.
-- A watcher on every checkout's `decisions/` folder and on the registry pushes changes to the UI over a
-  WebSocket (`/api/events`), one per tab, hidden or not. Browsers keep WebSockets out of the 6
-  connections per host that HTTP requests share, so any number of tabs and windows can be live
-  at once without holding up API calls. The indicator in the top bar shows the socket's state:
-  Live, or Offline from the moment it closes. The hub sends a `ping` message every 25 s, and a
-  page that hears nothing for 62.5 s (a hub that hangs without closing the socket: stopped, or
-  stuck on a slow disk) closes the socket and shows Offline too. The page reconnects with
-  backoff (0.5 s doubling to 3 s) and refetches everything when it is back. The handshake passes the same Host and
-  Origin checks as writes, so another site can't open one.
+- A watcher on every checkout's `decisions/` folder and on the registry pushes changes to the UI
+  over a WebSocket (`/api/events`), one per tab, hidden or not. Browsers keep WebSockets out of
+  the 6 connections per host that HTTP requests share, so any number of tabs and windows can be
+  live at once without holding up API calls. The indicator in the top bar shows the socket's
+  state: Live, or Offline from the moment it closes. The hub sends a `ping` message every 25 s,
+  and a page that hears nothing for 62.5 s (a hub that hangs without closing the socket: stopped,
+  or stuck on a slow disk) closes the socket and shows Offline too. The page reconnects with
+  backoff (0.5 s doubling to 3 s) and refetches everything when it is back. The handshake passes
+  the same Host and Origin checks as writes, so another site can't open one.
 - Sync (`src/server/sync/`) runs the steps in [card #0001](decisions/0001-sync-across-machines.md)
   ("How Sync works in git"), one project after another and never two at once in the same
   project. Each step is a spawned `git` with an argument list (no shell), run in the
