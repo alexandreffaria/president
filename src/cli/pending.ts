@@ -10,11 +10,11 @@ import { agentToken, earlierDecision, needsApplying, unseenFeedback } from "../c
 import { continued } from "../core/rewrite.ts";
 import { CUSTOM_CHOICE, withdrawalOf } from "../core/schema.ts";
 import { type LoadedCard, loadProjectCards } from "../server/cards.ts";
+import { registeredCheckout } from "../server/checkouts.ts";
 import { UserError } from "../server/errors.ts";
 import { DECISIONS_DIR, type Project, Registry } from "../server/registry.ts";
-
 import type { Output } from "./main.ts";
-import { isDirectory, lstatIfThere, projectAt, registeredCheckout, sameFolder } from "./shared.ts";
+import { isDirectory, lstatIfThere, projectAt, sameFolder } from "./shared.ts";
 import { shellQuote } from "./shell.ts";
 
 /** A project's cards that need an agent, as `pending` lists them. */

@@ -15,7 +15,7 @@
 import { lstat, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { runGit } from "./git.ts";
-import type { Project } from "./registry.ts";
+import { findByPath, type Project } from "./registry.ts";
 
 export interface Checkout {
   /** The project's folder in this checkout (the registered folder first). */
@@ -69,6 +69,40 @@ export function checkoutsOf(project: Pick<Project, "path">): Promise<Checkout[]>
   };
   cache.set(project.path, entry);
   return entry.checkouts;
+}
+
+/**
+ * The registered project that `dir` is a checkout of: registered itself, or the same folder
+ * in another checkout of its git repository (a worktree of a registered folder, or the
+ * registered worktree of a bare repository). `at` is the registered folder.
+ */
+export async function registeredCheckout(
+  dir: string,
+  projects: Project[],
+): Promise<{ project: Project; at: string } | undefined> {
+  const itself = await findByPath(projects, await realpath(dir).catch(() => dir));
+  if (itself) return { project: itself, at: dir };
+  for (const checkout of await checkoutsOf({ path: dir })) {
+    const real = await realpath(checkout.path).catch(() => checkout.path);
+    const project = await findByPath(projects, real);
+    if (project) return { project, at: checkout.path };
+  }
+  return undefined;
+}
+
+/**
+ * The warning for registering `dir` when another checkout of its repository is registered
+ * already (`other`, from {@link registeredCheckout} before the add): the hub then shows the
+ * same cards under two projects. Undefined when there is nothing to warn about.
+ */
+export async function secondCheckoutWarning(
+  dir: string,
+  other: { project: Project; at: string } | undefined,
+): Promise<string | undefined> {
+  if (!other) return undefined;
+  const [a, b] = await Promise.all([real(other.at), real(dir)]);
+  if (a === b) return undefined;
+  return `${dir} is another checkout of ${other.project.name}'s git repository (registered at ${other.at}); the hub already shows the cards of every checkout of it, so registering this one too shows them twice.`;
 }
 
 /** Forgets the cached checkouts (tests). */
