@@ -274,6 +274,7 @@ describe("cards API", () => {
         project: "demo",
         fileName: "0007-outside.md",
         id: "0007",
+        branch: null,
         errors: [expect.stringMatching(/symlink; president doesn't follow symlinks/)],
       },
     ]);
