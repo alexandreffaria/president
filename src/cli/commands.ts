@@ -32,7 +32,13 @@ export async function add(args: string[], out: Output): Promise<number> {
     // Something else there (a file, a link) is the registry's to explain (R8-4, R9-1).
     (await lstatIfThere(join(path, DECISIONS_DIR))) === undefined
   ) {
-    throw noDecisionsError(path, " Add --create to make one here.");
+    // A worktree of a registered folder: its cards show already, don't suggest registering it.
+    throw noDecisionsError(
+      path,
+      other
+        ? ` ${other.project.name} is registered at ${other.at}, and the hub already shows the cards of this checkout; create ${DECISIONS_DIR}/ here only to write a card.`
+        : " Add --create to make one here.",
+    );
   }
   const { project, alreadyRegistered, renamedFrom } = await registry.add({
     path,

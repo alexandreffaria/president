@@ -222,8 +222,9 @@ both want port 4747 (the icon then turns grey and says "port 4747 in use by anot
    worktree of it) and commits it on the branch it works on. The card shows up in the queue
    right away, no reload needed, with the branch it is on ("on feat-login"). Your answer is
    written into that card file, the agent commits it with its work, and the branch's pull
-   request takes the card to main. The hub reads every checkout of a registered project: the
-   folder and each `git worktree list` entry, looked up again every few seconds.
+   request takes the card to main (a card in the project folder on main travels with Sync,
+   step 5). The hub reads every checkout of a registered project: the folder and each
+   `git worktree list` entry, looked up again every few seconds.
 
 3. Go through the **Queue**. On a card:
 

@@ -107,7 +107,8 @@ Nobody reads the plumbing by hand, so review is the quality gate.
 
 Decision cards live on the branch whose work they unblock (decided 2026-11-16): the agent commits a card,
 the human's answer and its own "applied" on its branch, and that branch's PR carries them with the docs and
-code they decided. A new card is reviewed before it reaches the human: it is drafted in a scratch folder
+code they decided (in the registered folder with main checked out, Sync still carries them until card
+20261116d34o is decided). A new card is reviewed before it reaches the human: it is drafted in a scratch folder
 outside every checkout (the hub reads them all), a fresh session reviews the draft, and the loop repeats
 until nothing should-fix is left; then the agent copies it into its checkout's `decisions/` and commits it
 (`skills/decision-cards/SKILL.md`, *Writing a card*).

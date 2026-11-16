@@ -389,14 +389,13 @@ export class ChatService {
         startOver ? `${startOverNote(card, fresh)}\n\n${turn.text}` : turn.text,
       );
       if (resume) {
-        await this.store.updateEntry(key, (e) => {
-          const next: SessionEntry = { ...e, session, ...(stored ? { revealed: stored } : {}) };
-          if (cardPath) next.cardPath = cardPath;
-          else delete next.cardPath;
-          return next;
-        });
+        await this.store.updateEntry(key, (e) => ({
+          ...e,
+          session,
+          ...(stored ? { revealed: stored } : {}),
+        }));
       }
-      return this.#run(
+      const result = await this.#run(
         {
           cwd: project.path,
           addDirs: cardCheckout(project, card),
@@ -427,6 +426,17 @@ export class ChatService {
           ...(turn.onActivity ? { onActivity: turn.onActivity } : {}),
         },
       );
+      // The resumed session now knows where the card is, once a run has read the message
+      // (as summaries do): a failed run tells the next turn again.
+      if (resume && moved && result.ok) {
+        await this.store.updateEntry(key, (e) => {
+          const next: SessionEntry = { ...e };
+          if (cardPath) next.cardPath = cardPath;
+          else delete next.cardPath;
+          return next;
+        });
+      }
+      return result;
     };
 
     let result = await attempt();
