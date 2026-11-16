@@ -1,6 +1,8 @@
 /**
- * Watches every registered project's decisions/ folder and the registry folder, and
- * reports changes (debounced) so the UI can refresh without a reload.
+ * Watches the decisions/ folder of every checkout of every registered project (the folder
+ * and its git worktrees, see checkouts.ts) and the registry folder, and reports changes
+ * (debounced) so the UI can refresh without a reload. Worktrees come and go, and checkouts
+ * switch branch, so the checkouts are looked up again every few seconds.
  */
 import { EventEmitter } from "node:events";
 import { stat } from "node:fs/promises";
@@ -8,6 +10,7 @@ import { basename, dirname, normalize } from "node:path";
 import { type FSWatcher, watch } from "chokidar";
 import type { HubEvent } from "../core/api.ts";
 import { isIgnoredFile } from "./cards.ts";
+import { allWithCheckouts } from "./checkouts.ts";
 import { decisionsDirOf, isEntryFileName, type Registry } from "./registry.ts";
 
 export class EventBus {
@@ -35,6 +38,8 @@ export interface HubWatcherOptions {
   onFileEvent?: (event: string, path: string) => void;
   /** How often to look for decisions/ folders that appeared, went or were made again (ms). */
   pollMs?: number;
+  /** How often to look up each project's checkouts again (ms): worktrees added, branches switched. */
+  checkoutsPollMs?: number;
 }
 
 /** Runs the last function given for a key once no new one arrived for `delayMs`. */
@@ -71,9 +76,14 @@ export class HubWatcher {
   readonly #debouncer: Debouncer;
   readonly #onFileEvent: HubWatcherOptions["onFileEvent"];
   readonly #pollMs: number;
+  readonly #checkoutsPollMs: number;
   readonly #watcher: FSWatcher;
-  /** decisions dir -> project name */
+  /** decisions dir (of any checkout) -> project name */
   #dirs = new Map<string, string>();
+  /** project name -> its checkouts (paths and branches) at the last sync, to notice changes. */
+  #layouts = new Map<string, string>();
+  /** When sync last looked up the checkouts. */
+  #syncedAt = 0;
   /** decisions dir -> what the last look found there (see `identity`), null if nothing. */
   #seen = new Map<string, string | null>();
   #poll: NodeJS.Timeout | undefined;
@@ -88,6 +98,7 @@ export class HubWatcher {
     this.#debouncer = new Debouncer(options.debounceMs ?? 150);
     this.#onFileEvent = options.onFileEvent;
     this.#pollMs = options.pollMs ?? 1000;
+    this.#checkoutsPollMs = options.checkoutsPollMs ?? 3000;
     this.#watcher = watch([], {
       ignoreInitial: true,
       depth: 0,
@@ -116,16 +127,34 @@ export class HubWatcher {
     this.#poll.unref();
   }
 
-  /** Re-reads the registry and adjusts the set of watched folders. */
+  /**
+   * Re-reads the registry and each project's checkouts, and adjusts the set of watched
+   * folders. A project whose checkouts changed (one added or gone, a branch switched) has its
+   * cards reported: the branch each card shows may have changed with no card file changing.
+   */
   async sync(): Promise<void> {
-    let projects: Awaited<ReturnType<Registry["list"]>>;
+    this.#syncedAt = Date.now();
+    let projects: Awaited<ReturnType<typeof allWithCheckouts>>;
     try {
-      projects = await this.#registry.list();
+      projects = await allWithCheckouts(await this.#registry.list());
     } catch (error) {
       console.error("[watcher]", (error as Error).message);
       return;
     }
-    const next = new Map(projects.map((p) => [decisionsDirOf(p), p.name]));
+    if (this.#closed) return;
+    const next = new Map<string, string>();
+    const layouts = new Map<string, string>();
+    for (const project of projects) {
+      for (const checkout of project.checkouts) {
+        const dir = decisionsDirOf(checkout);
+        if (!next.has(dir)) next.set(dir, project.name);
+      }
+      const layout = JSON.stringify(project.checkouts);
+      layouts.set(project.name, layout);
+      const before = this.#layouts.get(project.name);
+      if (before !== undefined && before !== layout) this.#reportCards(project.name);
+    }
+    this.#layouts = layouts;
     const removed = [...this.#dirs.keys()].filter((dir) => !next.has(dir));
     const added = [...next.keys()].filter((dir) => !this.#dirs.has(dir));
     this.#dirs = next;
@@ -193,6 +222,7 @@ export class HubWatcher {
     if (this.#polling) return;
     this.#polling = true;
     try {
+      if (Date.now() - this.#syncedAt >= this.#checkoutsPollMs) await this.sync();
       await this.#check([...this.#dirs.keys()]);
     } finally {
       this.#polling = false;

@@ -44,6 +44,7 @@ import {
 } from "../../core/api.ts";
 import { parseCardFileName } from "../../core/card-file.ts";
 import { findCard, isIgnoredFile, type LoadedCard } from "../cards.ts";
+import { checkoutsOf } from "../checkouts.ts";
 import { UserError } from "../errors.ts";
 import { isNotFound } from "../fs-utils.ts";
 import { decisionsDirOf, type Project, type Registry } from "../registry.ts";
@@ -586,7 +587,7 @@ export class ChatService {
       let exists = false;
       if (project) {
         if (!idsByProject.has(project.name)) {
-          idsByProject.set(project.name, await cardIds(project));
+          idsByProject.set(project.name, await projectCardIds(project));
         }
         const ids = idsByProject.get(project.name);
         // The folder can't be read right now (permissions, ...): no verdict either way.
@@ -672,10 +673,23 @@ export class ChatService {
 }
 
 /**
- * The ids of the card files in the project's decisions/ (undefined: the folder is gone, as on
+ * The ids of the card files in every checkout of the project (undefined: no checkout has a
+ * decisions/ folder; "unknown": one can't be read).
+ */
+async function projectCardIds(project: Project): Promise<Set<string> | "unknown" | undefined> {
+  const found = await Promise.all((await checkoutsOf(project)).map(cardIds));
+  if (found.includes("unknown")) return "unknown";
+  const sets = found.filter((ids) => ids instanceof Set);
+  return sets.length === 0 ? undefined : new Set(sets.flatMap((ids) => [...ids]));
+}
+
+/**
+ * The ids of the card files in a checkout's decisions/ (undefined: the folder is gone, as on
  * another branch; "unknown": it can't be read).
  */
-async function cardIds(project: Project): Promise<Set<string> | "unknown" | undefined> {
+async function cardIds(
+  project: Pick<Project, "path">,
+): Promise<Set<string> | "unknown" | undefined> {
   try {
     const names = await readdir(decisionsDirOf(project));
     const ids = new Set<string>();

@@ -23,6 +23,7 @@ function card(text: string): CardDetailDto {
     fileName: FILE,
     revision: "r",
     frontmatter: parsed.card.frontmatter,
+    branch: null,
     body: parsed.card.body,
     sections: parsed.card.sections,
     path: FILE,

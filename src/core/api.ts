@@ -12,6 +12,11 @@ export interface CardDto {
   /** Content hash of the file; send it back with actions to detect concurrent edits. */
   revision: string;
   frontmatter: Frontmatter;
+  /**
+   * The branch of the checkout the card file is in (the hub reads every checkout of a
+   * project); null when its HEAD is detached or the project isn't in git.
+   */
+  branch: string | null;
 }
 
 export interface CardDetailDto extends CardDto {

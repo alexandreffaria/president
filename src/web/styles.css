@@ -687,6 +687,11 @@ input:disabled {
   color: var(--warn);
 }
 
+/* A branch name can be long and has no spaces: let it wrap anywhere. */
+.branch {
+  overflow-wrap: anywhere;
+}
+
 .back {
   color: var(--accent);
 }

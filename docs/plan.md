@@ -120,3 +120,13 @@ answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.m
   2026-11-24): it starts as a fork of the author's Claude Code session (`created_session`)
   when this machine has it and it holds at most 70k tokens (the $1 cap), and reads the
   author's `## For the chat` note, which the card page hides. (#57)
+
+### 8. Cards on the working branch (decided 2026-11-16)
+
+- [x] The hub reads cards from every checkout of a project (the folder and its git worktrees),
+  shows each card's branch, shows a card in several checkouts once, and writes answers into
+  the checkout that holds it. `preside` works in the checkout it runs in, without the worktree
+  warning; the skill, `CLAUDE.md`, README and foundations say agents commit cards on their
+  branch. (#56)
+- [ ] Answering from another machine (20261116notj) and what Sync becomes (20261116d34o): once
+  their cards are answered.

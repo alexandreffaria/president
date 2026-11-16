@@ -17,7 +17,6 @@ import { promisify } from "node:util";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CARD_FORMAT_DOC, DEMO_SOURCE, run } from "../src/cli/main.ts";
 import { shellQuote } from "../src/cli/shell.ts";
-import { linkedWorktree } from "../src/cli/worktree.ts";
 import type { CardAction } from "../src/core/actions.ts";
 import { MAX_CARD_BYTES } from "../src/core/card-file.ts";
 import { actOnCard, findCard, undoLastAction } from "../src/server/cards.ts";
@@ -1318,12 +1317,12 @@ describe("preside CLI", () => {
         expect(await cli(command)).toEqual({
           code: 1,
           out: "",
-          err: `preside: ${join(repo, "src")} has no decisions/ folder. Run this in the project's main folder (the one that contains decisions/), not in a git worktree.`,
+          err: `preside: ${join(repo, "src")} has no decisions/ folder. Run this in the project's folder (the one that contains decisions/), or create decisions/ there to write the first card.`,
         });
       }
       expect(await cli("add", ".")).toMatchObject({
         code: 1,
-        err: `preside: ${join(repo, "src")} has no decisions/ folder. Run this in the project's main folder (the one that contains decisions/), not in a git worktree. Or add --create to make one here.`,
+        err: `preside: ${join(repo, "src")} has no decisions/ folder. Run this in the project's folder (the one that contains decisions/), or create decisions/ there to write the first card. Or add --create to make one here.`,
       });
       // --create makes decisions/ in the folder given, never in a parent.
       expect((await cli("add", ".", "--create")).out).toBe(`Registered src (${join(repo, "src")})`);
@@ -1351,7 +1350,7 @@ describe("preside CLI", () => {
       expect(listed).toMatchObject({ code: 0, err: "" });
       expect(listed.out).toMatch(/New notes from the human[\s\S]*Blue, maybe\?/);
       // Its own decisions/ folder is a folder like any other: not a way to name the project.
-      const inner = `preside: ${join(root, "decisions")} has no decisions/ folder. Run this in the project's main folder (the one that contains decisions/), not in a git worktree.`;
+      const inner = `preside: ${join(root, "decisions")} has no decisions/ folder. Run this in the project's folder (the one that contains decisions/), or create decisions/ there to write the first card.`;
       for (const command of ["pending", "validate"]) {
         expect(await cli(command, "decisions")).toEqual({ code: 1, out: "", err: inner });
       }
@@ -1385,88 +1384,63 @@ describe("preside CLI", () => {
     expect(unreadable.err).toMatch(/^preside: note: can't read the registry: /);
   });
 
-  // A linked worktree's decisions/ is its own copy, without the human's answers (#0022).
-  it("warns, without refusing, when add, pending, applied, seen or update run in a git worktree", async () => {
+  // A card lives on the branch whose work it unblocks: preside works in the checkout it is
+  // given, worktree or not, and a worktree of a registered folder is that project.
+  it("works in a git worktree's own decisions/, as the registered project", async () => {
     const main = await realpath(await copyDemoProject("trips"));
     const wt = join(dirname(main), "wt");
     await commitDemo(main);
-    await git(main, "worktree", "add", "-q", wt);
+    await git(main, "worktree", "add", "-q", "-b", "feat", wt);
     await cli("add", main);
 
     expect(await cli("pending", main)).toMatchObject({ code: 0, err: "" });
-    const warning = `preside: warning: ${wt} is in a git worktree, which has its own copy of decisions/: the human's answers are not in it, and this command reads or marks only that copy. Give preside commands paths in the project's main folder instead (${main}), and don't register a worktree with preside add.`;
-    const pending = await cli("pending", wt);
-    expect(pending).toMatchObject({ code: 0, out: "Nothing pending." });
-    // First, before the note that suggests registering the worktree.
-    expect(pending.err.split("\n")[0]).toBe(warning);
-    const card = join(wt, "decisions", "0004-map-tiles.md");
-    for (const args of [
-      ["applied", card, "--token", "x"],
-      ["seen", card, "--token", "x"],
-      ["update", card, join(wt, "decisions", ".0004.new")],
-    ]) {
-      expect((await cli(...args)).err.split("\n")).toContain(warning);
-    }
-    // A project in a subfolder: the same subfolder of the main checkout.
-    expect(await linkedWorktree(join(wt, "decisions"))).toEqual({
-      main: join(main, "decisions"),
-      bare: false,
-      checkouts: [join(main, "decisions")],
-    });
-    expect(await linkedWorktree(main)).toBeUndefined();
-    expect(await linkedWorktree(dirname(main))).toBeUndefined();
+    // No warning, and no "not registered" note: the hub reads this checkout too.
+    expect(await cli("pending", wt)).toEqual({ code: 0, out: "Nothing pending.", err: "" });
+    expect(await cli("validate", wt)).toMatchObject({ code: 0, err: "" });
 
-    // GIT_DIR, as a git hook in the main checkout sets it, doesn't change the answer.
-    vi.stubEnv("GIT_DIR", join(main, ".git"));
-    expect((await linkedWorktree(wt))?.main).toBe(main);
-    expect(await linkedWorktree(main)).toBeUndefined();
-    // GIT_CEILING_DIRECTORIES is the user's: git doesn't look above it for the repository.
-    vi.stubEnv("GIT_CEILING_DIRECTORIES", wt);
-    expect(await linkedWorktree(join(wt, "decisions"))).toBeUndefined();
-    vi.unstubAllEnvs();
-    vi.stubEnv("XDG_CONFIG_HOME", configHome);
+    // A card decided in the worktree is applied there, and only there.
+    const project = { name: "trips", path: wt };
+    const found = await findCard(project, "0001");
+    if (!found.ok) throw new Error("broken");
+    await actOnCard(
+      project,
+      "0001",
+      { type: "resolve", choice: "custom", note: "Go." },
+      {
+        revision: found.card.revision,
+      },
+    );
+    const listed = await cli("pending", wt);
+    expect(listed.out).toContain(join(wt, "decisions", "0001-offline-storage.md"));
+    const applied = await runDone(listed.out, join(wt, "decisions", "0001-offline-storage.md"));
+    expect(applied).toMatchObject({ code: 0, err: "" });
+    expect(await readFile(join(wt, "decisions", "0001-offline-storage.md"), "utf8")).toMatch(
+      /applied_at:/,
+    );
+    expect(await readFile(join(main, "decisions", "0001-offline-storage.md"), "utf8")).not.toMatch(
+      /status: resolved/,
+    );
 
-    // add warns too, and still registers. A registered worktree is the project's folder.
-    expect(await cli("add", wt)).toEqual({
-      code: 0,
-      out: `Registered wt (${wt})`,
-      err: warning,
-    });
-    expect(await cli("pending", wt)).toMatchObject({ code: 0, err: "" });
+    // A project in a subfolder: the same subfolder of each checkout.
+    const sub = await realpath(await tempDir());
+    await mkdir(join(sub, "app", "decisions"), { recursive: true });
+    await writeFile(join(sub, "app", "decisions", "README.md"), "cards\n");
+    await commitDemo(sub);
+    const subWt = join(dirname(sub), `${basename(sub)}-wt`);
+    await git(sub, "worktree", "add", "-q", "-b", "sub-feat", subWt);
+    await cli("add", join(sub, "app"));
+    expect((await cli("pending", join(subWt, "app"))).err).toBe("");
+
+    // add warns about registering a worktree of a registered folder, and still registers.
+    const added = await cli("add", wt);
+    expect(added).toMatchObject({ code: 0, out: `Registered wt (${wt})` });
+    expect(added.err).toBe(
+      `preside: warning: ${wt} is a git worktree of trips, registered at ${main}; the hub already shows the cards of every checkout of it, so registering this one too shows them twice. Run \`preside remove ${shellQuote(wt)}\` to undo.`,
+    );
   });
 
-  // git before 2.31 prints an option it doesn't know (--path-format) and gives relative paths.
-  // The old git here is a shell script on PATH, which Windows can't run as a command.
-  it.skipIf(process.platform === "win32")(
-    "gives no worktree warning when git is too old to say",
-    async () => {
-      const main = await realpath(await copyDemoProject("trips"));
-      const wt = join(dirname(main), "wt");
-      await commitDemo(main);
-      await git(main, "worktree", "add", "-q", wt);
-      const realGit = (await promisify(execFile)("sh", ["-c", "command -v git"])).stdout.trim();
-      const bin = await tempDir();
-      await writeFile(
-        join(bin, "git"),
-        `#!/bin/sh\nif [ "$1" = rev-parse ] && [ "$2" = --path-format=absolute ]; then\n  echo "$2"; shift 2; exec '${realGit}' rev-parse "$@"\nfi\nexec '${realGit}' "$@"\n`,
-      );
-      await chmod(join(bin, "git"), 0o755);
-      vi.stubEnv("PATH", `${bin}:${process.env.PATH}`);
-      expect((await promisify(execFile)("git", ["--version"], { cwd: main })).stdout).toMatch(
-        /^git/,
-      );
-      // Not registered, so that only the git answer can keep the warning away.
-      const pending = await cli("pending", main);
-      expect(pending.code).toBe(0);
-      expect(pending.err).toMatch(/^preside: note: .* is not registered with the hub/);
-      expect(pending.err).not.toMatch(/warning/);
-      expect(await linkedWorktree(main)).toBeUndefined();
-      expect(await linkedWorktree(wt)).toBeUndefined();
-    },
-  );
-
   // A bare repository in proj/.git, every checkout a worktree: proj/ itself has no decisions/.
-  it("names the registered checkout, never the bare folder, when the repository is bare", async () => {
+  it("knows any checkout of a bare repository once one of them is registered", async () => {
     const source = await realpath(await copyDemoProject("trips"));
     await commitDemo(source);
     const proj = join(dirname(source), "proj");
@@ -1475,17 +1449,13 @@ describe("preside CLI", () => {
     const featWt = join(proj, "feat-wt");
     await git(proj, "worktree", "add", "-q", mainWt, "main");
     await git(proj, "worktree", "add", "-q", "-b", "feat", featWt);
-    expect(await linkedWorktree(featWt)).toEqual({ bare: true, checkouts: [mainWt] });
 
-    const start = `preside: warning: ${featWt} is in a git worktree, which has its own copy of decisions/: the human's answers are not in it, and this command reads or marks only that copy.`;
-    expect((await cli("pending", featWt)).err.split("\n")[0]).toBe(
-      `${start} The repository is bare, so every checkout is a worktree, and none is registered with president: ask the human which one is the project's main folder.`,
+    expect((await cli("pending", featWt)).err).toMatch(
+      /^preside: note: .* is not registered with the hub/,
     );
     await cli("add", mainWt);
     expect(await cli("pending", mainWt)).toMatchObject({ code: 0, err: "" });
-    expect((await cli("pending", featWt)).err.split("\n")[0]).toBe(
-      `${start} Give preside commands paths in the project's main folder instead (${mainWt}), and don't register a worktree with preside add.`,
-    );
+    expect(await cli("pending", featWt)).toMatchObject({ code: 0, err: "" });
   });
 
   // A link to a registered project's folder is that project (R8-6).

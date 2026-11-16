@@ -218,7 +218,12 @@ both want port 4747 (the icon then turns grey and says "port 4747 in use by anot
    You can also add and remove projects on the **Projects** page.
 
 2. Work with your agent as usual. When it hits a decision for you, it writes
-   `decisions/20261112k7q2-some-question.md`. The card shows up in the queue right away, no reload needed.
+   `decisions/20261112k7q2-some-question.md` in its own checkout (the project folder, or a git
+   worktree of it) and commits it on the branch it works on. The card shows up in the queue
+   right away, no reload needed, with the branch it is on ("on feat-login"). Your answer is
+   written into that card file, the agent commits it with its work, and the branch's pull
+   request takes the card to main. The hub reads every checkout of a registered project: the
+   folder and each `git worktree list` entry, looked up again every few seconds.
 
 3. Go through the **Queue**. On a card:
 
@@ -322,8 +327,9 @@ both want port 4747 (the icon then turns grey and says "port 4747 in use by anot
 
 4. **Decisions** lists everything you decided, newest first, and whether an agent has applied it.
 
-5. **Sync** (the button in the top bar, or `s`) sends your answers to your other machines and
-   brings theirs here. president writes card files but never commits them on its own; the top
+5. **Sync** (the button in the top bar, or `s`) sends the answers in a project folder that is on
+   main to your other machines and brings theirs here. Cards on other branches travel with
+   their branch, not with Sync. president writes card files but never commits them on its own; the top
    bar shows "3 answers not synced" while a project has card changes that aren't pushed, so
    press Sync before you leave a machine. Where that doesn't fit next to the menu, the number
    is on the Sync button instead. When the hub starts it only runs `git fetch`, which
@@ -464,9 +470,13 @@ How it fits together:
   (comments, quoting, folded text, line endings, the body) is kept byte for byte. Writes go
   through a temp file that is flushed to disk, keeps the file's permissions, and is renamed over
   the card.
-- Cards are addressed only by project name and card id; files are found by listing the project's
-  `decisions/` folder, so the API can't be pointed at other paths. Symlinked cards, and a
-  `decisions/` folder that points outside the project, are refused. The server refuses requests
+- Cards are addressed only by project name and card id; files are found by listing the
+  `decisions/` folder of each of the project's checkouts (the registered folder and its git
+  worktrees), so the API can't be pointed at other paths. Symlinked cards, and a `decisions/`
+  folder that points outside its checkout, are refused. The same card in several checkouts is
+  shown once: identical copies are one card (the registered folder's), and when copies differ
+  the one with the latest activity in its frontmatter (a decision, a note, applied, seen) is
+  shown and written to. The server refuses requests
   whose Host isn't localhost (DNS rebinding), and writes and live-event WebSockets whose Origin
   isn't the hub itself (scripts and curl must send `Origin: http://127.0.0.1:4747`).
 - Every action must send the revision (a content hash) of the card the human last read, not the
@@ -478,7 +488,7 @@ How it fits together:
   own writes happened since, so a change made in another tab, even one this tab missed, is not
   blamed on an agent. That memory is kept nowhere but in the running hub: after the hub
   restarts, a change from another tab that this tab missed is reported as an agent's change.
-- A watcher on every `decisions/` folder and on the registry pushes changes to the UI over a
+- A watcher on every checkout's `decisions/` folder and on the registry pushes changes to the UI over a
   WebSocket (`/api/events`), one per tab, hidden or not. Browsers keep WebSockets out of the 6
   connections per host that HTTP requests share, so any number of tabs and windows can be live
   at once without holding up API calls. The indicator in the top bar shows the socket's state:

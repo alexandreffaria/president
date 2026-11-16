@@ -16,9 +16,9 @@ import {
   isDirectory,
   lstatIfThere,
   noDecisionsError,
+  registeredCheckout,
   sameFolder,
   single,
-  warnIfWorktree,
 } from "./shared.ts";
 import { shellQuote } from "./shell.ts";
 
@@ -30,7 +30,12 @@ export async function add(args: string[], out: Output): Promise<number> {
   });
   const path = resolve(single(positionals, "add <path>"));
   // A hint, not a refusal: the human may register a worktree on purpose.
-  await warnIfWorktree(path, out);
+  const other = await registeredCheckout(path, await new Registry().list().catch(() => []));
+  if (other && !(await sameFolder(other.at, path))) {
+    out.error(
+      `preside: warning: ${path} is a git worktree of ${other.project.name}, registered at ${other.at}; the hub already shows the cards of every checkout of it, so registering this one too shows them twice. Run \`preside remove ${shellQuote(path)}\` to undo.`,
+    );
+  }
   if (
     !values.create &&
     (await isDirectory(path)) &&
