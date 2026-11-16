@@ -3,8 +3,9 @@
  * other checkout `git worktree list` names. A card lives on the branch whose work it
  * unblocks, so the hub reads (and writes answers into) all of them.
  *
- * `preside` works in the one checkout it runs in, and uses this only to find the registered
- * project a worktree belongs to.
+ * `preside` works in the one checkout it runs in, and uses this only around registering: to
+ * find the registered project a worktree belongs to, to hint at the main checkout in its
+ * "not registered" notes, and for `add`'s warning about a second checkout.
  *
  * The answer is cached for a moment (CACHE_MS) and shared by concurrent callers, so a listing
  * of every project, or a watcher poll, runs git at most once per project per moment. When git
