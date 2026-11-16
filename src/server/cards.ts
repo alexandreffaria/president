@@ -15,7 +15,7 @@
  */
 import { createHash } from "node:crypto";
 import { lstat, readdir, readFile, realpath } from "node:fs/promises";
-import { join, sep } from "node:path";
+import { dirname, join, sep } from "node:path";
 import {
   afterUndoingDecision,
   applyAction,
@@ -155,19 +155,26 @@ export async function loadProjectCards(scope: CardScope): Promise<ProjectCards> 
   const elsewhere = loaded.some((result) => !("error" in result));
   const error =
     first && "error" in first && !(first.missing && elsewhere) ? first.error : undefined;
+  const checkouts = checkoutsIn(scope);
   const cards: LoadedCard[][] = [];
-  const broken: BrokenCardDto[] = [];
-  for (const result of loaded) {
-    if ("error" in result) continue;
+  const brokenIn: { dir: string; broken: BrokenCardDto[] }[] = [];
+  loaded.forEach((result, i) => {
+    const checkout = checkouts[i];
+    if ("error" in result || !checkout) return;
     cards.push(result.cards);
-    broken.push(...result.broken);
-  }
+    brokenIn.push({ dir: decisionsDirOf(checkout), broken: result.broken });
+  });
   const { cards: merged, broken: twins } = mergeCopies(cards);
-  const ids = new Set(merged.map((card) => card.id));
-  // A copy that reads as a card wins: a broken copy of it elsewhere isn't listed.
-  const shownBroken = uniqueBroken([...broken, ...twins]).filter(
-    (b) => b.id === undefined || !ids.has(b.id),
+  const shown = new Map(merged.map((card) => [card.id, card]));
+  // A copy that reads as a card wins: the same file broken in another checkout isn't listed.
+  // A broken file in the shown card's own folder still is, as in a single folder.
+  const broken = brokenIn.flatMap(({ dir, broken }) =>
+    broken.filter((b) => {
+      const card = b.id === undefined ? undefined : shown.get(b.id);
+      return !(card && card.fileName === b.fileName && dirname(card.path) !== dir);
+    }),
   );
+  const shownBroken = uniqueBroken([...broken, ...twins]);
   const warnings = [...merged.flatMap(ownWarnings), ...dependencyWarnings(merged, shownBroken)];
   return { cards: merged, broken: shownBroken, warnings, error };
 }

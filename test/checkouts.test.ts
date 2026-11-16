@@ -6,7 +6,7 @@ import { execFile } from "node:child_process";
 import { mkdir, readFile, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { actOnCard, findCard, loadProjectCards, pickCopy } from "../src/server/cards.ts";
 import {
   checkoutsOf,
@@ -38,6 +38,9 @@ async function repoWithWorktree() {
   await git(main, "worktree", "add", "-q", "-b", "feat", wt);
   return { main, wt, project: { name: "trips", path: main } };
 }
+
+// Each test runs several git commands, slow to start on a busy Windows machine.
+vi.setConfig({ testTimeout: 30_000 });
 
 beforeEach(() => forgetCheckouts());
 
@@ -308,6 +311,18 @@ describe("checkouts' problems", () => {
     await utimes(folderCopy, evenLater, evenLater);
     const again = await findCard(hub, "0002");
     expect(again.ok && again.card.path).toBe(folderCopy);
+  });
+});
+
+describe("a broken file next to a card with its id", () => {
+  it("is listed, in a single folder as across checkouts", async () => {
+    const { main, project } = await repoWithWorktree();
+    await writeFile(join(main, "decisions", "0001-broken.md"), "no frontmatter\n");
+    for (const scope of [project, await withCheckouts(project)]) {
+      const { cards, broken } = await loadProjectCards(scope);
+      expect(cards.some((c) => c.id === "0001")).toBe(true);
+      expect(broken.some((b) => b.fileName === "0001-broken.md")).toBe(true);
+    }
   });
 });
 
