@@ -20,7 +20,7 @@ first five were settled before president had cards. Work not built yet is in
 | 2026-11-10 | The chat runs headless Claude Code (`claude -p`) in the card's project, resumed per card. | |
 | 2026-11-10 | Dogfood: ship a bare version, then decide about president with president's cards. | |
 | 2026-11-10 | The repo is on GitHub (public now); `package.json` stays `private`. | |
-| 2026-11-11 | A Sync button commits, pulls and pushes card changes; the hub only fetches at start. | [#0001](../decisions/0001-sync-across-machines.md) |
+| 2026-11-11 | ~~A Sync button commits, pulls and pushes card changes; the hub only fetches at start.~~ Replaced by cards on the working branch (2026-11-16). | [#0001](../decisions/0001-sync-across-machines.md) |
 | 2026-11-11 | The conversation panel sits beside the card (below it under about 1100 px). | [#0002](../decisions/0002-conversation-placement.md) |
 | 2026-11-11 | A conversation's summary goes in the card; the full log stays on the machine. | [#0003](../decisions/0003-conversation-storage.md) |
 | 2026-11-11 | The chat session only reads the project and researches the web. | [#0004](../decisions/0004-chat-session-permissions.md) |
@@ -41,10 +41,10 @@ first five were settled before president had cards. Work not built yet is in
 | 2026-11-11 | Deciding with an open conversation first shows its summary to edit. | [#0019](../decisions/0019-decide-during-conversation.md) |
 | 2026-11-11 | You can talk about a decided card; its summary is saved the same way. | [#0020](../decisions/0020-chat-on-decided-cards.md) |
 | 2026-11-11 | The hub keeps a card's session id in its own store on each machine. | [#0021](../decisions/0021-session-id-per-machine.md) |
-| 2026-11-11 | Your answers travel only with Sync, never in agents' pull requests. | [#0022](../decisions/0022-card-changes-in-apply-prs.md) |
+| 2026-11-11 | ~~Your answers travel only with Sync, never in agents' pull requests.~~ Replaced by cards on the working branch (2026-11-16). | [#0022](../decisions/0022-card-changes-in-apply-prs.md) |
 | 2026-11-11 | A conversation summary is a `chat` feedback entry. | [#0023](../decisions/0023-chat-summary-feedback-type.md) |
 | 2026-11-11 | Leaving an open conversation saves nothing; the hub reminds you. | [#0024](../decisions/0024-leaving-an-open-conversation.md) |
-| 2026-11-12 | New cards are reviewed in the agent's worktree, then copied to the main folder; no PR carries cards. | [20261111st0c](../decisions/20261111st0c-agent-card-changes.md) |
+| 2026-11-12 | ~~New cards are reviewed in the agent's worktree, then copied to the main folder; no PR carries cards.~~ Replaced by cards on the working branch (2026-11-16). | [20261111st0c](../decisions/20261111st0c-agent-card-changes.md) |
 | 2026-11-12 | The chat stays neutral about the pick until you reveal it. | [20261111mby8](../decisions/20261111mby8-chat-and-hidden-pick.md) |
 | 2026-11-12 | A/B cards with the panel open use three columns. | [20261111sblu](../decisions/20261111sblu-side-panel-on-ab-cards.md) |
 | 2026-11-12 | The hub keeps a conversation as long as its card exists (plus 30 days). | [202611114wet](../decisions/202611114wet-hub-copy-retention.md) |
@@ -83,6 +83,7 @@ first five were settled before president had cards. Work not built yet is in
 | 2026-11-14 | A PR's review loop runs until every finding, nits included, is fixed and reviewed again. | [20261114zuct](../decisions/20261114zuct-review-loop-stopping-rule.md) |
 | 2026-11-14 | One line per decision here, reasons in the card; the old roadmap is archived. | [20261114r0w8](../decisions/20261114r0w8-where-decisions-are-recorded.md) |
 | 2026-11-14 | Only for the owner: public repo, no npm release, Windows only on the owner's workstation. | [2026111411fs](../decisions/2026111411fs-who-is-president-for.md) |
+| 2026-11-16 | Cards live on the working branch with the work they unblock, are committed there and reach main through its PR. Decided in chat; [roadmap](roadmap.md#cards-on-the-working-branch) has the build. | [202611167ux1](../decisions/202611167ux1-where-cards-live.md) (withdrawn) |
 
 ## Card interactions (must have)
 
