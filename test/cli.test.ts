@@ -1450,6 +1450,11 @@ describe("preside CLI", () => {
     const refused = await cli("add", bare);
     expect(refused.code).toBe(1);
     expect(refused.err).not.toMatch(/warning/);
+    // It says the checkout's cards show already, not to register it with --create.
+    expect(refused.err).toMatch(
+      /trips is registered at .*already shows the cards of this checkout/,
+    );
+    expect(refused.err).not.toMatch(/--create/);
     // validate still says the folder is missing.
     expect((await cli("validate", bare)).code).toBe(1);
 
