@@ -206,6 +206,34 @@ describe("cards in every checkout", () => {
     expect(cards.filter((c) => c.id === "0001").map((c) => c.branch)).toEqual(["feat"]);
   });
 
+  it("keeps showing the answered copy after an agent marks a stale copy seen", async () => {
+    const { main, wt, project } = await repoWithWorktree();
+    const hub = await withCheckouts(project);
+    const found = await findCard(hub, "0001");
+    if (!found.ok) throw new Error("broken");
+    // The answer goes to the folder's copy, the first of identical copies.
+    await actOnCard(
+      hub,
+      "0001",
+      { type: "resolve", choice: "custom", note: "Yes." },
+      {
+        revision: found.card.revision,
+      },
+    );
+    // An agent in the worktree marks its own, unanswered copy seen, later (`preside seen`).
+    const staleFile = join(wt, "decisions", "0001-offline-storage.md");
+    const later = new Date(Date.now() + 60_000).toISOString().replace(/\.\d+Z$/, "Z");
+    const text = await readFile(staleFile, "utf8");
+    const marked = text.replace(/^seen_at: .*$/m, `seen_at: ${later}`);
+    expect(marked).not.toBe(text);
+    await writeFile(staleFile, marked);
+    const stale = await findCard({ name: "trips", path: wt }, "0001");
+    expect(stale.ok && stale.card.frontmatter.seen_at).toBe(later);
+    const shown = await findCard(hub, "0001");
+    expect(shown.ok && shown.card.path).toBe(join(main, "decisions", "0001-offline-storage.md"));
+    expect(shown.ok && shown.card.frontmatter.status).toBe("resolved");
+  });
+
   it("doesn't mind a worktree whose branch has no decisions/ folder", async () => {
     const { wt, project } = await repoWithWorktree();
     await rm(join(wt, "decisions"), { recursive: true });

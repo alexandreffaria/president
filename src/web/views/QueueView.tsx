@@ -275,7 +275,7 @@ function BrokenList({ broken }: { broken: BrokenCardDto[] }) {
       </p>
       <ul className="broken-list">
         {broken.map((b) => (
-          <li key={`${b.project}/${b.branch ?? ""}/${b.fileName}`} className="broken">
+          <li key={JSON.stringify([b.project, b.branch, b.fileName, b.errors])} className="broken">
             <div>
               <strong>{b.fileName}</strong>{" "}
               <span className="muted small">

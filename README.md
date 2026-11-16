@@ -472,10 +472,9 @@ How it fits together:
   worktrees), so the API can't be pointed at other paths. Symlinked cards, and a `decisions/`
   folder that points outside its checkout, are refused. The same card in several checkouts is
   shown once: identical copies are one card (the first checkout's: the registered folder, then
-  `git worktree list` order), and when copies differ
-  the one with the latest activity in its frontmatter (a decision, a note, applied, seen) is
-  shown and written to. The server refuses requests
-  whose Host isn't localhost (DNS rebinding), and writes and live-event WebSockets whose Origin
+  `git worktree list` order), and when copies differ the one with the latest activity in its
+  frontmatter (a decision, a note, applied; not an agent's seen) is shown and written to. The
+  server refuses requests whose Host isn't localhost (DNS rebinding), and writes and live-event WebSockets whose Origin
   isn't the hub itself (scripts and curl must send `Origin: http://127.0.0.1:4747`).
 - Every action must send the revision (a content hash) of the card the human last read, not the
   newest one the page has loaded. If the file changed since, the action is refused and the page

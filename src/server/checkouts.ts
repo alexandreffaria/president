@@ -32,6 +32,12 @@ const CACHE_MS = 1000;
 const GIT_TIMEOUT_MS = 5000;
 
 const cache = new Map<string, { at: number; checkouts: Promise<Checkout[]> }>();
+/**
+ * The last answer git gave for each folder. When git can't answer for a moment (it timed out,
+ * or couldn't start), that one is used instead of the folder alone, so a slow git doesn't
+ * hide the worktrees' cards and make the watcher drop and re-add their folders.
+ */
+const lastAnswer = new Map<string, Checkout[]>();
 
 /** The project with its checkouts. */
 export async function withCheckouts(project: Project): Promise<HubProject> {
@@ -57,6 +63,7 @@ export function checkoutsOf(project: Pick<Project, "path">): Promise<Checkout[]>
 /** Forgets the cached checkouts (tests). */
 export function forgetCheckouts(): void {
   cache.clear();
+  lastAnswer.clear();
 }
 
 async function listCheckouts(folder: string): Promise<Checkout[]> {
@@ -65,10 +72,19 @@ async function listCheckouts(folder: string): Promise<Checkout[]> {
   const list = await runGit(folder, ["worktree", "list", "--porcelain"], {
     timeoutMs: GIT_TIMEOUT_MS,
   });
-  if (list.code !== 0) return alone;
+  // No answer at all (code null): keep the last one. Not a repository (an exit code): alone.
+  if (list.code === null) return lastAnswer.get(folder) ?? alone;
+  const checkouts = list.code === 0 ? await fromWorktreeList(folder, list.stdout) : alone;
+  lastAnswer.set(folder, checkouts);
+  return checkouts;
+}
+
+/** The checkouts `git worktree list --porcelain` printed, run in `folder`. */
+async function fromWorktreeList(folder: string, output: string): Promise<Checkout[]> {
+  const alone: Checkout[] = [{ path: folder, branch: null }];
   const here = await real(folder);
   const entries = await Promise.all(
-    parseWorktreeList(list.stdout).map(async (entry) => ({
+    parseWorktreeList(output).map(async (entry) => ({
       ...entry,
       real: await real(entry.path),
     })),

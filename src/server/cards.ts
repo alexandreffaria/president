@@ -60,12 +60,15 @@ export interface LoadedCard extends ParsedCard {
   changedMs: number;
 }
 
-/** Where cards are read: a project's checkouts (the hub), or just its folder (`preside`). */
-export type CardScope = Project | HubProject;
+/**
+ * Where cards are read: a project with its checkouts (a HubProject, the hub), or without
+ * them, just its folder (`preside`).
+ */
+export type CardScope = Project & { checkouts?: HubProject["checkouts"] };
 
 /** The checkouts of `scope`, the registered folder first. */
 export function checkoutsIn(scope: CardScope): readonly Checkout[] {
-  return "checkouts" in scope ? scope.checkouts : [{ path: scope.path, branch: null }];
+  return scope.checkouts ?? [{ path: scope.path, branch: null }];
 }
 
 /** Something odd about a valid card that an agent should look at. */
@@ -254,8 +257,9 @@ function pickOne(copies: LoadedCard[]): { card: LoadedCard } | { broken: BrokenC
  * Which copy of a card in several checkouts the hub shows and writes to (`copies` in
  * checkout order, the registered folder first). Copies with the same content are one card:
  * the first. When they differ (the human answered one, an agent changed another), the one
- * with the latest activity in its frontmatter (a decision, a note, `applied`, `seen`, a
- * withdrawal) wins, then the file changed last, then the first.
+ * with the latest activity in its frontmatter (a decision, a note, `applied`, a withdrawal)
+ * wins, then the file changed last, then the first. Not `seen_at`: an agent that marks a
+ * stale, unanswered copy seen must not make it beat the copy the human answered.
  */
 export function pickCopy(copies: LoadedCard[]): LoadedCard {
   const [first, ...rest] = copies;
@@ -276,7 +280,6 @@ function lastActivity(card: LoadedCard): number {
     fm.created,
     fm.resolution?.resolved_at,
     fm.applied_at,
-    fm.seen_at,
     fm.withdrawn?.at,
     ...fm.feedback.map((entry) => entry.at),
   ];
