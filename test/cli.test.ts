@@ -1466,6 +1466,15 @@ describe("preside CLI", () => {
     );
   });
 
+  it("lists a folder whose branch has no decisions/ as fine while a worktree has one", async () => {
+    const main = await realpath(await copyDemoProject("trips"));
+    await commitDemo(main);
+    await git(main, "worktree", "add", "-q", "-b", "feat", join(dirname(main), "trips-feat"));
+    await cli("add", main);
+    await rm(join(main, "decisions"), { recursive: true });
+    expect((await cli("list")).out).toBe(`trips	${main}`);
+  }, 30_000);
+
   // A bare repository in proj/.git, every checkout a worktree: proj/ itself has no decisions/.
   it("knows any checkout of a bare repository once one of them is registered", async () => {
     const source = await realpath(await copyDemoProject("trips"));
