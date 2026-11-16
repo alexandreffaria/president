@@ -25,7 +25,7 @@ import { isNotFound, writeFileAtomic } from "../server/fs-utils.ts";
 import { DECISIONS_DIR, type Project } from "../server/registry.ts";
 
 import { CARD_FORMAT_DOC, type Output } from "./main.ts";
-import { projectAt, registeredAs, sameFolder, single, warnIfWorktree } from "./shared.ts";
+import { projectAt, registeredAs, sameFolder, single } from "./shared.ts";
 
 export async function validate(args: string[], out: Output): Promise<number> {
   const { positionals } = parseArgs({ args, allowPositionals: true });
@@ -300,7 +300,6 @@ async function cardAt(file: string, out: Output): Promise<{ project: Project; ca
     throw new UserError(`"${file}" is not a card file inside a ${DECISIONS_DIR}/ folder`);
   }
   const dir = dirname(dirname(file));
-  await warnIfWorktree(dir, out);
   const project = { name: basename(dir), path: dir };
   const exists = (await stat(file).catch(() => undefined))?.isFile() ?? false;
   const found = await findCard(project, name.id).catch((error: unknown) => {

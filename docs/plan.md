@@ -113,3 +113,12 @@ answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.m
   `claude.cmd`, and run the chat tests on Windows CI. (#44)
 - Freeze (202611147ch5): until 2026-11-28 nothing beyond this plan gets built, unless
   CellSignalMapper or geode asks for it.
+
+### 7. Cards on the working branch (decided 2026-11-16)
+
+- [x] The hub reads cards from every checkout of a project (the folder and its git worktrees),
+  shows each card's branch, shows a card in several checkouts once, and writes answers into
+  the checkout that holds it. `preside` works in the checkout it runs in, without the worktree
+  warning; the skill, `CLAUDE.md`, README and foundations say agents commit cards on their branch.
+- [ ] Answering from another machine (20261116notj) and what Sync becomes (20261116d34o): once
+  their cards are answered.

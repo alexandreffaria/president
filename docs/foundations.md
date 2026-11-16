@@ -105,11 +105,12 @@ reviews the PR, and the loop repeats until **every** finding, nits included, is 
 ([20261114zuct](../decisions/20261114zuct-review-loop-stopping-rule.md)). Only then is it merged.
 Nobody reads the plumbing by hand, so review is the quality gate.
 
-Decision cards are the exception ([20261111st0c](../decisions/20261111st0c-agent-card-changes.md)): no PR
-carries card files. A new card is reviewed before it reaches the main folder (in the agent's worktree, or a scratch folder for an agent in the main folder itself): a fresh session reviews the draft, and the
-loop repeats until nothing should-fix is left; then the agent copies it into the main folder, where the human
-sees it at once (`skills/decision-cards/SKILL.md`, *Writing a card*). A task that only writes cards ends there,
-with no PR.
+Decision cards live on the branch whose work they unblock (decided 2026-11-16): the agent commits a card,
+the human's answer and its own "applied" on its branch, and that branch's PR carries them with the docs and
+code they decided. A new card is reviewed before it reaches the human: it is drafted in a scratch folder
+outside every checkout (the hub reads them all), a fresh session reviews the draft, and the loop repeats
+until nothing should-fix is left; then the agent copies it into its checkout's `decisions/` and commits it
+(`skills/decision-cards/SKILL.md`, *Writing a card*).
 
 For president itself, cards are only for direction, UX and scope; the agent decides edge cases and
 mechanics and lists them in the PR under "Decided without a card"

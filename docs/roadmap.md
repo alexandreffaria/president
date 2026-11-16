@@ -23,27 +23,13 @@ The 2026-11-14 cleanup is done ([plan.md](plan.md) section 4).
 ## Cards on the working branch
 
 Decided in chat on 2026-11-16 (see [foundations](foundations.md#settled-decisions)); real use on
-Blendeck asked for it, so the freeze doesn't hold it. Agents work on feature branches, often by
-switching the project folder itself, and Sync only runs on main, so answers waited for hours.
-A card exists to unblock one branch's work, so it lives and travels with that branch:
+Blendeck asked for it, so the freeze doesn't hold it. The hub reading every checkout, `preside`
+working in its own checkout, and the skill and docs are built ([plan.md](plan.md) section 7).
+Left, once their cards are answered:
 
-- **Agents** write a card in their own checkout's `decisions/` (worktree or folder, whichever
-  holds the branch), commit it on that branch, apply the answer there and commit that too. The
-  PR carries the card with the docs and code it decided, and merging puts it on main.
-- **The hub** shows the cards of every checkout of a registered project (the folder and each
-  `git worktree list` entry), says which branch each card is on, and writes your answer into the
-  file in the checkout that holds it. The same card in several checkouts is shown once.
-- **`preside`** (`pending`, `applied`, `seen`, `update`, `validate`) works in the checkout it runs
-  in; the "use the main folder" rule and its worktree warning go.
-- **Docs and skill**: `skills/decision-cards` (both files), `CLAUDE.md`, `README.md` and the
-  engineering-process paragraph in foundations drop "no PR carries cards" and "Sync carries them".
-
-Write cards for these before building them (direction and scope, not mechanics):
-
-1. Answering from another machine: a branch's cards are on the machine whose checkout holds the
-   branch. Is answering there enough, or must the other machine's hub show and answer them too
-   (read pushed branches, and push answers onto the agent's branch)?
-2. What Sync becomes: removed, kept only for cards that belong to no branch, or something else.
+1. Answering from another machine: whether other machines' hubs show or answer a branch's cards
+   ([20261116notj](../decisions/20261116notj-answering-from-another-machine.md)).
+2. What Sync becomes ([20261116d34o](../decisions/20261116d34o-what-sync-becomes.md)).
 
 ## Not built, held by the freeze
 

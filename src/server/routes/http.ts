@@ -5,6 +5,7 @@
 import type { z } from "zod";
 import { CARD_ID_PATTERN, formatIssues } from "../../core/schema.ts";
 import type { ChatService } from "../chat/service.ts";
+import { type HubProject, withCheckouts } from "../checkouts.ts";
 import { UserError } from "../errors.ts";
 import type { Registry } from "../registry.ts";
 import type { SyncService } from "../sync/service.ts";
@@ -19,10 +20,11 @@ export interface RouteDeps {
   writes: PresidentWrites;
 }
 
-export async function requireProject(registry: Registry, name: string) {
+/** The registered project `name`, with its checkouts (the hub reads cards from all of them). */
+export async function requireProject(registry: Registry, name: string): Promise<HubProject> {
   const project = await registry.get(name);
   if (!project) throw new UserError(`no project named "${name}"`, { status: 404 });
-  return project;
+  return withCheckouts(project);
 }
 
 export function cardId(id: string): string {

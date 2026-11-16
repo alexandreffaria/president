@@ -20,15 +20,15 @@ what the human added since, without any sign. Instead:
 
 1. Read the card.
 2. Write your whole new version of it to a file next to it whose name starts with `.` (president
-   ignores those), for example `<main>/decisions/.20261110q4m8-empty-state-copy.md.new`: the card as
+   ignores those), for example `<project>/decisions/.20261110q4m8-empty-state-copy.md.new`: the card as
    you read it, with your changes. Keep `status`, `resolution`, `feedback`, `seen_at`,
    `applied_at` and `defer_until` exactly as they were.
 3. Replace the card with it, then remove your file:
 
    ```sh
-   preside update <main>/decisions/20261110q4m8-empty-state-copy.md \
-     <main>/decisions/.20261110q4m8-empty-state-copy.md.new &&
-     rm <main>/decisions/.20261110q4m8-empty-state-copy.md.new
+   preside update <project>/decisions/20261110q4m8-empty-state-copy.md \
+     <project>/decisions/.20261110q4m8-empty-state-copy.md.new &&
+     rm <project>/decisions/.20261110q4m8-empty-state-copy.md.new
    ```
 
    It checks your version like `preside validate`, and replaces the card only if what the
@@ -39,15 +39,15 @@ what the human added since, without any sign. Instead:
    or a decision the human made and took back since): read the card again, take that into
    account too, write your version again from the card as it is now, and run `preside update`
    again. If it says "its decision changed", don't write your version again: run
-   `preside pending <main>` and handle the card as it shows it now.
+   `preside pending <project>` and handle the card as it shows it now.
 
    After a refused `update`, the `done:` line you have is from before the new entries: once
-   your update went through, run `preside pending <main>` again and use its new `done:` line.
+   your update went through, run `preside pending <project>` again and use its new `done:` line.
 
 Every rewrite (new options after "neither", adding or removing `withdrawn`, any other change)
-is made this way, straight in the main folder, with no review first, so `update`'s guard
+is made this way, straight in the card file, with no review first, so `update`'s guard
 compares your version with the card the human has, notes included. Once a new card is in
-`<main>/decisions/`, the human can add to it, so change it only this way.
+`<project>/decisions/`, the human can add to it, so change it only this way.
 
 A card `preside validate` reports as broken (a YAML error, a duplicate id) is the one
 exception: president never writes a broken card, so neither the human nor `preside update`
@@ -56,14 +56,14 @@ validate it again.
 
 ## A new card that fails its last check
 
-After you copy a new card into `<main>/decisions/` (step 7 of **Writing a card**),
-`preside validate <main>/decisions/<file>` must print `ok` and no `warning` line. Otherwise:
+After you copy a new card into `<project>/decisions/` (step 7 of **Writing a card**),
+`preside validate <project>/decisions/<file>` must print `ok` and no `warning` line. Otherwise:
 
 - If it warns that a `depends_on` "is not a card in this project" (that card went away since
   you looked), the card is already in the human's queue: fix it with `preside update` (see
   **Changing a card**), not by editing it or copying over it.
 - If it reports `id "20261110q4m8" is also used by ...` (another agent copied the same id in
-  since you looked), your copy is the newer card: give the file in `<main>/decisions/` a new
+  since you looked), your copy is the newer card: give the file in `<project>/decisions/` a new
   id, not the draft (it is broken, so edit its `id` directly and rename it). Then validate it
   and the other card's file again, and repeat if yours is still a duplicate. Leave the other
   card alone.
@@ -155,13 +155,14 @@ withdrawn:
 - `preside validate` prints `ok      <file> (withdrawn: <reason>)` for it, and `preside pending`
   marks it "(withdrawn)" after its title, with your reason on the next line.
 
-## Projects Sync skips
+## Sync
 
-Sync (the hub's Sync button) skips a project whose folder isn't the top folder of its git
-repository (a monorepo subfolder, a folder inside a home folder kept in git, a folder not in
-git at all), a project whose repository has git submodules (a `.gitmodules` file or a
-submodule in the index), and one whose file list is too long to check for them. Pressing
-Sync says why. In such a project, if it is in git, the card changes in the main folder (the
-human's answers, your `applied` marks, new cards you copied in, rewrites) reach the main
-branch only when someone commits `decisions/` on it by hand, in the main folder, and pushes
-it. Do that only when the human asks you to, and never in a pull request.
+A card's changes travel with its branch: you commit them there (see **Your checkout, and card
+files in git** in `SKILL.md`), and the pull request takes them to main. The hub's Sync button
+still commits, pulls and pushes the card changes in the registered folder while it has main
+checked out, for cards that are already on main; what Sync becomes is the human's open
+decision. So a card change in a folder on main (an answer to a card that was merged before it
+was answered) reaches the other machines with Sync, or when you commit and push it on main
+yourself, which you do only when the human asks. Sync skips a project whose folder isn't the
+top folder of its git repository or whose repository has submodules, and says why when
+pressed.

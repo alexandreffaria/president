@@ -1,18 +1,20 @@
 /**
- * What the human and agent commands share: the project a command names, the worktree
- * warning, and small file and argument checks.
+ * What the human and agent commands share: the project a command names, and small file and
+ * argument checks. A command works in the checkout it is given (a worktree or the
+ * registered folder alike): a card lives on the branch whose work it unblocks, and the hub
+ * reads every checkout of a registered project.
  */
 
 import type { Stats } from "node:fs";
 import { lstat, realpath, stat } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
+import { checkoutsOf } from "../server/checkouts.ts";
 import { fileError, UserError } from "../server/errors.ts";
 import { isNotFound } from "../server/fs-utils.ts";
 import { DECISIONS_DIR, findByPath, type Project, Registry } from "../server/registry.ts";
 
 import type { Output } from "./main.ts";
 import { shellQuote } from "./shell.ts";
-import { linkedWorktree } from "./worktree.ts";
 
 /**
  * The project of a command given a folder (`validate`, `pending`): that folder, exactly as
@@ -36,50 +38,36 @@ export async function projectAt(path: string, out: Output): Promise<Project> {
 
 export function noDecisionsError(dir: string, more = ""): UserError {
   return new UserError(
-    `${dir} has no ${DECISIONS_DIR}/ folder. Run this in the project's main folder (the one that contains ${DECISIONS_DIR}/), not in a git worktree.${more}`,
+    `${dir} has no ${DECISIONS_DIR}/ folder. Run this in the project's folder (the one that contains ${DECISIONS_DIR}/), or create ${DECISIONS_DIR}/ there to write the first card.${more}`,
   );
 }
 
 /**
- * A warning, not an error: in a git worktree `decisions/` is the worktree's own copy, so an
- * agent there misses the human's answers and marks only that copy (#0022). None for a
- * worktree registered with the hub, since the rule is "the registered folder": with a bare
- * repository, every checkout is a worktree, and the registered one is the main folder.
+ * The registered project that `dir` is a checkout of: registered itself, or the same folder
+ * in another checkout of its git repository (a worktree of a registered folder, or the
+ * registered worktree of a bare repository). `at` is the registered folder.
  */
-export async function warnIfWorktree(dir: string, out: Output): Promise<void> {
-  const worktree = await linkedWorktree(dir);
-  if (worktree === undefined) return;
-  const projects = await new Registry().list().catch(() => []);
-  const registered = async (folder: string) =>
-    (await findByPath(projects, await realpath(folder).catch(() => folder))) !== undefined;
-  if (await registered(dir)) return;
-  // The registered checkout, else the main one (none when the repository is bare).
-  let main = worktree.main;
-  for (const checkout of worktree.checkouts) {
-    if (await registered(checkout)) {
-      main = checkout;
-      break;
-    }
+export async function registeredCheckout(
+  dir: string,
+  projects: Project[],
+): Promise<{ project: Project; at: string } | undefined> {
+  for (const checkout of await checkoutsOf({ path: dir })) {
+    const real = await realpath(checkout.path).catch(() => checkout.path);
+    const project = await findByPath(projects, real);
+    if (project) return { project, at: checkout.path };
   }
-  const instead =
-    main !== undefined
-      ? `Give preside commands paths in the project's main folder instead (${main}), and don't register a worktree with preside add.`
-      : worktree.bare
-        ? "The repository is bare, so every checkout is a worktree, and none is registered with president: ask the human which one is the project's main folder."
-        : "Give preside commands paths in the project's main folder instead (the folder registered with president), and don't register a worktree with preside add.";
-  out.error(
-    `preside: warning: ${dir} is in a git worktree, which has its own copy of ${DECISIONS_DIR}/: the human's answers are not in it, and this command reads or marks only that copy. ${instead}`,
-  );
+  return undefined;
 }
 
 /**
- * The project at `root`, under its registered name when it has one. Says on stderr when the
- * hub doesn't know it: its cards then never reach the human.
+ * The project at `root`, under its registered name when it (or another checkout of it, see
+ * {@link registeredCheckout}) has one; its path is `root` either way, the checkout the
+ * command works in. Says on stderr when the hub doesn't know it: its cards then never reach
+ * the human.
  */
 export async function registeredAs(root: string, out: Output): Promise<Project> {
-  const real = await realpath(root).catch(() => root);
   const registered = await new Registry().list().then(
-    (projects) => findByPath(projects, real),
+    (projects) => registeredCheckout(root, projects),
     (error: unknown) => {
       out.error(`preside: note: can't read the registry: ${(error as Error).message}`);
       return null;
@@ -90,7 +78,7 @@ export async function registeredAs(root: string, out: Output): Promise<Project> 
       `preside: note: ${root} is not registered with the hub, so the human doesn't see its cards. Register it: preside add ${shellQuote(root)}`,
     );
   }
-  return registered ?? { name: basename(root), path: root };
+  return { name: registered?.project.name ?? basename(root), path: root };
 }
 
 /** What is at `path` (not following a link), or undefined when nothing is; other errors say why. */

@@ -4,7 +4,6 @@
  * other projects parse both and run the `done:` lines, so their wording is an interface.
  */
 
-import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { agentToken, earlierDecision, needsApplying, unseenFeedback } from "../core/pending.ts";
 import { continued } from "../core/rewrite.ts";
@@ -14,7 +13,7 @@ import { UserError } from "../server/errors.ts";
 import type { Project } from "../server/registry.ts";
 
 import type { Output } from "./main.ts";
-import { projectAt, warnIfWorktree } from "./shared.ts";
+import { projectAt } from "./shared.ts";
 import { shellQuote } from "./shell.ts";
 
 /** A project's cards that need an agent, as `pending` lists them. */
@@ -32,8 +31,6 @@ export async function pending(args: string[], out: Output): Promise<number> {
     allowPositionals: true,
     options: { json: { type: "boolean" } },
   });
-  // Before projectAt's "not registered" note, which would suggest registering the worktree.
-  await warnIfWorktree(resolve(positionals[0] ?? "."), out);
   const project = await projectAt(positionals[0] ?? ".", out);
   const found = await collectPending(project);
   if (values.json) {

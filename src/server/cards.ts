@@ -2,11 +2,16 @@
  * Card files on disk: loading every card of a project, finding one by id, applying
  * actions to it and undoing the last one.
  *
+ * Checkouts: the hub reads a project's cards from every checkout of it (a HubProject, see
+ * checkouts.ts), since a card lives on the branch whose work it unblocks. The same card in
+ * several checkouts is one card (see pickCopy), and a write goes to the copy shown. A plain
+ * Project (what `preside` passes) is just its own folder.
+ *
  * Path safety: cards are only ever addressed by (project name, card id). The project
- * comes from the registry, the id must match CARD_ID_PATTERN, and the file is found by
- * listing the project's decisions/ folder. Symlinked card files are not followed, and a
- * decisions/ folder that resolves outside the project is refused, so no request can reach
- * outside the project.
+ * comes from the registry, its other checkouts from git, the id must match CARD_ID_PATTERN,
+ * and the file is found by listing a checkout's decisions/ folder. Symlinked card files are
+ * not followed, and a decisions/ folder that resolves outside its checkout is refused, so no
+ * request can reach outside the project's checkouts.
  */
 import { createHash } from "node:crypto";
 import { lstat, readdir, readFile, realpath } from "node:fs/promises";
@@ -40,14 +45,27 @@ import {
   type RawFrontmatter,
   sameCardId,
 } from "../core/schema.ts";
+import type { Checkout, HubProject } from "./checkouts.ts";
 import { UserError } from "./errors.ts";
 import { isNotFound, KeyedMutex, writeFileAtomic } from "./fs-utils.ts";
-import { decisionsDirOf, type Project } from "./registry.ts";
+import { DECISIONS_DIR, decisionsDirOf, type Project } from "./registry.ts";
 
 export interface LoadedCard extends ParsedCard {
   project: string;
   path: string;
   revision: string;
+  /** The branch of the checkout the file is in (null: detached HEAD, or not in git). */
+  branch: string | null;
+  /** When the file last changed (ms), to choose between differing copies (pickCopy). */
+  changedMs: number;
+}
+
+/** Where cards are read: a project's checkouts (the hub), or just its folder (`preside`). */
+export type CardScope = Project | HubProject;
+
+/** The checkouts of `scope`, the registered folder first. */
+export function checkoutsIn(scope: CardScope): readonly Checkout[] {
+  return "checkouts" in scope ? scope.checkouts : [{ path: scope.path, branch: null }];
 }
 
 /** Something odd about a valid card that an agent should look at. */
@@ -80,22 +98,28 @@ export function revisionOf(text: string): string {
 }
 
 /**
- * The project's decisions/ folder, after checking that it really is inside the project
+ * A checkout's decisions/ folder, after checking that it really is inside the checkout
  * (a symlink pointing elsewhere is refused). Returns an error message instead when it isn't
- * usable.
+ * usable; `missing` when there is no folder (normal in a checkout other than the registered
+ * one: its branch may have no cards).
  */
-async function decisionsDir(project: Project): Promise<{ dir: string } | { error: string }> {
+async function decisionsDir(
+  project: Pick<Project, "path">,
+): Promise<{ dir: string } | { error: string; missing: boolean }> {
   const dir = decisionsDirOf(project);
   try {
     const [realProject, realDir] = await Promise.all([realpath(project.path), realpath(dir)]);
     if (!realDir.startsWith(realProject + sep)) {
       return {
         error: `${dir} links to ${realDir}, outside the project; president doesn't follow it. Move the cards into the project.`,
+        missing: false,
       };
     }
     return { dir };
   } catch (error) {
-    if (!isNotFound(error)) return { error: `cannot read ${dir}: ${(error as Error).message}` };
+    if (!isNotFound(error)) {
+      return { error: `cannot read ${dir}: ${(error as Error).message}`, missing: false };
+    }
     // A project is its folder: one that moved is a new project to president.
     const folderGone = await lstat(project.path).then(
       () => false,
@@ -105,6 +129,7 @@ async function decisionsDir(project: Project): Promise<{ dir: string } | { error
       error: folderGone
         ? `the project folder ${project.path} is missing. If it moved, remove this project and add it again from its new place.`
         : `${dir} does not exist`,
+      missing: true,
     };
   }
 }
@@ -113,21 +138,116 @@ async function cardFileNames(dir: string): Promise<string[]> {
   return (await readdir(dir)).filter((n) => !isIgnoredFile(n)).sort();
 }
 
-export async function loadProjectCards(project: Project): Promise<ProjectCards> {
-  const empty = { cards: [], broken: [], warnings: [] };
-  const located = await decisionsDir(project);
-  if ("error" in located) return { ...empty, error: located.error };
+/**
+ * Every card of the project, from each of its checkouts. Only the registered folder's
+ * problems are the project's `error`: another checkout without a usable decisions/ folder
+ * (its branch has no cards, or it links outside) is left out.
+ */
+export async function loadProjectCards(scope: CardScope): Promise<ProjectCards> {
+  const loaded = await Promise.all(
+    checkoutsIn(scope).map((checkout) => loadCheckout(scope, checkout)),
+  );
+  const first = loaded[0];
+  const error = first && "error" in first ? first.error : undefined;
+  const cards: LoadedCard[][] = [];
+  const broken: BrokenCardDto[] = [];
+  for (const result of loaded) {
+    if ("error" in result) continue;
+    cards.push(result.cards);
+    broken.push(...result.broken);
+  }
+  const merged = mergeCopies(cards);
+  const shownBroken = uniqueBroken(broken);
+  const warnings = [...merged.flatMap(ownWarnings), ...dependencyWarnings(merged, shownBroken)];
+  return { cards: merged, broken: shownBroken, warnings, error };
+}
+
+type CheckoutCards = { cards: LoadedCard[]; broken: BrokenCardDto[] };
+type CheckoutProblem = { error: string; missing: boolean };
+
+/** The cards in one checkout, those whose id is `onlyId` when given (read fresh then). */
+async function loadCheckout(
+  project: Pick<Project, "name">,
+  checkout: Checkout,
+  onlyId?: string,
+): Promise<CheckoutCards | CheckoutProblem> {
+  const located = await decisionsDir(checkout);
+  if ("error" in located) return located;
   let names: string[];
   try {
     names = await cardFileNames(located.dir);
   } catch (error) {
-    return { ...empty, error: `cannot read ${located.dir}: ${(error as Error).message}` };
+    return { error: `cannot read ${located.dir}: ${(error as Error).message}`, missing: false };
   }
-  pruneCache(located.dir, names);
-  const results = await Promise.all(names.map((name) => loadFile(project, name, true)));
-  const { cards, broken } = collect(project, results);
-  const warnings = [...cards.flatMap(ownWarnings), ...dependencyWarnings(cards, broken)];
-  return { cards, broken, warnings, error: undefined };
+  if (onlyId === undefined) pruneCache(located.dir, names);
+  const mine =
+    onlyId === undefined ? names : names.filter((n) => parseCardFileName(n)?.id === onlyId);
+  const results = await Promise.all(
+    mine.map((name) => loadFile(project, checkout, name, onlyId === undefined)),
+  );
+  return collect(project, results);
+}
+
+/**
+ * The cards of several checkouts (the registered folder's first), each card once: the copy
+ * {@link pickCopy} chooses. Sorted by file name, like one folder's.
+ */
+function mergeCopies(byCheckout: LoadedCard[][]): LoadedCard[] {
+  if (byCheckout.length === 1) return byCheckout[0] ?? [];
+  const copies = new Map<string, LoadedCard[]>();
+  for (const cards of byCheckout) {
+    for (const card of cards) copies.set(card.id, [...(copies.get(card.id) ?? []), card]);
+  }
+  return [...copies.values()].map(pickCopy).sort((a, b) => a.fileName.localeCompare(b.fileName));
+}
+
+/**
+ * Which copy of a card in several checkouts the hub shows and writes to (`copies` in
+ * checkout order, the registered folder first). Copies with the same content are one card:
+ * the first. When they differ (the human answered one, an agent changed another), the one
+ * with the latest activity in its frontmatter (a decision, a note, `applied`, `seen`, a
+ * withdrawal) wins, then the file changed last, then the first.
+ */
+export function pickCopy(copies: LoadedCard[]): LoadedCard {
+  const [first, ...rest] = copies;
+  if (!first) throw new Error("pickCopy needs a copy");
+  if (rest.every((copy) => copy.revision === first.revision)) return first;
+  let best = first;
+  for (const copy of rest) {
+    const order = lastActivity(copy) - lastActivity(best) || copy.changedMs - best.changedMs;
+    if (order > 0) best = copy;
+  }
+  return best;
+}
+
+/** The latest time the card's frontmatter records something happening to it (ms). */
+function lastActivity(card: LoadedCard): number {
+  const fm = card.frontmatter;
+  const times = [
+    fm.created,
+    fm.resolution?.resolved_at,
+    fm.applied_at,
+    fm.seen_at,
+    fm.withdrawn?.at,
+    ...fm.feedback.map((entry) => entry.at),
+  ];
+  let latest = 0;
+  for (const time of times) {
+    const ms = time === undefined ? Number.NaN : Date.parse(time);
+    if (ms > latest) latest = ms;
+  }
+  return latest;
+}
+
+/** A broken file that is the same in several checkouts is listed once. */
+function uniqueBroken(broken: BrokenCardDto[]): BrokenCardDto[] {
+  const seen = new Set<string>();
+  return broken
+    .filter((b) => {
+      const key = JSON.stringify([b.fileName, b.errors]);
+      return !seen.has(key) && seen.add(key);
+    })
+    .sort((a, b) => a.fileName.localeCompare(b.fileName));
 }
 
 /** The warnings a card gets on its own (schema.ts), such as more options than keys. */
@@ -141,7 +261,7 @@ function ownWarnings(card: LoadedCard): CardWarning[] {
 
 /** Separates cards from broken files; two files with the same id are both broken. */
 function collect(
-  project: Project,
+  project: Pick<Project, "name">,
   results: (LoadedCard | BrokenCardDto | undefined)[],
 ): { cards: LoadedCard[]; broken: BrokenCardDto[] } {
   const cards: LoadedCard[] = [];
@@ -211,8 +331,10 @@ const cache = new Map<string, { stamp: string; result: LoadedCard | BrokenCardDt
  * prunes inside that project, so without this an unregistered project's parsed cards
  * would stay in memory until the server restarts.
  */
-export function forgetUnregisteredCards(projects: Project[]): void {
-  const dirs = projects.map((project) => decisionsDirOf(project) + sep);
+export function forgetUnregisteredCards(projects: CardScope[]): void {
+  const dirs = projects.flatMap((project) =>
+    checkoutsIn(project).map((checkout) => decisionsDirOf(checkout) + sep),
+  );
   for (const path of cache.keys()) {
     if (!dirs.some((dir) => path.startsWith(dir))) cache.delete(path);
   }
@@ -231,11 +353,12 @@ function pruneCache(dir: string, names: string[]): void {
 }
 
 async function loadFile(
-  project: Project,
+  project: Pick<Project, "name">,
+  checkout: Checkout,
   fileName: string,
   useCache: boolean,
 ): Promise<LoadedCard | BrokenCardDto | undefined> {
-  const path = join(decisionsDirOf(project), fileName);
+  const path = join(checkout.path, DECISIONS_DIR, fileName);
   const broken = (errors: string[]): BrokenCardDto => ({
     project: project.name,
     fileName,
@@ -258,21 +381,30 @@ async function loadFile(
     const stamp = `${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
     const cached = cache.get(path);
     if (useCache && cached?.stamp === stamp) {
-      return { ...cached.result, project: project.name };
+      const result = { ...cached.result, project: project.name };
+      // The branch isn't the file's: its checkout can switch branch and keep the file.
+      return "errors" in result ? result : { ...result, branch: checkout.branch };
     }
 
     const text = await readFile(path, "utf8");
     const parsed = parseCard(text, fileName);
-    const result: LoadedCard | BrokenCardDto = parsed.ok
-      ? { ...parsed.card, project: project.name, path, revision: revisionOf(text) }
-      : { project: project.name, ...parsed.problem };
-    // Like git's "racily clean" rule: file times are coarse (a few ms), so a file changed in
-    // the last couple of seconds could change again without its stamp moving. Only files
-    // that have settled are cached; any later write moves ctime past the cached stamp.
     const changedMs = Math.max(
       Number(info.mtimeNs / 1_000_000n),
       Number(info.ctimeNs / 1_000_000n),
     );
+    const result: LoadedCard | BrokenCardDto = parsed.ok
+      ? {
+          ...parsed.card,
+          project: project.name,
+          path,
+          revision: revisionOf(text),
+          branch: checkout.branch,
+          changedMs,
+        }
+      : { project: project.name, ...parsed.problem };
+    // Like git's "racily clean" rule: file times are coarse (a few ms), so a file changed in
+    // the last couple of seconds could change again without its stamp moving. Only files
+    // that have settled are cached; any later write moves ctime past the cached stamp.
     const settled = Date.now() - changedMs > 2000;
     if (settled) cache.set(path, { stamp, result });
     else cache.delete(path);
@@ -286,26 +418,28 @@ async function loadFile(
 
 export type FindCardResult = { ok: true; card: LoadedCard } | { ok: false; broken: BrokenCardDto };
 
-/** Finds one card by id, reading only the files whose name starts with that id. */
-export async function findCard(project: Project, id: string): Promise<FindCardResult> {
+/**
+ * Finds one card by id in each checkout, reading only the files whose name starts with that
+ * id. Copies that read as cards win over a broken one elsewhere ({@link pickCopy} chooses
+ * between them). The registered folder's problem (no decisions/ folder, unreadable) is an
+ * error, as with one folder, unless another checkout has the card.
+ */
+export async function findCard(project: CardScope, id: string): Promise<FindCardResult> {
   if (!CARD_ID_PATTERN.test(id)) throw new UserError(`"${id}" is not a valid card id`);
-  const located = await decisionsDir(project);
-  if ("error" in located) throw new UserError(located.error, { status: 404 });
-  let names: string[];
-  try {
-    names = await cardFileNames(located.dir);
-  } catch (error) {
-    throw new UserError(`cannot read ${located.dir}: ${(error as Error).message}`, {
-      status: 404,
-    });
+  const found = await Promise.all(
+    checkoutsIn(project).map((checkout) => loadCheckout(project, checkout, id)),
+  );
+  const cards: LoadedCard[] = [];
+  let problem: BrokenCardDto | undefined;
+  for (const result of found) {
+    if ("error" in result) continue;
+    cards.push(...result.cards.filter((c) => c.id === id));
+    problem ??= result.broken.find((b) => b.id === id);
   }
-  const mine = names.filter((name) => parseCardFileName(name)?.id === id);
-  const results = await Promise.all(mine.map((name) => loadFile(project, name, false)));
-  const { cards, broken } = collect(project, results);
-  const card = cards.find((c) => c.id === id);
-  if (card) return { ok: true, card };
-  const problem = broken.find((b) => b.id === id);
+  if (cards.length > 0) return { ok: true, card: pickCopy(cards) };
   if (problem) return { ok: false, broken: problem };
+  const first = found[0];
+  if (first && "error" in first) throw new UserError(first.error, { status: 404 });
   throw new UserError(`no card "${id}" in project "${project.name}"`, { status: 404 });
 }
 
@@ -351,7 +485,7 @@ function remember(path: string, entry: UndoEntry): void {
 
 const conflict = (message: string) => new UserError(message, { status: 409, code: "conflict" });
 
-async function lockedCard(project: Project, id: string): Promise<LoadedCard> {
+async function lockedCard(project: CardScope, id: string): Promise<LoadedCard> {
   const found = await findCard(project, id);
   if (!found.ok) {
     throw new UserError(`card "${id}" is broken and can't be changed until it is fixed`, {
@@ -370,7 +504,7 @@ async function lockedCard(project: Project, id: string): Promise<LoadedCard> {
  * CLI's `applied` and `seen`, which act on whatever is on disk).
  */
 export async function actOnCard(
-  project: Project,
+  project: CardScope,
   id: string,
   action: CardAction,
   options: { revision: string | null; now?: Date },
@@ -426,7 +560,7 @@ export async function actOnCard(
  * by the file's identity and change time, not only by its content (see UndoEntry.stamp).
  */
 export async function undoLastAction(
-  project: Project,
+  project: CardScope,
   id: string,
   revision: string,
 ): Promise<LoadedCard> {
@@ -459,7 +593,7 @@ export async function undoLastAction(
  * says why, in words for the human.
  */
 export async function rewriteCard(
-  project: Project,
+  project: CardScope,
   id: string,
   read: LoadedCard,
   next: { raw: RawFrontmatter; body: string },
@@ -543,14 +677,25 @@ function changedSince(action: CardActionType | undefined): string {
   }
 }
 
-async function writeChecked(project: Project, card: LoadedCard, text: string): Promise<LoadedCard> {
+async function writeChecked(
+  project: Pick<Project, "name">,
+  card: LoadedCard,
+  text: string,
+): Promise<LoadedCard> {
   // Parse before writing: a write must never turn a valid card into a broken one.
   const reparsed = parseCard(text, card.fileName);
   if (!reparsed.ok) {
     throw new Error(`refusing to write an invalid card: ${reparsed.problem.errors.join("; ")}`);
   }
   await writeFileAtomic(card.path, text);
-  return { ...reparsed.card, project: project.name, path: card.path, revision: revisionOf(text) };
+  return {
+    ...reparsed.card,
+    project: project.name,
+    path: card.path,
+    revision: revisionOf(text),
+    branch: card.branch,
+    changedMs: Date.now(),
+  };
 }
 
 export function toCardDto(card: LoadedCard): CardDto {
@@ -560,6 +705,7 @@ export function toCardDto(card: LoadedCard): CardDto {
     fileName: card.fileName,
     revision: card.revision,
     frontmatter: card.frontmatter,
+    branch: card.branch,
   };
 }
 
@@ -584,7 +730,7 @@ export function countCards(cards: ProjectCards): ProjectCounts {
   return counts;
 }
 
-export function projectDto(project: Project, cards: ProjectCards): ProjectDto {
+export function projectDto(project: CardScope, cards: ProjectCards): ProjectDto {
   return {
     name: project.name,
     path: project.path,
@@ -594,6 +740,6 @@ export function projectDto(project: Project, cards: ProjectCards): ProjectDto {
   };
 }
 
-export async function describeProject(project: Project): Promise<ProjectDto> {
+export async function describeProject(project: CardScope): Promise<ProjectDto> {
   return projectDto(project, await loadProjectCards(project));
 }

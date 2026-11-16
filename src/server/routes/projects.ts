@@ -3,6 +3,7 @@ import type { Hono } from "hono";
 import { z } from "zod";
 import type { AddProjectResponse } from "../../core/api.ts";
 import { describeProject, forgetUnregisteredCards } from "../cards.ts";
+import { allWithCheckouts, withCheckouts } from "../checkouts.ts";
 import { parseBody, type RouteDeps, readJson } from "./http.ts";
 
 const AddProjectSchema = z.object({
@@ -13,7 +14,7 @@ const AddProjectSchema = z.object({
 
 export function registerProjectRoutes(api: Hono, { registry, bus }: RouteDeps): void {
   api.get("/projects", async (c) => {
-    const projects = await registry.list();
+    const projects = await allWithCheckouts(await registry.list());
     return c.json({ projects: await Promise.all(projects.map(describeProject)) });
   });
 
@@ -22,7 +23,7 @@ export function registerProjectRoutes(api: Hono, { registry, bus }: RouteDeps): 
     const result = await registry.add(input);
     bus.emit({ type: "projects" });
     const body: AddProjectResponse = {
-      project: await describeProject(result.project),
+      project: await describeProject(await withCheckouts(result.project)),
       alreadyRegistered: result.alreadyRegistered,
     };
     return c.json(body, result.alreadyRegistered ? 200 : 201);
@@ -30,7 +31,7 @@ export function registerProjectRoutes(api: Hono, { registry, bus }: RouteDeps): 
 
   api.delete("/projects/:name", async (c) => {
     const removed = await registry.remove(c.req.param("name"));
-    forgetUnregisteredCards(await registry.list());
+    forgetUnregisteredCards(await allWithCheckouts(await registry.list()));
     bus.emit({ type: "projects" });
     return c.json({ removed });
   });
