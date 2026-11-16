@@ -471,7 +471,8 @@ How it fits together:
   `decisions/` folder of each of the project's checkouts (the registered folder and its git
   worktrees), so the API can't be pointed at other paths. Symlinked cards, and a `decisions/`
   folder that points outside its checkout, are refused. The same card in several checkouts is
-  shown once: identical copies are one card (the registered folder's), and when copies differ
+  shown once: identical copies are one card (the first checkout's: the registered folder, then
+  `git worktree list` order), and when copies differ
   the one with the latest activity in its frontmatter (a decision, a note, applied, seen) is
   shown and written to. The server refuses requests
   whose Host isn't localhost (DNS rebinding), and writes and live-event WebSockets whose Origin

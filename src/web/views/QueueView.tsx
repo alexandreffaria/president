@@ -275,9 +275,13 @@ function BrokenList({ broken }: { broken: BrokenCardDto[] }) {
       </p>
       <ul className="broken-list">
         {broken.map((b) => (
-          <li key={`${b.project}/${b.fileName}`} className="broken">
+          <li key={`${b.project}/${b.branch ?? ""}/${b.fileName}`} className="broken">
             <div>
-              <strong>{b.fileName}</strong> <span className="muted small">{b.project}</span>
+              <strong>{b.fileName}</strong>{" "}
+              <span className="muted small">
+                {b.project}
+                {typeof b.branch === "string" && <> · on {b.branch}</>}
+              </span>
             </div>
             <ul>
               {b.errors.map((error, i) => (

@@ -159,8 +159,12 @@ export async function loadProjectCards(scope: CardScope): Promise<ProjectCards> 
     cards.push(result.cards);
     broken.push(...result.broken);
   }
-  const merged = mergeCopies(cards);
-  const shownBroken = uniqueBroken(broken);
+  const { cards: merged, broken: twins } = mergeCopies(cards);
+  const ids = new Set(merged.map((card) => card.id));
+  // A copy that reads as a card wins: a broken copy of it elsewhere isn't listed.
+  const shownBroken = uniqueBroken([...broken, ...twins]).filter(
+    (b) => b.id === undefined || !ids.has(b.id),
+  );
   const warnings = [...merged.flatMap(ownWarnings), ...dependencyWarnings(merged, shownBroken)];
   return { cards: merged, broken: shownBroken, warnings, error };
 }
@@ -193,15 +197,57 @@ async function loadCheckout(
 
 /**
  * The cards of several checkouts (the registered folder's first), each card once: the copy
- * {@link pickCopy} chooses. Sorted by file name, like one folder's.
+ * {@link pickCopy} chooses. Sorted by file name, like one folder's. Two different cards with
+ * the same id on two branches (see {@link copiesOfOneCard}) are both broken instead.
  */
-function mergeCopies(byCheckout: LoadedCard[][]): LoadedCard[] {
-  if (byCheckout.length === 1) return byCheckout[0] ?? [];
+function mergeCopies(byCheckout: LoadedCard[][]): { cards: LoadedCard[]; broken: BrokenCardDto[] } {
+  if (byCheckout.length === 1) return { cards: byCheckout[0] ?? [], broken: [] };
   const copies = new Map<string, LoadedCard[]>();
   for (const cards of byCheckout) {
     for (const card of cards) copies.set(card.id, [...(copies.get(card.id) ?? []), card]);
   }
-  return [...copies.values()].map(pickCopy).sort((a, b) => a.fileName.localeCompare(b.fileName));
+  const cards: LoadedCard[] = [];
+  const broken: BrokenCardDto[] = [];
+  for (const group of copies.values()) {
+    const picked = pickOne(group);
+    if ("card" in picked) cards.push(picked.card);
+    else broken.push(...picked.broken);
+  }
+  return { cards: cards.sort((a, b) => a.fileName.localeCompare(b.fileName)), broken };
+}
+
+/**
+ * Whether cards with the same id in several checkouts are copies of one card: the same file
+ * name, or the same `created` (an agent may rename a card's file; `created` never changes).
+ * Otherwise two agents gave two cards the same id on two branches.
+ */
+function copiesOfOneCard(copies: LoadedCard[]): boolean {
+  const [first, ...rest] = copies;
+  return rest.every(
+    (copy) =>
+      copy.fileName === first?.fileName || copy.frontmatter.created === first?.frontmatter.created,
+  );
+}
+
+/** {@link pickCopy}, or every copy broken when they are different cards. */
+function pickOne(copies: LoadedCard[]): { card: LoadedCard } | { broken: BrokenCardDto[] } {
+  if (copiesOfOneCard(copies)) return { card: pickCopy(copies) };
+  return {
+    broken: copies.map((card) => {
+      const others = copies
+        .filter((other) => other !== card)
+        .map((other) => `${other.fileName} on ${other.branch ?? "another checkout"}`);
+      return {
+        project: card.project,
+        fileName: card.fileName,
+        id: card.id,
+        branch: card.branch,
+        errors: [
+          `id "${card.id}" is also used by a different card, ${others.join(", ")}; give each card its own id. If you wrote one of them, give yours (the newer one) a new dated id (the current date plus 4 random characters, see docs/card-format.md): change its id and rename its file to match`,
+        ],
+      };
+    }),
+  };
 }
 
 /**
@@ -286,6 +332,7 @@ function collect(
         project: project.name,
         fileName: card.fileName,
         id: card.id,
+        branch: card.branch,
         errors: [
           `id "${card.id}" is also used by ${others.join(", ")}; give each card its own id. If you wrote one of them, give yours (the newer one) a new dated id (the current date plus 4 random characters, see docs/card-format.md): change its id and rename its file to match`,
         ],
@@ -366,6 +413,7 @@ async function loadFile(
     project: project.name,
     fileName,
     id: parseCardFileName(fileName)?.id,
+    branch: checkout.branch,
     errors,
   });
   try {
@@ -384,9 +432,8 @@ async function loadFile(
     const stamp = `${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
     const cached = cache.get(path);
     if (useCache && cached?.stamp === stamp) {
-      const result = { ...cached.result, project: project.name };
       // The branch isn't the file's: its checkout can switch branch and keep the file.
-      return "errors" in result ? result : { ...result, branch: checkout.branch };
+      return { ...cached.result, project: project.name, branch: checkout.branch };
     }
 
     const text = await readFile(path, "utf8");
@@ -404,7 +451,7 @@ async function loadFile(
           branch: checkout.branch,
           changedMs,
         }
-      : { project: project.name, ...parsed.problem };
+      : { project: project.name, ...parsed.problem, branch: checkout.branch };
     // Like git's "racily clean" rule: file times are coarse (a few ms), so a file changed in
     // the last couple of seconds could change again without its stamp moving. Only files
     // that have settled are cached; any later write moves ctime past the cached stamp.
@@ -439,7 +486,12 @@ export async function findCard(project: CardScope, id: string): Promise<FindCard
     cards.push(...result.cards.filter((c) => c.id === id));
     problem ??= result.broken.find((b) => b.id === id);
   }
-  if (cards.length > 0) return { ok: true, card: pickCopy(cards) };
+  if (cards.length > 0) {
+    const picked = pickOne(cards);
+    if ("card" in picked) return { ok: true, card: picked.card };
+    const [twin] = picked.broken;
+    if (twin) return { ok: false, broken: twin };
+  }
   if (problem) return { ok: false, broken: problem };
   const first = found[0];
   if (first && "error" in first) throw new UserError(first.error, { status: 404 });

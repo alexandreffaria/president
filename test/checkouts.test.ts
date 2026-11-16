@@ -60,6 +60,38 @@ describe("checkoutsOf", () => {
     expect((await checkoutsOf(project))[1]).toEqual({ path: wt, branch: null });
   });
 
+  it("tells a worktree inside the registered folder from the folder itself", async () => {
+    const { main, project } = await repoWithWorktree();
+    // As .claude/worktrees/ in president's own checkout (ignored, like there).
+    await writeFile(join(main, ".gitignore"), ".claude/\n");
+    const nested = join(main, ".claude", "worktrees", "inner");
+    await git(main, "worktree", "add", "-q", "-b", "inner", nested);
+    const [own, ...others] = await checkoutsOf(project);
+    expect(own).toEqual({ path: main, branch: "main" });
+    // The others in git's order.
+    expect(others).toHaveLength(2);
+    expect(others).toEqual(
+      expect.arrayContaining([
+        { path: resolve(main, "..", "trips-feat"), branch: "feat" },
+        { path: nested, branch: "inner" },
+      ]),
+    );
+    forgetCheckouts();
+    expect((await checkoutsOf({ path: nested }))[0]).toEqual({ path: nested, branch: "inner" });
+  });
+
+  it("updates a card's branch when its checkout switches branch", async () => {
+    const { wt } = await repoWithWorktree();
+    const before = await loadProjectCards(await withCheckouts({ name: "trips", path: wt }));
+    expect(before.cards[0]?.branch).toBe("feat");
+    await new Promise((done) => setTimeout(done, 2100)); // until the parses are cached
+    await git(wt, "checkout", "-q", "-b", "renamed");
+    forgetCheckouts();
+    const after = await loadProjectCards(await withCheckouts({ name: "trips", path: wt }));
+    // The same files, read from the cache, now on the new branch.
+    expect(after.cards.map((c) => c.branch)).toEqual(after.cards.map(() => "renamed"));
+  });
+
   it("is just the folder outside git", async () => {
     const dir = await tempDir();
     expect(await checkoutsOf({ path: dir })).toEqual([{ path: dir, branch: null }]);
@@ -221,6 +253,8 @@ describe("checkouts' problems", () => {
     const { cards, broken } = await loadProjectCards(hub);
     expect(cards.find((c) => c.id === "0001")?.branch).toBe("feat");
     expect(broken.filter((b) => b.fileName === "0009-broken.md")).toHaveLength(1);
+    // The broken copy of 0001 isn't listed: the card is.
+    expect(broken.some((b) => b.id === "0001")).toBe(false);
     const found = await findCard(hub, "0001");
     expect(found.ok && found.card.path).toBe(join(wt, "decisions", "0001-offline-storage.md"));
   });
@@ -246,6 +280,38 @@ describe("checkouts' problems", () => {
     await utimes(folderCopy, evenLater, evenLater);
     const again = await findCard(hub, "0002");
     expect(again.ok && again.card.path).toBe(folderCopy);
+  });
+});
+
+describe("the same id on two branches", () => {
+  it("is two broken cards when they are different cards", async () => {
+    const { main, wt, project } = await repoWithWorktree();
+    const id = '"20261116dupe"';
+    await writeFile(join(main, "decisions", "20261116dupe-one.md"), cardText({ id }));
+    await writeFile(
+      join(wt, "decisions", "20261116dupe-two.md"),
+      cardText({ id, title: "Another question", created: "2026-11-16T01:00:00Z" }),
+    );
+    const hub = await withCheckouts(project);
+    const { cards, broken } = await loadProjectCards(hub);
+    expect(cards.some((c) => c.id === "20261116dupe")).toBe(false);
+    expect(broken.filter((b) => b.id === "20261116dupe").map((b) => b.branch)).toEqual([
+      "main",
+      "feat",
+    ]);
+    expect(broken[0]?.errors[0]).toMatch(/is also used by a different card/);
+    const found = await findCard(hub, "20261116dupe");
+    expect(found.ok).toBe(false);
+  });
+
+  it("is one card when an agent renamed its file on its branch", async () => {
+    const { main, wt, project } = await repoWithWorktree();
+    const id = '"20261116move"';
+    await writeFile(join(main, "decisions", "20261116move-old-name.md"), cardText({ id }));
+    await writeFile(join(wt, "decisions", "20261116move-new-name.md"), cardText({ id }));
+    const { cards, broken } = await loadProjectCards(await withCheckouts(project));
+    expect(cards.filter((c) => c.id === "20261116move")).toHaveLength(1);
+    expect(broken.some((b) => b.id === "20261116move")).toBe(false);
   });
 });
 

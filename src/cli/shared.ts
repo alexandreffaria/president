@@ -51,6 +51,8 @@ export async function registeredCheckout(
   dir: string,
   projects: Project[],
 ): Promise<{ project: Project; at: string } | undefined> {
+  const itself = await findByPath(projects, await realpath(dir).catch(() => dir));
+  if (itself) return { project: itself, at: dir };
   for (const checkout of await checkoutsOf({ path: dir })) {
     const real = await realpath(checkout.path).catch(() => checkout.path);
     const project = await findByPath(projects, real);

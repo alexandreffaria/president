@@ -117,7 +117,13 @@ type Log = ({ event: string; path: string } | HubEvent)[];
  * reports the project's cards. A "cards" event alone can come from older changes. Each card
  * is also written into the folders `also`.
  */
-async function untilNewCardSeen(log: Log, name: string, dir: string, also: string[] = []) {
+async function untilNewCardSeen(
+  log: Log,
+  name: string,
+  dir: string,
+  also: string[] = [],
+  wait = LIVE_WAIT,
+) {
   let n = 10;
   const seen = () => {
     const added = log.findIndex(
@@ -133,11 +139,13 @@ async function untilNewCardSeen(log: Log, name: string, dir: string, also: strin
     const id = n++;
     return Promise.all([dir, ...also].map((to) => writeCard(to, id)));
   };
-  await until(seen, "the watcher to see a new card", { ...LIVE_WAIT, poke });
+  await until(seen, "the watcher to see a new card", { ...wait, poke });
 }
 
 /** How often the git tests look up the checkouts again (the default is 3 s). */
 const GIT_WATCH = { checkoutsPollMs: 200 };
+/** How long the git tests wait: git is slow to start on a busy Windows machine. */
+const GIT_WAIT = { timeoutMs: 15_000 };
 
 /** A watcher on a registry with the demo project; `setup` can change the registry first. */
 async function watched(
@@ -215,11 +223,16 @@ describe("HubWatcher", () => {
       await git(project.path, "commit", "-qm", "cards");
     }, GIT_WATCH);
     const wt = join(dirname(demo), "demo-feat");
+    const from = log.length;
     await git(demo, "worktree", "add", "-q", "-b", "feat", wt);
     // A new checkout alone reports the project's cards (its branch may show on them).
-    await untilSeen(log, (e) => "type" in e && e.type === "cards" && e.project === "demo");
-    await untilNewCardSeen(log, "demo", join(wt, "decisions"));
-  }, 20_000);
+    await until(
+      () => log.slice(from).some((e) => "type" in e && e.type === "cards" && e.project === "demo"),
+      "the new worktree to be noticed",
+      GIT_WAIT,
+    );
+    await untilNewCardSeen(log, "demo", join(wt, "decisions"), [], GIT_WAIT);
+  }, 40_000);
 
   it("reports a project's cards when one of its checkouts switches branch", async () => {
     const { demo, log } = await watched(async (registry) => {
@@ -233,8 +246,12 @@ describe("HubWatcher", () => {
     const from = log.length;
     // Same files on the new branch: only the branch the cards show changes.
     await git(demo, "checkout", "-q", "-b", "other");
-    await untilSeen(log, (e) => log.indexOf(e) >= from && "type" in e && e.type === "cards");
-  }, 20_000);
+    await until(
+      () => log.slice(from).some((e) => "type" in e && e.type === "cards"),
+      "the branch switch to be noticed",
+      GIT_WAIT,
+    );
+  }, 40_000);
 
   it("ignores everything but the registry, decisions/ and card files", async () => {
     const { demo, registry, watcher } = await watched();
