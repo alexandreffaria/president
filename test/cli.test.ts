@@ -1475,6 +1475,15 @@ describe("preside CLI", () => {
     expect((await cli("pending", featWt)).err).toMatch(
       /^preside: note: .* is not registered with the hub.*register the project's main checkout instead.*in a bare repository, the checkout the human chose\)$/,
     );
+    // A worktree on a branch with no decisions/ yet: the hint points at the main checkout.
+    const emptyWt = join(proj, "empty-wt");
+    await git(proj, "worktree", "add", "-q", "-b", "empty", emptyWt);
+    await rm(join(emptyWt, "decisions"), { recursive: true });
+    const empty = await cli("pending", emptyWt);
+    expect(empty.code).toBe(1);
+    expect(empty.err).toMatch(
+      /--create \(if this is a git worktree, register the project's main checkout instead/,
+    );
     await cli("add", mainWt);
     expect(await cli("pending", mainWt)).toMatchObject({ code: 0, err: "" });
     expect(await cli("pending", featWt)).toMatchObject({ code: 0, err: "" });

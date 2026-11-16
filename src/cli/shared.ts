@@ -38,7 +38,7 @@ export async function projectAt(path: string, out: Output): Promise<Project> {
         dir,
         known
           ? ""
-          : ` No checkout of it is registered with the hub either. If this is a new project's folder, register it, which makes the folder: preside add ${shellQuote(dir)} --create`,
+          : ` No checkout of it is registered with the hub either. If this is a new project's folder, register it, which makes the folder: preside add ${shellQuote(dir)} --create${await worktreeHint(dir)}`,
       );
     }
     throw new UserError(`"${decisions}" is not a folder`);
@@ -86,13 +86,20 @@ export async function registeredAs(root: string, out: Output): Promise<Project> 
     },
   );
   if (registered === undefined) {
-    // In a repository with worktrees, the folder to register may be another checkout.
-    const worktrees = (await checkoutsOf({ path: root })).length > 1;
     out.error(
-      `preside: note: ${root} is not registered with the hub, so the human doesn't see its cards. Register it: preside add ${shellQuote(root)}${worktrees ? " (if this is a git worktree, register the project's main checkout instead: the first entry of `git worktree list`, plus the project's subfolder; in a bare repository, the checkout the human chose)" : ""}`,
+      `preside: note: ${root} is not registered with the hub, so the human doesn't see its cards. Register it: preside add ${shellQuote(root)}${await worktreeHint(root)}`,
     );
   }
   return { name: registered?.project.name ?? basename(root), path: root };
+}
+
+/**
+ * In a repository with worktrees the folder to register may be another checkout: what the
+ * "register it" hints add then (empty otherwise).
+ */
+async function worktreeHint(dir: string): Promise<string> {
+  if ((await checkoutsOf({ path: dir })).length <= 1) return "";
+  return " (if this is a git worktree, register the project's main checkout instead: the first entry of `git worktree list`, plus the project's subfolder; in a bare repository, the checkout the human chose)";
 }
 
 /** What is at `path` (not following a link), or undefined when nothing is; other errors say why. */
