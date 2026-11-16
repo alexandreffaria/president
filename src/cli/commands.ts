@@ -42,7 +42,7 @@ export async function add(args: string[], out: Output): Promise<number> {
     // Something else there (a file, a link) is the registry's to explain (R8-4, R9-1).
     (await lstatIfThere(join(path, DECISIONS_DIR))) === undefined
   ) {
-    throw noDecisionsError(path, " Or add --create to make one here.");
+    throw noDecisionsError(path, " Create it, or add --create to make one here.");
   }
   const { project, alreadyRegistered, renamedFrom } = await new Registry().add({
     path,
