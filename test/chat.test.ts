@@ -305,7 +305,8 @@ describe("a conversation", () => {
     const session = call?.args[call.args.indexOf("--session-id") + 1];
     expect(session).toMatch(UUID);
     expect(call?.args).toContain("--append-system-prompt");
-    expect(call?.args.join(" ")).toMatch(/decisions\/0002-api-errors\.md/);
+    // The card by its absolute path: a card in a worktree isn't under the run's cwd.
+    expect(call?.args.join(" ")).toContain(join(t.demo, "decisions", "0002-api-errors.md"));
     expect((await t.sessions())["demo/0002"]).toEqual({ session, unsummarized: true });
 
     const chat = await t.conversation();

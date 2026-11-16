@@ -38,7 +38,7 @@ export async function projectAt(path: string, out: Output): Promise<Project> {
 
 export function noDecisionsError(dir: string, more = ""): UserError {
   return new UserError(
-    `${dir} has no ${DECISIONS_DIR}/ folder.${more || ` If this is the project's folder (its branch has no cards yet), create ${DECISIONS_DIR}/ to write the first card.`}`,
+    `${dir} has no ${DECISIONS_DIR}/ folder.${more || ` If this is the project's folder (the registered one, or a checkout of it) and its branch has no cards yet, create ${DECISIONS_DIR}/ to write the first card.`}`,
   );
 }
 

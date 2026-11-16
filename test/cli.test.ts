@@ -1301,7 +1301,7 @@ describe("preside CLI", () => {
         expect(await cli(command)).toEqual({
           code: 1,
           out: "",
-          err: `preside: ${join(repo, "src")} has no decisions/ folder. If this is the project's folder (its branch has no cards yet), create decisions/ to write the first card.`,
+          err: `preside: ${join(repo, "src")} has no decisions/ folder. If this is the project's folder (the registered one, or a checkout of it) and its branch has no cards yet, create decisions/ to write the first card.`,
         });
       }
       expect(await cli("add", ".")).toMatchObject({
@@ -1334,7 +1334,7 @@ describe("preside CLI", () => {
       expect(listed).toMatchObject({ code: 0, err: "" });
       expect(listed.out).toMatch(/New notes from the human[\s\S]*Blue, maybe\?/);
       // Its own decisions/ folder is a folder like any other: not a way to name the project.
-      const inner = `preside: ${join(root, "decisions")} has no decisions/ folder. If this is the project's folder (its branch has no cards yet), create decisions/ to write the first card.`;
+      const inner = `preside: ${join(root, "decisions")} has no decisions/ folder. If this is the project's folder (the registered one, or a checkout of it) and its branch has no cards yet, create decisions/ to write the first card.`;
       for (const command of ["pending", "validate"]) {
         expect(await cli(command, "decisions")).toEqual({ code: 1, out: "", err: inner });
       }
