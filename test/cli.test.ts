@@ -16,6 +16,7 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CARD_FORMAT_DOC, DEMO_SOURCE, run } from "../src/cli/main.ts";
+import { registeredAs } from "../src/cli/shared.ts";
 import { shellQuote } from "../src/cli/shell.ts";
 import type { CardAction } from "../src/core/actions.ts";
 import { MAX_CARD_BYTES } from "../src/core/card-file.ts";
@@ -1421,6 +1422,12 @@ describe("preside CLI", () => {
       /status: resolved/,
     );
 
+    // Under the registered project's name, with the worktree as its folder.
+    expect(await registeredAs(wt, { log: () => {}, error: () => {} })).toEqual({
+      name: "trips",
+      path: wt,
+    });
+
     // A project in a subfolder: the same subfolder of each checkout.
     const sub = await realpath(await tempDir());
     await mkdir(join(sub, "app", "decisions"), { recursive: true });
@@ -1435,7 +1442,7 @@ describe("preside CLI", () => {
     const added = await cli("add", wt);
     expect(added).toMatchObject({ code: 0, out: `Registered wt (${wt})` });
     expect(added.err).toBe(
-      `preside: warning: ${wt} is a git worktree of trips, registered at ${main}; the hub already shows the cards of every checkout of it, so registering this one too shows them twice. Run \`preside remove ${shellQuote(wt)}\` to undo.`,
+      `preside: warning: ${wt} is another checkout of trips's git repository (registered at ${main}); the hub already shows the cards of every checkout of it, so registering this one too shows them twice. Run \`preside remove ${shellQuote(wt)}\` to undo.`,
     );
   });
 

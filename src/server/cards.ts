@@ -100,8 +100,8 @@ export function revisionOf(text: string): string {
 /**
  * A checkout's decisions/ folder, after checking that it really is inside the checkout
  * (a symlink pointing elsewhere is refused). Returns an error message instead when it isn't
- * usable; `missing` when there is no folder (normal in a checkout other than the registered
- * one: its branch may have no cards).
+ * usable; `missing` when the checkout is there but has no decisions/ folder (normal in a
+ * checkout whose branch has no cards yet).
  */
 async function decisionsDir(
   project: Pick<Project, "path">,
@@ -129,7 +129,7 @@ async function decisionsDir(
       error: folderGone
         ? `the project folder ${project.path} is missing. If it moved, remove this project and add it again from its new place.`
         : `${dir} does not exist`,
-      missing: true,
+      missing: !folderGone,
     };
   }
 }
@@ -141,14 +141,17 @@ async function cardFileNames(dir: string): Promise<string[]> {
 /**
  * Every card of the project, from each of its checkouts. Only the registered folder's
  * problems are the project's `error`: another checkout without a usable decisions/ folder
- * (its branch has no cards, or it links outside) is left out.
+ * (its branch has no cards, or it links outside) is left out. A registered folder without
+ * decisions/ (its branch has none) is no error either while another checkout has one.
  */
 export async function loadProjectCards(scope: CardScope): Promise<ProjectCards> {
   const loaded = await Promise.all(
     checkoutsIn(scope).map((checkout) => loadCheckout(scope, checkout)),
   );
   const first = loaded[0];
-  const error = first && "error" in first ? first.error : undefined;
+  const elsewhere = loaded.some((result) => !("error" in result));
+  const error =
+    first && "error" in first && !(first.missing && elsewhere) ? first.error : undefined;
   const cards: LoadedCard[][] = [];
   const broken: BrokenCardDto[] = [];
   for (const result of loaded) {

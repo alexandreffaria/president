@@ -55,8 +55,9 @@ human's answer into the card file where it is.
 ## At the start of a session
 
 1. Make sure the project is registered with the hub (safe to repeat). Register the project's
-   folder, the first entry of `git worktree list` (plus the subfolder, if the project is
-   one), not a worktree: the hub already shows every worktree of a registered folder.
+   folder, the first entry of `git worktree list` (plus the subfolder, if the project is one;
+   in a bare repository, the checkout the human chose), not another worktree: the hub
+   already shows every checkout of a registered folder.
 
    ```sh
    preside add <folder> --create
@@ -77,10 +78,11 @@ human's answer into the card file where it is.
    preside pending <project>
    ```
 
-   It lists the cards in your checkout: those on your branch and those it got from main.
-   Cards on another agent's branch are in that agent's checkout, not yours. It lists cards **resolved but not applied** (**Applying resolved cards**), cards that
-   **need new options** and **new notes from the human** you haven't read (see **Cards that
-   need new options** and **New notes from the human** in `reference.md`).
+   It lists the cards in your checkout (your branch's, including those merged from main;
+   another agent's branch's cards are in its checkout): cards **resolved but not applied**
+   (**Applying resolved cards**), cards that **need new options** and **new notes from the
+   human** you haven't read (see **Cards that need new options** and **New notes from the
+   human** in `reference.md`).
 
    Each card ends with a `done:` line, e.g.
    `done: preside seen /abs/path/decisions/0012-x.md --token 2-0k3j5h2g9fd`. Once you have

@@ -78,8 +78,10 @@ export class HubWatcher {
   readonly #pollMs: number;
   readonly #checkoutsPollMs: number;
   readonly #watcher: FSWatcher;
-  /** decisions dir (of any checkout) -> project name */
-  #dirs = new Map<string, string>();
+  /** decisions dir (of any checkout) -> the projects it belongs to (two can share a checkout) */
+  #dirs = new Map<string, string[]>();
+  /** The sync running now, if any: syncs run one after another, so an older one never wins. */
+  #syncing: Promise<void> = Promise.resolve();
   /** project name -> its checkouts (paths and branches) at the last sync, to notice changes. */
   #layouts = new Map<string, string>();
   /** When sync last looked up the checkouts. */
@@ -132,7 +134,13 @@ export class HubWatcher {
    * folders. A project whose checkouts changed (one added or gone, a branch switched) has its
    * cards reported: the branch each card shows may have changed with no card file changing.
    */
-  async sync(): Promise<void> {
+  sync(): Promise<void> {
+    const next = this.#syncing.then(() => this.#sync());
+    this.#syncing = next.catch(() => {});
+    return next;
+  }
+
+  async #sync(): Promise<void> {
     this.#syncedAt = Date.now();
     let projects: Awaited<ReturnType<typeof allWithCheckouts>>;
     try {
@@ -142,12 +150,13 @@ export class HubWatcher {
       return;
     }
     if (this.#closed) return;
-    const next = new Map<string, string>();
+    const next = new Map<string, string[]>();
     const layouts = new Map<string, string>();
     for (const project of projects) {
       for (const checkout of project.checkouts) {
         const dir = decisionsDirOf(checkout);
-        if (!next.has(dir)) next.set(dir, project.name);
+        const names = next.get(dir) ?? [];
+        if (!names.includes(project.name)) next.set(dir, [...names, project.name]);
       }
       const layout = JSON.stringify(project.checkouts);
       layouts.set(project.name, layout);
@@ -197,8 +206,9 @@ export class HubWatcher {
     // chokidar can tell decisions/ went (from its cards' events) before the folder's own
     // event comes, and then stops watching it, so that event may never come (see #onRaw).
     if (event === "unlinkDir") this.#wentAway(path);
-    const project = this.#dirs.get(path) ?? this.#dirs.get(dirname(path));
-    if (project) this.#reportCards(project);
+    for (const project of this.#dirs.get(path) ?? this.#dirs.get(dirname(path)) ?? []) {
+      this.#reportCards(project);
+    }
   }
 
   /** A watched decisions/ that is deleted or moved away raises a raw `rename` naming itself. */
@@ -245,13 +255,15 @@ export class HubWatcher {
     const stale: string[] = [];
     const there: string[] = [];
     dirs.forEach((dir, i) => {
-      const name = this.#dirs.get(dir);
+      const names = this.#dirs.get(dir);
       // One unregistered, or looked at by another check meanwhile, is left to the next look.
-      if (now[i] === before[i] || name === undefined || this.#seen.get(dir) !== before[i]) return;
+      if (now[i] === before[i] || names === undefined || this.#seen.get(dir) !== before[i]) {
+        return;
+      }
       this.#seen.set(dir, now[i] ?? null);
       if (before[i]) stale.push(dir);
       if (now[i]) there.push(dir);
-      if (before[i] !== undefined) this.#reportCards(name);
+      if (before[i] !== undefined) for (const name of names) this.#reportCards(name);
     });
     if (stale.length > 0) this.#watcher.unwatch(stale);
     // All at once, after every look: chokidar's ready event counts only the adds made before it.

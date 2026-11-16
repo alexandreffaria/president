@@ -28,8 +28,8 @@ working in its own checkout, and the skill and docs are built ([plan.md](plan.md
 Left, once their cards are answered:
 
 1. Answering from another machine: whether other machines' hubs show or answer a branch's cards
-   ([20261116notj](../decisions/20261116notj-answering-from-another-machine.md)).
-2. What Sync becomes ([20261116d34o](../decisions/20261116d34o-what-sync-becomes.md)).
+   (card 20261116notj, in the owner's queue).
+2. What Sync becomes (card 20261116d34o).
 
 ## Not built, held by the freeze
 

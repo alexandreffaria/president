@@ -3,14 +3,16 @@
  * other checkout `git worktree list` names. A card lives on the branch whose work it
  * unblocks, so the hub reads (and writes answers into) all of them.
  *
- * Only for the hub: `preside` works in the one checkout it runs in.
+ * `preside` works in the one checkout it runs in, and uses this only to find the registered
+ * project a worktree belongs to.
  *
  * The answer is cached for a moment (CACHE_MS) and shared by concurrent callers, so a listing
  * of every project, or a watcher poll, runs git at most once per project per moment. Git
- * failing (not installed, not a repository, a timeout) leaves just the folder itself.
+ * failing (not installed, not a repository, a timeout) leaves just the folder itself, and so
+ * does a folder no checkout holds (a bare repository's own folder).
  */
 import { realpath } from "node:fs/promises";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { runGit } from "./git.ts";
 import type { Project } from "./registry.ts";
 
@@ -59,27 +61,30 @@ export function forgetCheckouts(): void {
 
 async function listCheckouts(folder: string): Promise<Checkout[]> {
   const alone: Checkout[] = [{ path: folder, branch: null }];
-  const options = { timeoutMs: GIT_TIMEOUT_MS };
-  const [where, list] = await Promise.all([
-    runGit(folder, ["rev-parse", "--show-toplevel", "--show-prefix"], options),
-    runGit(folder, ["worktree", "list", "--porcelain"], options),
-  ]);
-  if (where.code !== 0) return alone;
-  const [top, prefix = ""] = where.stdout.split("\n");
-  if (!top || !isAbsolute(top)) return alone;
-  const here = await real(top);
-  const entries = list.code === 0 ? parseWorktreeList(list.stdout) : [];
-
-  let branch: string | null = null;
-  const others: Checkout[] = [];
-  for (const entry of entries) {
-    if ((await real(entry.path)) === here) {
-      branch = entry.branch;
-      continue;
-    }
-    others.push({ path: resolve(entry.path, prefix), branch: entry.branch });
-  }
-  return [{ path: folder, branch }, ...others];
+  // One git command per look: the hub runs this for every request about a project.
+  const list = await runGit(folder, ["worktree", "list", "--porcelain"], {
+    timeoutMs: GIT_TIMEOUT_MS,
+  });
+  if (list.code !== 0) return alone;
+  const here = await real(folder);
+  const entries = await Promise.all(
+    parseWorktreeList(list.stdout).map(async (entry) => ({
+      ...entry,
+      real: await real(entry.path),
+    })),
+  );
+  // The checkout the folder is in: the deepest one holding it (a worktree may sit inside
+  // another checkout's folder, as .claude/worktrees/ does). None: a bare repository's folder.
+  const holds = (root: string) => here === root || here.startsWith(root + sep);
+  const own = entries
+    .filter((entry) => holds(entry.real))
+    .sort((a, b) => b.real.length - a.real.length)[0];
+  if (!own) return alone;
+  const inside = relative(own.real, here);
+  const others = entries
+    .filter((entry) => entry !== own)
+    .map((entry) => ({ path: resolve(entry.path, inside), branch: entry.branch }));
+  return [{ path: folder, branch: own.branch }, ...others];
 }
 
 interface WorktreeEntry {
@@ -90,7 +95,7 @@ interface WorktreeEntry {
 /**
  * The checkouts in `git worktree list --porcelain` output. Bare repositories and worktrees
  * git calls prunable (their folder is gone) are left out, and so is a path git had to quote
- * (a newline in it).
+ * (a newline in it: it starts with a quote, so it isn't absolute).
  */
 export function parseWorktreeList(output: string): WorktreeEntry[] {
   const entries: WorktreeEntry[] = [];
@@ -99,7 +104,7 @@ export function parseWorktreeList(output: string): WorktreeEntry[] {
     const first = lines[0];
     if (!first?.startsWith("worktree ")) continue;
     const raw = first.slice("worktree ".length);
-    if (!isAbsolute(raw) || raw.startsWith('"')) continue;
+    if (!isAbsolute(raw)) continue;
     if (lines.some((line) => line === "bare" || line.startsWith("prunable"))) continue;
     const ref = lines.find((line) => line.startsWith("branch "))?.slice("branch ".length);
     const branch = ref ? ref.replace(/^refs\/heads\//, "") : null;

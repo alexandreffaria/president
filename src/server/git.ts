@@ -165,16 +165,28 @@ export function runGit(cwd: string, args: string[], options: GitOptions = {}): P
       resolve({ code: null, stdout, stderr: NO_GIT, timedOut: false, truncated });
       return;
     }
-    const child = spawn(git, args, {
-      cwd,
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-      // Its own session: no controlling terminal for ssh to prompt on, and a process group
-      // that can be stopped as a whole.
-      detached: true,
-      shell: false,
-      windowsHide: true,
-    });
+    const started = (() => {
+      try {
+        return spawn(git, args, {
+          cwd,
+          env,
+          stdio: ["ignore", "pipe", "pipe"],
+          // Its own session: no controlling terminal for ssh to prompt on, and a process group
+          // that can be stopped as a whole.
+          detached: true,
+          shell: false,
+          windowsHide: true,
+        });
+      } catch (error) {
+        return error as Error;
+      }
+    })();
+    if (started instanceof Error) {
+      // A `cwd` that goes through a file (ENOTDIR) is thrown here, not emitted.
+      resolve({ code: null, stdout, stderr: started.message, timedOut: false, truncated });
+      return;
+    }
+    const child = started;
     // Whether git itself has exited (`close` comes later, once its pipes are closed too).
     let exited = false;
     child.on("exit", () => {

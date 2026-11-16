@@ -33,7 +33,7 @@ export async function add(args: string[], out: Output): Promise<number> {
   const other = await registeredCheckout(path, await new Registry().list().catch(() => []));
   if (other && !(await sameFolder(other.at, path))) {
     out.error(
-      `preside: warning: ${path} is a git worktree of ${other.project.name}, registered at ${other.at}; the hub already shows the cards of every checkout of it, so registering this one too shows them twice. Run \`preside remove ${shellQuote(path)}\` to undo.`,
+      `preside: warning: ${path} is another checkout of ${other.project.name}'s git repository (registered at ${other.at}); the hub already shows the cards of every checkout of it, so registering this one too shows them twice. Run \`preside remove ${shellQuote(path)}\` to undo.`,
     );
   }
   if (
