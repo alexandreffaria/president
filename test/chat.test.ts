@@ -1352,7 +1352,20 @@ describe("keeping the hub's copy (202611114wet)", () => {
     // Told once: the turn after doesn't repeat it.
     await t.send("Thanks", {}, "20261116wtcd");
     expect((await t.calls()).at(-1)?.stdin).not.toContain("The card's file is now");
-  });
+
+    // A resumed summary is told too, when the card moved again since (into a new worktree).
+    const wt2 = join(dirname(t.demo), "demo-next");
+    await git("worktree", "add", "-q", "-b", "next", wt2);
+    const again = join(wt2, "decisions", "20261116wtcd-question.md");
+    await writeFile(again, await readFile(moved, "utf8"));
+    await rm(moved);
+    forgetCheckouts();
+    const summary = await t.post("/api/chats/demo/20261116wtcd/summary", {});
+    expect(summary.status).toBe(200);
+    const summarized = (await t.calls()).at(-1);
+    expect(summarized?.args).toContain("--resume");
+    expect(summarized?.stdin).toContain(`The card's file is now ${again}; read it there.`);
+  }, 30_000);
 
   it("passes no --add-dir for a card in the project's folder", async () => {
     const t = await setup();
@@ -1381,7 +1394,7 @@ describe("keeping the hub's copy (202611114wet)", () => {
     await t.chat.cleanup();
     const missing = await readFile(join(t.root, "state", "missing.json"), "utf8").catch(() => "{}");
     expect(JSON.parse(missing)).toEqual({});
-  });
+  }, 30_000);
 
   it("counts an unregistered project's cards as gone", async () => {
     const t = await setup();

@@ -30,7 +30,17 @@ export async function projectAt(path: string, out: Output): Promise<Project> {
   const decisions = join(dir, DECISIONS_DIR);
   if (!(await isDirectory(decisions))) {
     // Nothing there is a missing folder; anything else (a file, a link to nothing) is not one (R9-1).
-    if ((await lstatIfThere(decisions)) === undefined) throw noDecisionsError(dir);
+    if ((await lstatIfThere(decisions)) === undefined) {
+      // A new project: say how to register it, which also makes the folder.
+      const projects = await new Registry().list().catch(() => []);
+      const known = await registeredCheckout(dir, projects);
+      throw noDecisionsError(
+        dir,
+        known
+          ? ""
+          : ` No checkout of it is registered with the hub either. If this is a new project's folder, register it, which makes the folder: preside add ${shellQuote(dir)} --create`,
+      );
+    }
     throw new UserError(`"${decisions}" is not a folder`);
   }
   return registeredAs(dir, out);

@@ -16,6 +16,7 @@ import type { HubProject } from "../checkouts.ts";
 import { UserError } from "../errors.ts";
 import {
   cardCheckout,
+  cardPlace,
   pickLine,
   revealOf,
   sessionInstructions,
@@ -88,12 +89,22 @@ export class Summaries {
         (await transcriptExists(this.#host.claudeDir, entry.session))
       ) {
         fromCopy = false;
+        // Told where the card is now if it moved, as a conversation's resumed turn is.
+        const place = cardPlace(project, card, entry.cardPath);
         result = await this.#host.run({
           cwd: project.path,
           addDirs: cardCheckout(project, card),
           session: { resume: entry.session },
-          message: withPickLine(line, summaryRequest(since > 0)),
+          message: withPickLine(line + place.moved, summaryRequest(since > 0)),
         });
+        if (result.ok && place.moved) {
+          await this.#host.store.updateEntry(key, (e) => {
+            const next: SessionEntry = { ...e };
+            if (place.cardPath) next.cardPath = place.cardPath;
+            else delete next.cardPath;
+            return next;
+          });
+        }
         if (!result.ok && result.sessionNotFound) {
           fromCopy = true;
           result = undefined;
