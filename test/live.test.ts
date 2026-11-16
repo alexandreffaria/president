@@ -286,7 +286,8 @@ describe("HubWatcher", () => {
     const sentinel = join(dir, "0006-sentinel.md");
     await writeFile(sentinel, cardText({ id: '"0006"' }));
     await untilSeen(fileEvents, (e) => e.path === sentinel);
-    expect(fileEvents.map((e) => e.path)).toEqual([sentinel]);
+    // Windows may report the one write twice (add, then change): the paths are what count.
+    expect([...new Set(fileEvents.map((e) => e.path))]).toEqual([sentinel]);
   });
 
   it("follows registry changes made by another process", async () => {
