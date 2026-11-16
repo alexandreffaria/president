@@ -237,6 +237,23 @@ describe("cards in every checkout", () => {
     expect(shown.ok && shown.card.frontmatter.status).toBe("resolved");
   });
 
+  it("keeps showing a copy deferred without a note after git touches the other copy", async () => {
+    const { main, wt, project } = await repoWithWorktree();
+    const hub = await withCheckouts(project);
+    const found = await findCard(hub, "0002");
+    if (!found.ok) throw new Error("broken");
+    // A defer without a note leaves no time in the frontmatter that the copies compare.
+    await actOnCard(hub, "0002", { type: "defer" }, { revision: found.card.revision });
+    // The worktree's unchanged copy is written again later (a checkout, a rebase).
+    const staleFile = join(wt, "decisions", "0002-api-errors.md");
+    await writeFile(staleFile, await readFile(staleFile, "utf8"));
+    const later = new Date(Date.now() + 60_000);
+    await utimes(staleFile, later, later);
+    const shown = await findCard(hub, "0002");
+    expect(shown.ok && shown.card.path).toBe(join(main, "decisions", "0002-api-errors.md"));
+    expect(shown.ok && shown.card.frontmatter.status).toBe("deferred");
+  });
+
   it("doesn't mind a worktree whose branch has no decisions/ folder", async () => {
     const { wt, project } = await repoWithWorktree();
     await rm(join(wt, "decisions"), { recursive: true });
