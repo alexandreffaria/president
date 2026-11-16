@@ -364,6 +364,27 @@ describe("the same id on two branches", () => {
     expect(found.ok).toBe(false);
   });
 
+  it("names only the other card, not its own copies, in each error", async () => {
+    const { main, wt, project } = await repoWithWorktree();
+    const third = resolve(main, "..", "trips-third");
+    await git(main, "worktree", "add", "-q", "-b", "third", third);
+    const id = '"20261116trio"';
+    await writeFile(join(main, "decisions", "20261116trio-one.md"), cardText({ id }));
+    await writeFile(join(wt, "decisions", "20261116trio-one.md"), cardText({ id }));
+    await writeFile(
+      join(third, "decisions", "20261116trio-two.md"),
+      cardText({ id, title: "Another question", created: "2026-11-16T01:00:00Z" }),
+    );
+    const { broken } = await loadProjectCards(await withCheckouts(project));
+    const mine = broken.filter((b) => b.id === "20261116trio");
+    // The two copies of one card are one entry: the same file, the same error.
+    expect(mine.map((b) => b.fileName)).toEqual(["20261116trio-one.md", "20261116trio-two.md"]);
+    expect(mine[0]?.errors[0]).toMatch(/a different card, 20261116trio-two\.md on third;/);
+    expect(mine[1]?.errors[0]).toMatch(
+      /a different card, 20261116trio-one\.md on main, 20261116trio-one\.md on feat;/,
+    );
+  });
+
   it("is one card when an agent renamed its file on its branch", async () => {
     const { main, wt, project } = await repoWithWorktree();
     const id = '"20261116move"';

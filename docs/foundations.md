@@ -83,7 +83,7 @@ first five were settled before president had cards. Work not built yet is in
 | 2026-11-14 | A PR's review loop runs until every finding, nits included, is fixed and reviewed again. | [20261114zuct](../decisions/20261114zuct-review-loop-stopping-rule.md) |
 | 2026-11-14 | One line per decision here, reasons in the card; the old roadmap is archived. | [20261114r0w8](../decisions/20261114r0w8-where-decisions-are-recorded.md) |
 | 2026-11-14 | Only for the owner: public repo, no npm release, Windows only on the owner's workstation. | [2026111411fs](../decisions/2026111411fs-who-is-president-for.md) |
-| 2026-11-16 | Cards live on the working branch with the work they unblock, are committed there and reach main through its PR. Decided in chat; [roadmap](roadmap.md#cards-on-the-working-branch) has the build. | [202611167ux1](../decisions/202611167ux1-where-cards-live.md) (withdrawn) |
+| 2026-11-16 | Cards live on the working branch with the work they unblock, are committed there and reach main through its PR. Decided in chat; built in [plan.md](plan.md) section 8, the rest is in the [roadmap](roadmap.md#cards-on-the-working-branch). | [202611167ux1](../decisions/202611167ux1-where-cards-live.md) (withdrawn) |
 | 2026-11-24 | A card's chat starts as a fork of the session that wrote the card, when this machine has it and it fits the chat's cost cap; the author also leaves the chat a short note on the card, which the card page doesn't show. | |
 
 ## Card interactions (must have)

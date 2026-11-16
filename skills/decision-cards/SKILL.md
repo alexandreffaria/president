@@ -64,7 +64,8 @@ human's answer into the card file where it is.
    preside add <folder> --create
    ```
 
-   If a command says the project is not registered, run the `preside add` it prints. The
+   If a command says the project is not registered, run the `preside add` it prints, unless
+   its path is a worktree: then register the first `git worktree list` entry instead. The
    project is named after its folder (to choose the name, see **Naming a project** in
    `reference.md`).
 
@@ -260,7 +261,9 @@ it show?
    fails its last check** in `reference.md`.
 
    Then delete the draft and the scratch folder, and commit the card on your branch
-   (`git add <project>/decisions/<file>`). The card is in the human's queue now.
+   (`git add <project>/decisions/<file>`; in the registered folder on main, leave it
+   uncommitted, see **Your checkout, and card files in git**). The card is in the human's
+   queue now.
 
 ### What makes a good card
 
@@ -319,7 +322,8 @@ For each one `preside pending <project>` lists:
 4. Run the card's `done:` line (`preside applied <file> --token <token>`; it sets
    `applied_at` and `seen_at`). Don't change `status` or `resolution` yourself. Commit the
    card file (the human's answer and your "applied") on your branch with the docs and code:
-   the pull request carries the decision with the work it decided.
+   the pull request carries the decision with the work it decided. In the registered folder
+   on main, leave it uncommitted (see **Your checkout, and card files in git**).
 
    If it refuses because the decision you acted on is gone (the human took it back with
    Undo, or reopened the card before you finished), revert the docs entry and the work for
