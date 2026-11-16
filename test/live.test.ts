@@ -136,8 +136,14 @@ async function untilNewCardSeen(log: Log, name: string, dir: string, also: strin
   await until(seen, "the watcher to see a new card", { ...LIVE_WAIT, poke });
 }
 
+/** How often the git tests look up the checkouts again (the default is 3 s). */
+const GIT_WATCH = { checkoutsPollMs: 200 };
+
 /** A watcher on a registry with the demo project; `setup` can change the registry first. */
-async function watched(setup?: (registry: Registry) => Promise<void>) {
+async function watched(
+  setup?: (registry: Registry) => Promise<void>,
+  options: { checkoutsPollMs?: number } = {},
+) {
   const registry = new Registry(join(await tempDir(), "config"));
   await mkdir(registry.dir, { recursive: true });
   const demo = await copyDemoProject();
@@ -154,7 +160,7 @@ async function watched(setup?: (registry: Registry) => Promise<void>) {
   const watcher = new HubWatcher(registry, bus, {
     debounceMs: 30,
     pollMs: 100,
-    checkoutsPollMs: 100,
+    ...options,
     onFileEvent: (event, path) => {
       fileEvents.push({ event, path });
       log.push({ event, path });
@@ -207,13 +213,28 @@ describe("HubWatcher", () => {
       await git(project.path, "init", "-q", "-b", "main");
       await git(project.path, "add", ".");
       await git(project.path, "commit", "-qm", "cards");
-    });
+    }, GIT_WATCH);
     const wt = join(dirname(demo), "demo-feat");
     await git(demo, "worktree", "add", "-q", "-b", "feat", wt);
     // A new checkout alone reports the project's cards (its branch may show on them).
     await untilSeen(log, (e) => "type" in e && e.type === "cards" && e.project === "demo");
     await untilNewCardSeen(log, "demo", join(wt, "decisions"));
-  });
+  }, 20_000);
+
+  it("reports a project's cards when one of its checkouts switches branch", async () => {
+    const { demo, log } = await watched(async (registry) => {
+      const [project] = await registry.list();
+      if (!project) throw new Error("no project");
+      await git(project.path, "init", "-q", "-b", "main");
+      await git(project.path, "add", ".");
+      await git(project.path, "commit", "-qm", "cards");
+    }, GIT_WATCH);
+    // start() recorded the checkouts (on main), with no event for them.
+    const from = log.length;
+    // Same files on the new branch: only the branch the cards show changes.
+    await git(demo, "checkout", "-q", "-b", "other");
+    await untilSeen(log, (e) => log.indexOf(e) >= from && "type" in e && e.type === "cards");
+  }, 20_000);
 
   it("ignores everything but the registry, decisions/ and card files", async () => {
     const { demo, registry, watcher } = await watched();

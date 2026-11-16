@@ -12,8 +12,8 @@ import {
   type ChatSummaryResponse,
   isNewConversation,
 } from "../../core/api.ts";
+import type { HubProject } from "../checkouts.ts";
 import { UserError } from "../errors.ts";
-import type { Project } from "../registry.ts";
 import {
   pickLine,
   revealOf,
@@ -51,7 +51,7 @@ export class Summaries {
    * it for the human to edit. Nothing is saved.
    */
   async summarize(
-    project: Project,
+    project: HubProject,
     id: string,
     input: Omit<SendInput, "text">,
   ): Promise<ChatSummaryResponse> {
@@ -132,7 +132,7 @@ export class Summaries {
    * Without it, the close is undone with `reopen` and the returned `closed`.
    */
   async closeWithoutSummary(
-    project: Project,
+    project: HubProject,
     id: string,
     options: { decision?: string } = {},
   ): Promise<ChatCloseResponse> {
@@ -164,7 +164,7 @@ export class Summaries {
    * Undoes `closeWithoutSummary` (its notice's Undo): the conversation is "not summarized"
    * again, and the next summary covers what it covered before the close.
    */
-  async reopen(project: Project, id: string, closed: string): Promise<ChatDto> {
+  async reopen(project: HubProject, id: string, closed: string): Promise<ChatDto> {
     const card = await this.#host.card(project, id);
     const write = this.#summaryWrites.get(closed);
     if (!write?.close || write.key.project !== project.name || write.key.id !== card.id) {
@@ -182,7 +182,7 @@ export class Summaries {
    * wrote `revision`: the conversation counts as summarized up to the messages that summary
    * was written from.
    */
-  async summarySaved(project: Project, id: string, revision: string): Promise<void> {
+  async summarySaved(project: HubProject, id: string, revision: string): Promise<void> {
     const key = { project: project.name, id };
     const offered = this.#offered.get(keyName(key));
     this.#offered.delete(keyName(key));

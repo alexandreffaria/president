@@ -4,8 +4,11 @@
  * #0019, #0020, 20261111paot). Claude Code is the stand-in test/fake-claude.mjs; the real
  * `claude` is never run.
  */
+
+import { execFile } from "node:child_process";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join, resolve as resolvePath } from "node:path";
+import { dirname, join, resolve as resolvePath } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   CardActionResponse,
@@ -26,6 +29,7 @@ import {
 } from "../src/server/chat/runner.ts";
 import { ChatService, KEEP_MISSING_MS } from "../src/server/chat/service.ts";
 import { defaultStateDir } from "../src/server/chat/store.ts";
+import { forgetCheckouts } from "../src/server/checkouts.ts";
 import { Registry } from "../src/server/registry.ts";
 import { EventBus } from "../src/server/watcher.ts";
 import { copyDemoProject, tempDir } from "./helpers.ts";
@@ -1304,6 +1308,29 @@ describe("keeping the hub's copy (202611114wet)", () => {
     );
     await t.chat.cleanup();
     expect(JSON.parse(await readFile(join(t.root, "state", "missing.json"), "utf8"))).toEqual({});
+  });
+
+  it("keeps a copy whose card is only in a git worktree of the project", async () => {
+    const t = await setup();
+    await t.send("One");
+    const git = (...args: string[]) =>
+      promisify(execFile)("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+        cwd: t.demo,
+        env: {
+          ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_"))),
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_CONFIG_GLOBAL: "/dev/null",
+        },
+      });
+    await git("init", "-q", "-b", "main");
+    await git("add", ".");
+    await git("commit", "-qm", "cards");
+    await git("worktree", "add", "-q", "-b", "feat", join(dirname(t.demo), "demo-feat"));
+    await rm(join(t.demo, "decisions", "0002-api-errors.md"));
+    forgetCheckouts();
+    await t.chat.cleanup();
+    const missing = await readFile(join(t.root, "state", "missing.json"), "utf8").catch(() => "{}");
+    expect(JSON.parse(missing)).toEqual({});
   });
 
   it("counts an unregistered project's cards as gone", async () => {

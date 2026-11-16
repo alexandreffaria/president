@@ -19,8 +19,8 @@ import {
   splitSections,
 } from "../../core/sections.ts";
 import { findCard, type LoadedCard, rewriteCard } from "../cards.ts";
+import type { HubProject } from "../checkouts.ts";
 import { UserError } from "../errors.ts";
-import type { Project } from "../registry.ts";
 import {
   isViewAsked,
   lastNeither,
@@ -39,7 +39,7 @@ import type { CardKey, NewOptionsRecord, SessionEntry } from "./store.ts";
  * the project); `write` does the writing.
  */
 export type CardWriter = (
-  project: Project,
+  project: HubProject,
   write: () => Promise<LoadedCard>,
 ) => Promise<LoadedCard>;
 
@@ -96,7 +96,7 @@ export class NewOptionsRuns {
    * the ones the hub wrote).
    */
   async visibleRun(
-    project: Project,
+    project: HubProject,
     key: CardKey,
     record: NewOptionsRecord,
   ): Promise<NewOptionsRunDto | undefined> {
@@ -139,7 +139,7 @@ export class NewOptionsRuns {
    * winds down after an Undo. `started: false`: the note is written but its run couldn't be.
    */
   async newOptionsAsked(
-    project: Project,
+    project: HubProject,
     id: string,
     write: () => Promise<LoadedCard>,
   ): Promise<{ card: LoadedCard; started: boolean }> {
@@ -170,7 +170,7 @@ export class NewOptionsRuns {
    * decision is undone.
    */
   async undoing(
-    project: Project,
+    project: HubProject,
     id: string,
     undo: () => Promise<LoadedCard>,
   ): Promise<LoadedCard> {
@@ -196,7 +196,7 @@ export class NewOptionsRuns {
    * `started: false` then. The run itself goes on after this returns.
    */
   async startNewOptions(
-    project: Project,
+    project: HubProject,
     id: string,
     input: { note: string; revealed?: boolean | undefined; revision?: string | undefined },
   ): Promise<StartNewOptionsResponse> {
@@ -237,7 +237,7 @@ export class NewOptionsRuns {
    * lock, with no run on the card (newOptionsAsked and startNewOptions refuse then).
    */
   async #startRun(
-    project: Project,
+    project: HubProject,
     key: CardKey,
     note: string,
     retry?: string,
@@ -268,7 +268,7 @@ export class NewOptionsRuns {
   }
 
   async #writeNewOptions(
-    project: Project,
+    project: HubProject,
     key: CardKey,
     note: string,
     retry: string | undefined,

@@ -3,7 +3,7 @@
  * registered folder and each `git worktree list` entry.
  */
 import { execFile } from "node:child_process";
-import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -63,6 +63,13 @@ describe("checkoutsOf", () => {
   it("is just the folder outside git", async () => {
     const dir = await tempDir();
     expect(await checkoutsOf({ path: dir })).toEqual([{ path: dir, branch: null }]);
+  });
+
+  it("is just the folder when git can't even start there (a path through a file)", async () => {
+    const file = join(await tempDir(), "notes.txt");
+    await writeFile(file, "notes");
+    const inside = join(file, "project");
+    expect(await checkoutsOf({ path: inside })).toEqual([{ path: inside, branch: null }]);
   });
 
   it("finds the project's subfolder in each checkout", async () => {
@@ -181,8 +188,64 @@ describe("cards in every checkout", () => {
     const hub = await withCheckouts(project);
     const found = await findCard(hub, "0001");
     expect(found.ok && found.card.path).toBe(join(wt, "decisions", "0001-offline-storage.md"));
-    // The folder's own problem is still the project's error.
+    // No error while a worktree has a decisions/ folder: the folder's branch has no cards.
+    const loaded = await loadProjectCards(hub);
+    expect(loaded.error).toBeUndefined();
+    expect(loaded.cards.length).toBeGreaterThan(0);
+    // With none anywhere, the folder's problem is the project's error.
+    await rm(join(wt, "decisions"), { recursive: true });
     expect((await loadProjectCards(hub)).error).toMatch(/does not exist/);
+  });
+});
+
+describe("checkouts' problems", () => {
+  it("doesn't follow a worktree's decisions/ that links outside it", async () => {
+    const { wt, project } = await repoWithWorktree();
+    const outside = await tempDir();
+    await writeFile(join(outside, "20261116zzzz-outside.md"), cardText({ id: '"20261116zzzz"' }));
+    await rm(join(wt, "decisions"), { recursive: true });
+    await symlink(outside, join(wt, "decisions"), "junction");
+    const hub = await withCheckouts(project);
+    const { cards, error } = await loadProjectCards(hub);
+    expect(error).toBeUndefined();
+    expect(cards.some((c) => c.id === "20261116zzzz")).toBe(false);
+    await expect(findCard(hub, "20261116zzzz")).rejects.toThrow(/no card/);
+  });
+
+  it("prefers a copy that reads as a card, and lists a broken file once", async () => {
+    const { main, wt, project } = await repoWithWorktree();
+    await writeFile(join(main, "decisions", "0001-offline-storage.md"), "---\nnot: [yaml\n");
+    await writeFile(join(main, "decisions", "0009-broken.md"), "no frontmatter\n");
+    await writeFile(join(wt, "decisions", "0009-broken.md"), "no frontmatter\n");
+    const hub = await withCheckouts(project);
+    const { cards, broken } = await loadProjectCards(hub);
+    expect(cards.find((c) => c.id === "0001")?.branch).toBe("feat");
+    expect(broken.filter((b) => b.fileName === "0009-broken.md")).toHaveLength(1);
+    const found = await findCard(hub, "0001");
+    expect(found.ok && found.card.path).toBe(join(wt, "decisions", "0001-offline-storage.md"));
+  });
+
+  it("shows the copy changed last when their activity ties", async () => {
+    const { main, wt, project } = await repoWithWorktree();
+    const file = join(wt, "decisions", "0002-api-errors.md");
+    // An agent's `update` (new wording) adds no timestamp to the frontmatter.
+    const text = await readFile(file, "utf8");
+    await writeFile(file, text.replace(/^title: .*$/m, "title: Reworded question"));
+    const later = new Date(Date.now() + 60_000);
+    await utimes(file, later, later);
+    const hub = await withCheckouts(project);
+    const found = await findCard(hub, "0002");
+    expect(found.ok && found.card.path).toBe(file);
+    // The other way round, the folder's copy wins.
+    const folderCopy = join(main, "decisions", "0002-api-errors.md");
+    const evenLater = new Date(Date.now() + 120_000);
+    await writeFile(
+      folderCopy,
+      (await readFile(folderCopy, "utf8")).replace(/^title: .*$/m, "title: Other"),
+    );
+    await utimes(folderCopy, evenLater, evenLater);
+    const again = await findCard(hub, "0002");
+    expect(again.ok && again.card.path).toBe(folderCopy);
   });
 });
 
