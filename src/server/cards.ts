@@ -148,19 +148,17 @@ async function cardFileNames(dir: string): Promise<string[]> {
  * decisions/ (its branch has none) is no error either while another checkout has one.
  */
 export async function loadProjectCards(scope: CardScope): Promise<ProjectCards> {
-  const loaded = await Promise.all(
-    checkoutsIn(scope).map((checkout) => loadCheckout(scope, checkout)),
-  );
+  const checkouts = checkoutsIn(scope);
+  const loaded = await Promise.all(checkouts.map((checkout) => loadCheckout(scope, checkout)));
   const first = loaded[0];
   const elsewhere = loaded.some((result) => !("error" in result));
   const error =
     first && "error" in first && !(first.missing && elsewhere) ? first.error : undefined;
-  const checkouts = checkoutsIn(scope);
   const cards: LoadedCard[][] = [];
   const brokenIn: { dir: string; broken: BrokenCardDto[] }[] = [];
-  loaded.forEach((result, i) => {
-    const checkout = checkouts[i];
-    if ("error" in result || !checkout) return;
+  checkouts.forEach((checkout, i) => {
+    const result = loaded[i];
+    if (!result || "error" in result) return;
     cards.push(result.cards);
     brokenIn.push({ dir: decisionsDirOf(checkout), broken: result.broken });
   });
@@ -265,19 +263,38 @@ function pickOne(copies: LoadedCard[]): { card: LoadedCard } | { broken: BrokenC
  * checkout order, the registered folder first). Copies with the same content are one card:
  * the first. When they differ (the human answered one, an agent changed another), the one
  * with the latest activity in its frontmatter (a decision, a note, `applied`, a withdrawal)
- * wins, then the file changed last, then the first. Not `seen_at`: an agent that marks a
+ * wins, then the copy this hub wrote last (see hubWrote), then the file changed last, then
+ * the first. Not `seen_at`: an agent that marks a
  * stale, unanswered copy seen must not make it beat the copy the human answered.
  */
 export function pickCopy(copies: LoadedCard[]): LoadedCard {
   const [first, ...rest] = copies;
   if (!first) throw new Error("pickCopy needs a copy");
   if (rest.every((copy) => copy.revision === first.revision)) return first;
+  const wrote = hubWrote.get(copyKey(first));
+  const byHub = (copy: LoadedCard) => (copy.path === wrote ? 1 : 0);
   let best = first;
   for (const copy of rest) {
-    const order = lastActivity(copy) - lastActivity(best) || copy.changedMs - best.changedMs;
+    const order =
+      lastActivity(copy) - lastActivity(best) ||
+      byHub(copy) - byHub(best) ||
+      copy.changedMs - best.changedMs;
     if (order > 0) best = copy;
   }
   return best;
+}
+
+/**
+ * The copy of each card this hub wrote last (project and id -> path). Some actions leave no
+ * time in the frontmatter (a defer without a note), so on a tie in activity the copy the
+ * human acted on stays the one shown, even when an agent or git touches another copy later.
+ * Kept in memory: after a restart the file changed last decides a tie.
+ */
+const hubWrote = new Map<string, string>();
+const HUB_WROTE_MAX = 500;
+
+function copyKey(card: Pick<LoadedCard, "project" | "id">): string {
+  return `${card.project}\0${card.id}`;
 }
 
 /** The latest time the card's frontmatter records something happening to it (ms). */
@@ -753,6 +770,10 @@ async function writeChecked(
     throw new Error(`refusing to write an invalid card: ${reparsed.problem.errors.join("; ")}`);
   }
   await writeFileAtomic(card.path, text);
+  const key = copyKey({ project: project.name, id: card.id });
+  hubWrote.delete(key);
+  hubWrote.set(key, card.path);
+  if (hubWrote.size > HUB_WROTE_MAX) hubWrote.delete(hubWrote.keys().next().value as string);
   return {
     ...reparsed.card,
     project: project.name,

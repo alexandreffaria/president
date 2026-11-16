@@ -42,8 +42,8 @@ export interface BrokenCardDto {
   project: string;
   fileName: string;
   id: string | undefined;
-  /** The branch of the checkout the file is in, as on CardDto (undefined: not known). */
-  branch?: string | null | undefined;
+  /** The branch of the checkout the file is in, as on CardDto. */
+  branch: string | null;
   errors: string[];
 }
 

@@ -280,7 +280,7 @@ function BrokenList({ broken }: { broken: BrokenCardDto[] }) {
               <strong>{b.fileName}</strong>{" "}
               <span className="muted small">
                 {b.project}
-                {typeof b.branch === "string" && <> · on {b.branch}</>}
+                {b.branch !== null && <> · on {b.branch}</>}
               </span>
             </div>
             <ul>

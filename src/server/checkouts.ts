@@ -12,7 +12,7 @@
  * Otherwise a folder outside git, or one no checkout holds (a bare repository's own folder),
  * is just itself.
  */
-import { realpath } from "node:fs/promises";
+import { lstat, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { runGit } from "./git.ts";
 import type { Project } from "./registry.ts";
@@ -75,8 +75,19 @@ async function listCheckouts(folder: string): Promise<Checkout[]> {
   const list = await runGit(folder, ["worktree", "list", "--porcelain"], {
     timeoutMs: GIT_TIMEOUT_MS,
   });
-  // No answer at all (code null): keep the last one. Not a repository (an exit code): alone.
-  if (list.code === null) return lastAnswer.get(folder) ?? alone;
+  // No answer at all (code null): keep the last one, unless the folder itself is gone (git
+  // can't start in a missing folder either). Not a repository (an exit code): alone.
+  if (list.code === null) {
+    if (
+      await lstat(folder).then(
+        () => true,
+        () => false,
+      )
+    )
+      return lastAnswer.get(folder) ?? alone;
+    lastAnswer.delete(folder);
+    return alone;
+  }
   const checkouts = list.code === 0 ? await fromWorktreeList(folder, list.stdout) : alone;
   lastAnswer.delete(folder);
   lastAnswer.set(folder, checkouts);
