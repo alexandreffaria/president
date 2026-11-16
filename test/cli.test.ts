@@ -1318,12 +1318,12 @@ describe("preside CLI", () => {
         expect(await cli(command)).toEqual({
           code: 1,
           out: "",
-          err: `preside: ${join(repo, "src")} has no decisions/ folder. Run this in the project's folder (the one that contains decisions/), or create decisions/ there to write the first card.`,
+          err: `preside: ${join(repo, "src")} has no decisions/ folder. If this is the project's folder (its branch has no cards yet), create decisions/ to write the first card.`,
         });
       }
       expect(await cli("add", ".")).toMatchObject({
         code: 1,
-        err: `preside: ${join(repo, "src")} has no decisions/ folder. Run this in the project's folder (the one that contains decisions/), or create decisions/ there to write the first card. Or add --create to make one here.`,
+        err: `preside: ${join(repo, "src")} has no decisions/ folder. Create it, or add --create to make one here.`,
       });
       // --create makes decisions/ in the folder given, never in a parent.
       expect((await cli("add", ".", "--create")).out).toBe(`Registered src (${join(repo, "src")})`);
@@ -1351,12 +1351,12 @@ describe("preside CLI", () => {
       expect(listed).toMatchObject({ code: 0, err: "" });
       expect(listed.out).toMatch(/New notes from the human[\s\S]*Blue, maybe\?/);
       // Its own decisions/ folder is a folder like any other: not a way to name the project.
-      const inner = `preside: ${join(root, "decisions")} has no decisions/ folder. Run this in the project's folder (the one that contains decisions/), or create decisions/ there to write the first card.`;
+      const inner = `preside: ${join(root, "decisions")} has no decisions/ folder. If this is the project's folder (its branch has no cards yet), create decisions/ to write the first card.`;
       for (const command of ["pending", "validate"]) {
         expect(await cli(command, "decisions")).toEqual({ code: 1, out: "", err: inner });
       }
       expect((await cli("add", "decisions")).err).toBe(
-        `${inner} Or add --create to make one here.`,
+        `preside: ${join(root, "decisions")} has no decisions/ folder. Create it, or add --create to make one here.`,
       );
     } finally {
       cwd.mockRestore();
@@ -1458,7 +1458,7 @@ describe("preside CLI", () => {
     await git(proj, "worktree", "add", "-q", "-b", "feat", featWt);
 
     expect((await cli("pending", featWt)).err).toMatch(
-      /^preside: note: .* is not registered with the hub.*register the project's main checkout instead/,
+      /^preside: note: .* is not registered with the hub.*register the project's main checkout instead.*in a bare repository, the checkout the human chose\)$/,
     );
     await cli("add", mainWt);
     expect(await cli("pending", mainWt)).toMatchObject({ code: 0, err: "" });

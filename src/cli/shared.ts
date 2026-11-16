@@ -38,7 +38,7 @@ export async function projectAt(path: string, out: Output): Promise<Project> {
 
 export function noDecisionsError(dir: string, more = ""): UserError {
   return new UserError(
-    `${dir} has no ${DECISIONS_DIR}/ folder. Run this in the project's folder (the one that contains ${DECISIONS_DIR}/), or create ${DECISIONS_DIR}/ there to write the first card.${more}`,
+    `${dir} has no ${DECISIONS_DIR}/ folder.${more || ` If this is the project's folder (its branch has no cards yet), create ${DECISIONS_DIR}/ to write the first card.`}`,
   );
 }
 
@@ -79,7 +79,7 @@ export async function registeredAs(root: string, out: Output): Promise<Project> 
     // In a repository with worktrees, the folder to register may be another checkout.
     const worktrees = (await checkoutsOf({ path: root })).length > 1;
     out.error(
-      `preside: note: ${root} is not registered with the hub, so the human doesn't see its cards. Register it: preside add ${shellQuote(root)}${worktrees ? " (if this is a git worktree, register the project's main checkout instead: the first entry of `git worktree list`, plus the project's subfolder)" : ""}`,
+      `preside: note: ${root} is not registered with the hub, so the human doesn't see its cards. Register it: preside add ${shellQuote(root)}${worktrees ? " (if this is a git worktree, register the project's main checkout instead: the first entry of `git worktree list`, plus the project's subfolder; in a bare repository, the checkout the human chose)" : ""}`,
     );
   }
   return { name: registered?.project.name ?? basename(root), path: root };
