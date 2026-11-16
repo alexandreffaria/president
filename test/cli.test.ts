@@ -1441,7 +1441,7 @@ describe("preside CLI", () => {
     await git(proj, "worktree", "add", "-q", "-b", "feat", featWt);
 
     expect((await cli("pending", featWt)).err).toMatch(
-      /^preside: note: .* is not registered with the hub/,
+      /^preside: note: .* is not registered with the hub.*register the project's main checkout instead/,
     );
     await cli("add", mainWt);
     expect(await cli("pending", mainWt)).toMatchObject({ code: 0, err: "" });

@@ -206,7 +206,7 @@ async function loadCheckout(
 /**
  * The cards of several checkouts (the registered folder's first), each card once: the copy
  * {@link pickCopy} chooses. Sorted by file name, like one folder's. Two different cards with
- * the same id on two branches (see {@link copiesOfOneCard}) are both broken instead.
+ * the same id on two branches (see {@link cardsAmong}) are both broken instead.
  */
 function mergeCopies(byCheckout: LoadedCard[][]): { cards: LoadedCard[]; broken: BrokenCardDto[] } {
   if (byCheckout.length === 1) return { cards: byCheckout[0] ?? [], broken: [] };
@@ -225,35 +225,43 @@ function mergeCopies(byCheckout: LoadedCard[][]): { cards: LoadedCard[]; broken:
 }
 
 /**
- * Whether cards with the same id in several checkouts are copies of one card: the same file
- * name, or the same `created` (an agent may rename a card's file; `created` never changes).
- * Otherwise two agents gave two cards the same id on two branches.
+ * Cards with the same id in several checkouts, grouped into the cards they are: copies of one
+ * card have the same file name or the same `created` (an agent may rename a card's file;
+ * `created` never changes). More than one group: two agents gave two cards the same id on
+ * two branches.
  */
-function copiesOfOneCard(copies: LoadedCard[]): boolean {
-  const [first, ...rest] = copies;
-  return rest.every(
-    (copy) =>
-      copy.fileName === first?.fileName || copy.frontmatter.created === first?.frontmatter.created,
-  );
+function cardsAmong(copies: LoadedCard[]): LoadedCard[][] {
+  const groups: LoadedCard[][] = [];
+  for (const copy of copies) {
+    const same = (other: LoadedCard) =>
+      other.fileName === copy.fileName || other.frontmatter.created === copy.frontmatter.created;
+    const group = groups.find((g) => g.some(same));
+    if (group) group.push(copy);
+    else groups.push([copy]);
+  }
+  return groups;
 }
 
 /** {@link pickCopy}, or every copy broken when they are different cards. */
 function pickOne(copies: LoadedCard[]): { card: LoadedCard } | { broken: BrokenCardDto[] } {
-  if (copiesOfOneCard(copies)) return { card: pickCopy(copies) };
+  const groups = cardsAmong(copies);
+  const [only] = groups;
+  if (only && groups.length === 1) return { card: pickCopy(only) };
   return {
-    broken: copies.map((card) => {
-      const others = copies
-        .filter((other) => other !== card)
+    broken: groups.flatMap((group) => {
+      const others = groups
+        .filter((g) => g !== group)
+        .flat()
         .map((other) => `${other.fileName} on ${other.branch ?? "another checkout"}`);
-      return {
+      return group.map((card) => ({
         project: card.project,
         fileName: card.fileName,
         id: card.id,
         branch: card.branch,
         errors: [
-          `id "${card.id}" is also used by a different card, ${others.join(", ")}; give each card its own id. If you wrote one of them, give yours (the newer one) a new dated id (the current date plus 4 random characters, see docs/card-format.md): change its id and rename its file to match`,
+          `id "${card.id}" is also used by a different card, ${[...new Set(others)].join(", ")}; give each card its own id. If you wrote one of them, give yours (the newer one) a new dated id (the current date plus 4 random characters, see docs/card-format.md): change its id and rename its file to match`,
         ],
-      };
+      }));
     }),
   };
 }
@@ -264,8 +272,8 @@ function pickOne(copies: LoadedCard[]): { card: LoadedCard } | { broken: BrokenC
  * the first. When they differ (the human answered one, an agent changed another), the one
  * with the latest activity in its frontmatter (a decision, a note, `applied`, a withdrawal)
  * wins, then the copy this hub wrote last (see hubWrote), then the file changed last, then
- * the first. Not `seen_at`: an agent that marks a
- * stale, unanswered copy seen must not make it beat the copy the human answered.
+ * the first. Not `seen_at`: an agent that marks a stale, unanswered copy seen must not make
+ * it beat the copy the human answered.
  */
 export function pickCopy(copies: LoadedCard[]): LoadedCard {
   const [first, ...rest] = copies;

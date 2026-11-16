@@ -76,8 +76,10 @@ export async function registeredAs(root: string, out: Output): Promise<Project> 
     },
   );
   if (registered === undefined) {
+    // In a repository with worktrees, the folder to register may be another checkout.
+    const worktrees = (await checkoutsOf({ path: root })).length > 1;
     out.error(
-      `preside: note: ${root} is not registered with the hub, so the human doesn't see its cards. Register it: preside add ${shellQuote(root)}`,
+      `preside: note: ${root} is not registered with the hub, so the human doesn't see its cards. Register it: preside add ${shellQuote(root)}${worktrees ? " (if this is a git worktree, register the project's main checkout instead: the first entry of `git worktree list`, plus the project's subfolder)" : ""}`,
     );
   }
   return { name: registered?.project.name ?? basename(root), path: root };
