@@ -1,9 +1,16 @@
 /** GET, POST /api/projects and DELETE /api/projects/:name (app.ts lists the API). */
+
+import { isAbsolute } from "node:path";
 import type { Hono } from "hono";
 import { z } from "zod";
 import type { AddProjectResponse } from "../../core/api.ts";
 import { describeProject, forgetUnregisteredCards } from "../cards.ts";
-import { allWithCheckouts, withCheckouts } from "../checkouts.ts";
+import {
+  allWithCheckouts,
+  registeredCheckout,
+  secondCheckoutWarning,
+  withCheckouts,
+} from "../checkouts.ts";
 import { parseBody, type RouteDeps, readJson } from "./http.ts";
 
 const AddProjectSchema = z.object({
@@ -20,11 +27,19 @@ export function registerProjectRoutes(api: Hono, { registry, bus }: RouteDeps): 
 
   api.post("/projects", async (c) => {
     const input = parseBody(AddProjectSchema, await readJson(c.req.raw));
+    // Before the add: afterwards the folder is a registered checkout itself.
+    const other = isAbsolute(input.path)
+      ? await registeredCheckout(input.path, await registry.list())
+      : undefined;
     const result = await registry.add(input);
+    const warning = result.alreadyRegistered
+      ? undefined
+      : await secondCheckoutWarning(input.path, other);
     bus.emit({ type: "projects" });
     const body: AddProjectResponse = {
       project: await describeProject(await withCheckouts(result.project)),
       alreadyRegistered: result.alreadyRegistered,
+      ...(warning ? { warning } : {}),
     };
     return c.json(body, result.alreadyRegistered ? 200 : 201);
   });

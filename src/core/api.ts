@@ -109,6 +109,8 @@ export interface AddProjectRequest {
 export interface AddProjectResponse {
   project: ProjectDto;
   alreadyRegistered: boolean;
+  /** Set when another checkout of the folder's repository was registered already. */
+  warning?: string;
 }
 
 /**

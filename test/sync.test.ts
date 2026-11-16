@@ -372,6 +372,8 @@ describe("Sync: the checks say not now and change nothing", () => {
 
     expect(result.outcome).toBe("not-now");
     expect(result.message).toBe("Not now: shop has the branch feat/x checked out, not main");
+    // Cards on a branch travel with it, not with Sync.
+    expect(result.action).toMatch(/Cards on feat\/x travel with it/);
     expect(snapshot(s)).toEqual(before);
   });
 
@@ -424,6 +426,7 @@ describe("Sync: the checks say not now and change nothing", () => {
       "Not now: the branch main in shop has no upstream branch to pull from and push to",
     );
     expect(result.action).toMatch(/git push -u origin main/);
+    expect(result.action).toMatch(/If it is a feature branch, its cards travel with it/);
     expect(snapshot(s)).toEqual(before);
   });
 

@@ -8,18 +8,12 @@ import { cp, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
+import { registeredCheckout, secondCheckoutWarning } from "../server/checkouts.ts";
 import { UserError } from "../server/errors.ts";
 import { DECISIONS_DIR, type Project, Registry } from "../server/registry.ts";
 
 import { DEMO_SOURCE, type Output } from "./main.ts";
-import {
-  isDirectory,
-  lstatIfThere,
-  noDecisionsError,
-  registeredCheckout,
-  sameFolder,
-  single,
-} from "./shared.ts";
+import { isDirectory, lstatIfThere, noDecisionsError, sameFolder, single } from "./shared.ts";
 import { shellQuote } from "./shell.ts";
 
 export async function add(args: string[], out: Output): Promise<number> {
@@ -46,10 +40,9 @@ export async function add(args: string[], out: Output): Promise<number> {
     createDecisions: values.create,
   });
   // A hint, not a refusal: the human may register a worktree on purpose.
-  if (!alreadyRegistered && other && !(await sameFolder(other.at, path))) {
-    out.error(
-      `preside: warning: ${path} is another checkout of ${other.project.name}'s git repository (registered at ${other.at}); the hub already shows the cards of every checkout of it, so registering this one too shows them twice. Run \`preside remove ${shellQuote(path)}\` to undo.`,
-    );
+  const twice = alreadyRegistered ? undefined : await secondCheckoutWarning(path, other);
+  if (twice) {
+    out.error(`preside: warning: ${twice} Run \`preside remove ${shellQuote(path)}\` to undo.`);
   }
   if (await sameFolder(project.path, DEMO_SOURCE)) {
     out.error(

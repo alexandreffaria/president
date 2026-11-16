@@ -8,10 +8,10 @@
 import type { Stats } from "node:fs";
 import { lstat, realpath, stat } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { checkoutsOf } from "../server/checkouts.ts";
+import { checkoutsOf, registeredCheckout } from "../server/checkouts.ts";
 import { fileError, UserError } from "../server/errors.ts";
 import { isNotFound } from "../server/fs-utils.ts";
-import { DECISIONS_DIR, findByPath, type Project, Registry } from "../server/registry.ts";
+import { DECISIONS_DIR, type Project, Registry } from "../server/registry.ts";
 
 import type { Output } from "./main.ts";
 import { shellQuote } from "./shell.ts";
@@ -50,25 +50,6 @@ export function noDecisionsError(dir: string, more = ""): UserError {
   return new UserError(
     `${dir} has no ${DECISIONS_DIR}/ folder.${more || ` If this is the project's folder (the registered one, or a checkout of it) and its branch has no cards yet, create ${DECISIONS_DIR}/ to write the first card.`}`,
   );
-}
-
-/**
- * The registered project that `dir` is a checkout of: registered itself, or the same folder
- * in another checkout of its git repository (a worktree of a registered folder, or the
- * registered worktree of a bare repository). `at` is the registered folder.
- */
-export async function registeredCheckout(
-  dir: string,
-  projects: Project[],
-): Promise<{ project: Project; at: string } | undefined> {
-  const itself = await findByPath(projects, await realpath(dir).catch(() => dir));
-  if (itself) return { project: itself, at: dir };
-  for (const checkout of await checkoutsOf({ path: dir })) {
-    const real = await realpath(checkout.path).catch(() => checkout.path);
-    const project = await findByPath(projects, real);
-    if (project) return { project, at: checkout.path };
-  }
-  return undefined;
 }
 
 /**
