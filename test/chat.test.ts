@@ -6,7 +6,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -35,7 +35,7 @@ import { defaultStateDir } from "../src/server/chat/store.ts";
 import { forgetCheckouts } from "../src/server/checkouts.ts";
 import { Registry } from "../src/server/registry.ts";
 import { EventBus } from "../src/server/watcher.ts";
-import { copyDemoProject, tempDir } from "./helpers.ts";
+import { cardText, copyDemoProject, tempDir } from "./helpers.ts";
 
 const FAKE = join(import.meta.dirname, "fake-claude.mjs");
 const ORIGIN = "http://127.0.0.1:4747";
@@ -1634,6 +1634,41 @@ describe("keeping the hub's copy (202611114wet)", () => {
     );
     await t.chat.cleanup();
     expect(JSON.parse(await readFile(join(t.root, "state", "missing.json"), "utf8"))).toEqual({});
+  });
+
+  it("lets a conversation about a card in a worktree read that worktree", async () => {
+    const t = await setup();
+    const git = (...args: string[]) =>
+      promisify(execFile)("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+        cwd: t.demo,
+        env: {
+          ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_"))),
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_CONFIG_GLOBAL: "/dev/null",
+        },
+      });
+    await git("init", "-q", "-b", "main");
+    await git("add", ".");
+    await git("commit", "-qm", "cards");
+    const wt = join(dirname(t.demo), "demo-feat");
+    await git("worktree", "add", "-q", "-b", "feat", wt);
+    const file = join(wt, "decisions", "20261116wtcd-question.md");
+    await writeFile(file, cardText({ id: '"20261116wtcd"' }));
+    forgetCheckouts();
+    await t.send("Hello", {}, "20261116wtcd");
+    const call = (await t.calls()).at(-1);
+    // Still run in the project's folder, with the worktree added and the card's own path.
+    expect(call?.cwd).toBe(await realpath(t.demo));
+    const at = call?.args.indexOf("--add-dir") ?? -1;
+    expect(call?.args[at + 1]).toBe(wt);
+    const system = call?.args[(call?.args.indexOf("--append-system-prompt") ?? -2) + 1];
+    expect(system).toContain(`The card is the file ${file}`);
+  });
+
+  it("passes no --add-dir for a card in the project's folder", async () => {
+    const t = await setup();
+    await t.send("Hello");
+    expect((await t.calls()).at(-1)?.args).not.toContain("--add-dir");
   });
 
   it("keeps a copy whose card is only in a git worktree of the project", async () => {

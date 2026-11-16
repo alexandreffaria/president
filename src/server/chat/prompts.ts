@@ -20,6 +20,7 @@
  *   and the chat's instructions go in the message.
  */
 import { createHash } from "node:crypto";
+import { dirname } from "node:path";
 import type { ChatAsk, ChatMessageDto } from "../../core/api.ts";
 import { CUSTOM_CHOICE, KEYED_OPTIONS, OPTION_ID_PATTERN } from "../../core/model.ts";
 import { unseenFeedback } from "../../core/pending.ts";
@@ -28,9 +29,19 @@ import { FOR_THE_CHAT } from "../../core/sections.ts";
 import type { LoadedCard } from "../cards.ts";
 import { SESSION_TOOLS } from "./runner.ts";
 
+/**
+ * The checkout that holds `card`, when it isn't the project's folder (a worktree): a run
+ * there gets to read it (`--add-dir`), since its cwd stays the project's folder so that
+ * conversations resume wherever the card's copy is.
+ */
+export function cardCheckout(project: { path: string }, card: LoadedCard): string[] {
+  const checkout = dirname(dirname(card.path));
+  return checkout === project.path ? [] : [checkout];
+}
+
 export function sessionInstructions(card: LoadedCard): string {
   return [
-    `You are talking with the human about one decision card in president, a hub where coding agents ask a human to decide things. The card is decisions/${card.fileName} in this project (project "${card.project}", card id ${card.id}). Read it before your first answer, and read it again whenever the human says it changed: its options, its sections and its \`feedback\` (the human's earlier notes; entries with \`type: chat\` summarize earlier conversations about it).`,
+    `You are talking with the human about one decision card in president, a hub where coding agents ask a human to decide things. The card is the file ${card.path} (project "${card.project}", card id ${card.id}). Read it before your first answer, and read it again whenever the human says it changed: its options, its sections and its \`feedback\` (the human's earlier notes; entries with \`type: chat\` summarize earlier conversations about it).`,
     `The card may have a \`## ${FOR_THE_CHAT}\` section, which the card page doesn't show the human: the card's author wrote it for you, on what it looked at, what it ruled out and why, and what the options don't say. Use it, and when an answer comes from it, say it comes from the author's notes, which the human hasn't seen. Like the rest of the card, it follows president's line about the pick: nothing from it may name or argue for the pick before the human reveals it. It was written with the card's first options: after new options, it may mention ideas that are now options, and those must not be presented as ruled out.`,
     "You can read this project's files and research the web. You can't change anything, and you never apply decisions or record them: the project's working agent does that later, from the card. When the human wants something done, say what they could put in a note or the conversation's summary for that agent.",
     "Each of the human's messages starts with a line from president in parentheses, \"(president: ...)\", saying whether the human has revealed the card's pick (its `recommendation`), or, on a card that has none, whether they asked for your own view. Follow it.",
@@ -45,11 +56,12 @@ export function sessionInstructions(card: LoadedCard): string {
  * argued for the card's pick, it follows the line about the pick all the more.
  */
 export function forkIntro(card: LoadedCard, projectPath: string): string {
+  const [checkout] = cardCheckout({ path: projectPath }, card);
   const tools = SESSION_TOOLS.split(",").join(", ");
   return [
-    `This is president, not the human. This conversation is a fork of your session, made when the human started a conversation about a decision card written in this session (by you or a subagent you ran), decisions/${card.fileName}, so that you can talk with them about it knowing what you knew when it was written and what you did since (the card may be older than your later work). Your original session isn't affected.`,
+    `This is president, not the human. This conversation is a fork of your session, made when the human started a conversation about a decision card written in this session (by you or a subagent you ran), ${card.path}, so that you can talk with them about it knowing what you knew when it was written and what you did since (the card may be older than your later work). Your original session isn't affected.`,
     `From now on you are not the working agent: you are this card's chat. Don't go on with the earlier task, and when an earlier instruction (your system prompt's included) conflicts with what follows, follow what follows. In this conversation your only tools are ${tools}: you can't change files or run commands.`,
-    `The project is now at your current folder, ${projectPath}. Paths from earlier in this session (a git worktree, say) may be gone or out of reach: read the project's files here.`,
+    `The project is now at your current folder, ${projectPath}${checkout ? `, and you can also read the checkout that holds the card, ${checkout}` : ""}. Other paths from earlier in this session (a git worktree, say) may be gone or out of reach: read the project's files here.`,
     sessionInstructions(card),
     "This session wrote this card, and the decision is the human's now. Follow the line about the pick strictly, even if this session recommended an option or argued for one: until the human reveals the pick, describe each option as its best advocate would and keep your own view out of it.",
     "What follows is president's line about the pick, then the human's message or president's request.",
@@ -201,7 +213,7 @@ export function summaryFromCopy(
   const who = { you: "Human", agent: "Agent", hub: "president" } as const;
   const lines = messages.map((m) => `${who[m.from]}, ${m.at}:\n${m.text}`);
   return [
-    `Below is a conversation about the decision card decisions/${card.fileName} in this project, as the human saw it. The agent that took part no longer remembers it.`,
+    `Below is a conversation about the decision card ${card.path}, as the human saw it. The agent that took part no longer remembers it.`,
     summaryRequest(sinceLastSummary),
     "The conversation:",
     ...lines,
@@ -313,7 +325,7 @@ export function newOptionsRequest(card: LoadedCard, note: FeedbackEntry, retry?:
     ...(retry
       ? [`Your previous answer couldn't be written to the card: ${retry}. Fix that this time.`]
       : []),
-    `Read the card again (decisions/${card.fileName}), research what you need, and write new options that answer the note: ${count} options (the card's kind is "${card.frontmatter.kind}") and your pick among them. Keep the card short: only what the human needs to choose. Give an option \`details\` (its own section) only for a tiny example when the choice is about how something looks or reads. They replace the card's options, their sections and its recommendation. president writes them to the card; you change nothing yourself.`,
+    `Read the card again (${card.path}), research what you need, and write new options that answer the note: ${count} options (the card's kind is "${card.frontmatter.kind}") and your pick among them. Keep the card short: only what the human needs to choose. Give an option \`details\` (its own section) only for a tiny example when the choice is about how something looks or reads. They replace the card's options, their sections and its recommendation. president writes them to the card; you change nothing yourself.`,
     "Your `message` is shown to the human in this conversation: explain how the new options answer the note; don't say which you recommend. Your pick goes only in `recommendation`, which the human sees only when they ask for it.",
   ].join("\n\n");
 }

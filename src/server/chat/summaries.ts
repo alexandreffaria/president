@@ -15,6 +15,7 @@ import {
 import type { HubProject } from "../checkouts.ts";
 import { UserError } from "../errors.ts";
 import {
+  cardCheckout,
   pickLine,
   revealOf,
   sessionInstructions,
@@ -89,6 +90,7 @@ export class Summaries {
         fromCopy = false;
         result = await this.#host.run({
           cwd: project.path,
+          addDirs: cardCheckout(project, card),
           session: { resume: entry.session },
           message: withPickLine(line, summaryRequest(since > 0, entry.forked === true)),
           forked: entry.forked === true,
@@ -100,6 +102,7 @@ export class Summaries {
       }
       result ??= await this.#host.run({
         cwd: project.path,
+        addDirs: cardCheckout(project, card),
         session: { oneOff: true },
         message: withPickLine(line, summaryFromCopy(card, messages.slice(since), since > 0)),
         appendSystemPrompt: sessionInstructions(card),

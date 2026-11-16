@@ -327,14 +327,14 @@ both want port 4747 (the icon then turns grey and says "port 4747 in use by anot
 
 4. **Decisions** lists everything you decided, newest first, and whether an agent has applied it.
 
-5. **Sync** (the button in the top bar, or `s`) sends the answers in a project folder that is on
-   main to your other machines and brings theirs here. Cards on other branches travel with
-   their branch, not with Sync. president writes card files but never commits them on its own; the top
-   bar shows "3 answers not synced" while a project has card changes that aren't pushed, so
-   press Sync before you leave a machine. Where that doesn't fit next to the menu, the number
-   is on the Sync button instead. When the hub starts it only runs `git fetch`, which
-   changes no file and no branch, and shows "2 card changes on the remote, press Sync". A
-   fetch that fails then (the network isn't up yet, say) is retried after 5 s, 15 s, 30 s,
+5. **Sync** (the button in the top bar, or `s`) sends the answers in a project folder that
+   is on main to your other machines and brings theirs here. Cards on other branches travel
+   with their branch, not with Sync. president writes card files but never commits them on its
+   own; the top bar shows "3 answers not synced" while a project has card changes that aren't
+   pushed, so press Sync before you leave a machine. Where that doesn't fit next to the menu,
+   the number is on the Sync button instead. When the hub starts it only runs `git fetch`,
+   which changes no file and no branch, and shows "2 card changes on the remote, press Sync".
+   A fetch that fails then (the network isn't up yet, say) is retried after 5 s, 15 s, 30 s,
    1 min, 2 min and 5 min, until one works or a Sync fetches.
 
    For each project with card changes, here or on the remote, Sync runs `git fetch`, checks
@@ -477,8 +477,9 @@ How it fits together:
   shown once: identical copies are one card (the first checkout's: the registered folder, then
   `git worktree list` order), and when copies differ the one with the latest activity in its
   frontmatter (a decision, a note, applied; not an agent's seen) is shown and written to. The
-  server refuses requests whose Host isn't localhost (DNS rebinding), and writes and live-event WebSockets whose Origin
-  isn't the hub itself (scripts and curl must send `Origin: http://127.0.0.1:4747`).
+  server refuses requests whose Host isn't localhost (DNS rebinding), and writes and live-event
+  WebSockets whose Origin isn't the hub itself (scripts and curl must send
+  `Origin: http://127.0.0.1:4747`).
 - Every action must send the revision (a content hash) of the card the human last read, not the
   newest one the page has loaded. If the file changed since, the action is refused and the page
   lists what changed. Undo sends the revision its action returned, and restores the file only if

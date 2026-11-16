@@ -34,7 +34,8 @@ const CACHE_MS = 1000;
 const MAX_ANSWERS = 200;
 const GIT_TIMEOUT_MS = 5000;
 
-const cache = new Map<string, { at: number; checkouts: Promise<Checkout[]> }>();
+/** `at`: when the answer came; undefined while git is still running (callers share it). */
+const cache = new Map<string, { at: number | undefined; checkouts: Promise<Checkout[]> }>();
 /**
  * The last answer git gave for each folder. When git can't answer for a moment (it timed out,
  * or couldn't start), that one is used instead of the folder alone, so a slow git doesn't
@@ -54,13 +55,20 @@ export function allWithCheckouts(projects: Project[]): Promise<HubProject[]> {
 
 export function checkoutsOf(project: Pick<Project, "path">): Promise<Checkout[]> {
   const now = Date.now();
+  const fresh = (entry: { at: number | undefined }) =>
+    entry.at === undefined || now - entry.at < CACHE_MS;
   const cached = cache.get(project.path);
-  if (cached && now - cached.at < CACHE_MS) return cached.checkouts;
-  const checkouts = listCheckouts(project.path);
-  cache.set(project.path, { at: now, checkouts });
+  if (cached && fresh(cached)) return cached.checkouts;
   // Entries for projects that are gone don't pile up.
-  for (const [path, entry] of cache) if (now - entry.at >= CACHE_MS) cache.delete(path);
-  return checkouts;
+  for (const [path, entry] of cache) if (!fresh(entry)) cache.delete(path);
+  const entry: { at: number | undefined; checkouts: Promise<Checkout[]> } = {
+    at: undefined,
+    checkouts: listCheckouts(project.path).finally(() => {
+      entry.at = Date.now();
+    }),
+  };
+  cache.set(project.path, entry);
+  return entry.checkouts;
 }
 
 /** Forgets the cached checkouts (tests). */
