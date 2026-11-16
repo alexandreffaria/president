@@ -142,7 +142,7 @@ export async function onMainBranch(
       "not-now",
       `Not now: ${name} has the branch ${branch} checked out, not ${main.name}`,
       {
-        action: `Your answers wait until the checkout is back on ${main.name}; then press Sync again.`,
+        action: `Cards on ${branch} travel with it: its agent commits your answers there, and its pull request takes them to ${main.name}. Answers to cards that are on ${main.name} wait until the checkout is back on it; then press Sync again.`,
       },
     );
   }

@@ -583,7 +583,7 @@ export class ChatService {
   async cleanup(): Promise<void> {
     const now = this.#now();
     const projects = new Map((await this.#registry.list()).map((p) => [p.name, p]));
-    const idsByProject = new Map<string, Set<string> | "unknown" | undefined>();
+    const idsByProject = new Map<string, { ids: Set<string>; unknown: boolean }>();
     for (const key of await this.store.keys()) {
       const project = projects.get(key.project);
       let exists = false;
@@ -591,10 +591,10 @@ export class ChatService {
         if (!idsByProject.has(project.name)) {
           idsByProject.set(project.name, await projectCardIds(project));
         }
-        const ids = idsByProject.get(project.name);
-        // The folder can't be read right now (permissions, ...): no verdict either way.
-        if (ids === "unknown") continue;
-        exists = ids?.has(key.id) ?? false;
+        const found = idsByProject.get(project.name);
+        exists = found?.ids.has(key.id) ?? false;
+        // Not found, and a checkout can't be read right now (permissions, ...): no verdict.
+        if (!exists && found?.unknown) continue;
       }
       const since = await this.store.missingSince(key);
       if (exists) {
@@ -675,14 +675,16 @@ export class ChatService {
 }
 
 /**
- * The ids of the card files in every checkout of the project (undefined: no checkout has a
- * decisions/ folder; "unknown": one can't be read).
+ * The ids of the card files in every checkout of the project, and whether a checkout's
+ * decisions/ couldn't be read (then a card found nowhere else gets no verdict).
  */
-async function projectCardIds(project: Project): Promise<Set<string> | "unknown" | undefined> {
+async function projectCardIds(project: Project): Promise<{ ids: Set<string>; unknown: boolean }> {
   const found = await Promise.all((await checkoutsOf(project)).map(cardIds));
-  if (found.includes("unknown")) return "unknown";
   const sets = found.filter((ids) => ids instanceof Set);
-  return sets.length === 0 ? undefined : new Set(sets.flatMap((ids) => [...ids]));
+  return {
+    ids: new Set(sets.flatMap((ids) => [...ids])),
+    unknown: found.includes("unknown"),
+  };
 }
 
 /**

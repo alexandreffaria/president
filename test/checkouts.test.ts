@@ -7,7 +7,13 @@ import { mkdir, readFile, realpath, rm, symlink, utimes, writeFile } from "node:
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { actOnCard, findCard, loadProjectCards, pickCopy } from "../src/server/cards.ts";
+import {
+  actOnCard,
+  findCard,
+  loadProjectCards,
+  pickCopy,
+  undoLastAction,
+} from "../src/server/cards.ts";
 import {
   checkoutsOf,
   forgetCheckouts,
@@ -252,6 +258,52 @@ describe("cards in every checkout", () => {
     const shown = await findCard(hub, "0002");
     expect(shown.ok && shown.card.path).toBe(join(main, "decisions", "0002-api-errors.md"));
     expect(shown.ok && shown.card.frontmatter.status).toBe("deferred");
+  });
+
+  it("undoes an action on a card that is only in a worktree, byte for byte", async () => {
+    const { wt, project } = await repoWithWorktree();
+    const file = join(wt, "decisions", "20261116undo-question.md");
+    const text = cardText({ id: '"20261116undo"' });
+    await writeFile(file, text);
+    const hub = await withCheckouts(project);
+    const found = await findCard(hub, "20261116undo");
+    if (!found.ok) throw new Error("broken");
+    const noted = await actOnCard(
+      hub,
+      "20261116undo",
+      { type: "note", note: "Hm." },
+      {
+        revision: found.card.revision,
+      },
+    );
+    expect(await readFile(file, "utf8")).not.toBe(text);
+    await undoLastAction(hub, "20261116undo", noted.revision);
+    expect(await readFile(file, "utf8")).toBe(text);
+  });
+
+  it("undoes a defer on a card with identical copies in the folder's copy", async () => {
+    const { main, wt, project } = await repoWithWorktree();
+    const folderCopy = join(main, "decisions", "0002-api-errors.md");
+    const before = await readFile(folderCopy, "utf8");
+    const hub = await withCheckouts(project);
+    const found = await findCard(hub, "0002");
+    if (!found.ok) throw new Error("broken");
+    const deferred = await actOnCard(
+      hub,
+      "0002",
+      { type: "defer" },
+      {
+        revision: found.card.revision,
+      },
+    );
+    expect(deferred.path).toBe(folderCopy);
+    const undone = await undoLastAction(hub, "0002", deferred.revision);
+    expect(undone.path).toBe(folderCopy);
+    expect(await readFile(folderCopy, "utf8")).toBe(before);
+    // The copies are identical again: one card, from the folder.
+    const shown = await findCard(hub, "0002");
+    expect(shown.ok && shown.card.path).toBe(folderCopy);
+    expect(await readFile(join(wt, "decisions", "0002-api-errors.md"), "utf8")).toBe(before);
   });
 
   it("doesn't mind a worktree whose branch has no decisions/ folder", async () => {
