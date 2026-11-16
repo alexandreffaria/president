@@ -8,7 +8,7 @@ import { cp, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
-import { registeredCheckout, secondCheckoutWarning } from "../server/checkouts.ts";
+import { checkoutsOf, registeredCheckout, secondCheckoutWarning } from "../server/checkouts.ts";
 import { UserError } from "../server/errors.ts";
 import { DECISIONS_DIR, type Project, Registry } from "../server/registry.ts";
 
@@ -159,9 +159,13 @@ export async function serve(out: Output): Promise<number> {
   return runServer(out);
 }
 
-/** "folder" when the project's folder is gone, "decisions/ folder" when only that is. */
+/**
+ * "folder" when the project's folder is gone, "decisions/ folder" when only that is and no
+ * other checkout of it has one (as the hub reports it: the folder's branch may have no cards).
+ */
 async function missingFolder(project: Project): Promise<string | undefined> {
   if (!(await isDirectory(project.path))) return "folder";
-  if (!(await isDirectory(join(project.path, DECISIONS_DIR)))) return `${DECISIONS_DIR}/ folder`;
-  return undefined;
+  const checkouts = await checkoutsOf(project);
+  const found = await Promise.all(checkouts.map((c) => isDirectory(join(c.path, DECISIONS_DIR))));
+  return found.some(Boolean) ? undefined : `${DECISIONS_DIR}/ folder`;
 }

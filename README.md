@@ -436,7 +436,8 @@ listed once, under the name that sorts first, and the duplicate file is removed.
 A project is its folder's path. If you move a project, run `preside remove <name>` and then
 `preside add <new path>`: president doesn't follow the move, and a different repository later
 created at the old path would be taken for the old project. `preside list` and the Projects
-page say when a project's folder, or its `decisions/` folder, is missing.
+page say when a project's folder, or its `decisions/` folder, is missing (unless another
+checkout of it has one).
 
 ## Development
 
