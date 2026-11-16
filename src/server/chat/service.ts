@@ -44,6 +44,7 @@ import { type CardWriter, NewOptionsRuns } from "./new-options.ts";
 import {
   ASK_LABEL,
   askRequest,
+  cardCheckout,
   isViewAsked,
   pickHash,
   pickLine,
@@ -130,7 +131,7 @@ export interface ChatHost {
   run(
     request: Pick<
       RunRequest,
-      "cwd" | "session" | "message" | "appendSystemPrompt" | "jsonSchema" | "signal"
+      "cwd" | "addDirs" | "session" | "message" | "appendSystemPrompt" | "jsonSchema" | "signal"
     >,
     handlers?: Parameters<typeof runClaude>[1],
   ): Promise<RunResult>;
@@ -391,6 +392,7 @@ export class ChatService {
       return this.#run(
         {
           cwd: project.path,
+          addDirs: cardCheckout(project, card),
           session: resume ? { resume: session } : { start: session },
           message,
           appendSystemPrompt: resume ? undefined : sessionInstructions(card),
@@ -584,7 +586,7 @@ export class ChatService {
   #run(
     request: Pick<
       RunRequest,
-      "cwd" | "session" | "message" | "appendSystemPrompt" | "jsonSchema" | "signal"
+      "cwd" | "addDirs" | "session" | "message" | "appendSystemPrompt" | "jsonSchema" | "signal"
     >,
     handlers: Parameters<typeof runClaude>[1] = {},
   ): Promise<RunResult> {
