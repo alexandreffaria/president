@@ -10,6 +10,7 @@ import {
   isWaitingOnAgent,
   openDependencies,
 } from "../../core/queue.ts";
+import { BranchName } from "../components/BranchName.tsx";
 import { CardId } from "../components/CardId.tsx";
 import { useHeadingFocus } from "../focus.ts";
 import { fullDate, KIND_LABEL, PRIORITY_LABEL, timeAgo } from "../format.ts";
@@ -209,6 +210,7 @@ function QueueItem(props: {
           <span className="sr-only">, {PRIORITY_LABEL[fm.priority]}</span>
           <span className="queue-meta">
             {props.showProject && <span>{card.project}</span>}
+            {card.branch !== null && <BranchName branch={card.branch} />}
             <CardId id={card.id} />
             <span>{KIND_LABEL[fm.kind]}</span>
             <time dateTime={fm.created} title={fullDate(fm.created)}>
@@ -273,9 +275,13 @@ function BrokenList({ broken }: { broken: BrokenCardDto[] }) {
       </p>
       <ul className="broken-list">
         {broken.map((b) => (
-          <li key={`${b.project}/${b.fileName}`} className="broken">
+          <li key={JSON.stringify([b.project, b.branch, b.fileName, b.errors])} className="broken">
             <div>
-              <strong>{b.fileName}</strong> <span className="muted small">{b.project}</span>
+              <strong>{b.fileName}</strong>{" "}
+              <span className="muted small">
+                {b.project}
+                {b.branch !== null && <> · on {b.branch}</>}
+              </span>
             </div>
             <ul>
               {b.errors.map((error, i) => (

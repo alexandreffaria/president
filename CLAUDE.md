@@ -37,8 +37,9 @@ and syncs from it. Work in a git worktree.
 
 ## Cards and docs
 
-- Cards live in the main checkout's `decisions/`; drafts start elsewhere (see the
-  decision-cards skill). Never commit them in a pull request; Sync carries them.
+- A card lives on the branch whose work it unblocks: write it in your worktree's
+  `decisions/` (drafted elsewhere first, see the decision-cards skill), commit it and the
+  answer on your branch, and the pull request carries them. The hub reads every worktree.
 - `docs/foundations.md`: settled decisions.
 - `docs/plan.md`: the current tracker. Tick an item in the PR that does it.
 - `docs/roadmap.md`: unbuilt work.

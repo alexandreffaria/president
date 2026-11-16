@@ -32,6 +32,7 @@ export function ProjectsView() {
           ? `${res.project.name} was already registered.`
           : `Added ${res.project.name}.`,
       );
+      if (res.warning) toast(res.warning, { tone: "error" });
       setPath("");
       setName("");
       setCreate(false);

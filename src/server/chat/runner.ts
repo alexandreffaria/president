@@ -60,6 +60,11 @@ export interface RunRequest {
   bin: string;
   /** The project folder; the session's file tools are confined to it (`--restricted`). */
   cwd: string;
+  /**
+   * Other folders the file tools may read (`--add-dir`): the checkout that holds the card,
+   * when it is a worktree of the project rather than its folder.
+   */
+  addDirs?: readonly string[] | undefined;
   session: SessionMode;
   /** Written to the run's standard input. */
   message: string;
@@ -97,7 +102,7 @@ export interface RunResult {
 
 /** The arguments of a run, flags in #0004's order. Throws on a session id that isn't a UUID. */
 export function claudeArgs(
-  request: Pick<RunRequest, "session" | "appendSystemPrompt" | "jsonSchema">,
+  request: Pick<RunRequest, "session" | "appendSystemPrompt" | "jsonSchema" | "addDirs">,
 ): string[] {
   const { session } = request;
   const id = "resume" in session ? session.resume : "start" in session ? session.start : undefined;
@@ -128,6 +133,7 @@ export function claudeArgs(
     "none",
     "--max-budget-usd",
     MAX_BUDGET_USD,
+    ...(request.addDirs ?? []).flatMap((dir) => ["--add-dir", dir]),
     ...(request.appendSystemPrompt ? ["--append-system-prompt", request.appendSystemPrompt] : []),
     ...(request.jsonSchema ? ["--json-schema", request.jsonSchema] : []),
   ];

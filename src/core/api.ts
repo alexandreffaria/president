@@ -12,6 +12,11 @@ export interface CardDto {
   /** Content hash of the file; send it back with actions to detect concurrent edits. */
   revision: string;
   frontmatter: Frontmatter;
+  /**
+   * The branch of the checkout the card file is in (the hub reads every checkout of a
+   * project); null when its HEAD is detached or the project isn't in git.
+   */
+  branch: string | null;
 }
 
 export interface CardDetailDto extends CardDto {
@@ -37,6 +42,8 @@ export interface BrokenCardDto {
   project: string;
   fileName: string;
   id: string | undefined;
+  /** The branch of the checkout the file is in, as on CardDto. */
+  branch: string | null;
   errors: string[];
 }
 
@@ -102,6 +109,8 @@ export interface AddProjectRequest {
 export interface AddProjectResponse {
   project: ProjectDto;
   alreadyRegistered: boolean;
+  /** Set when another checkout of the folder's repository was registered already. */
+  warning?: string;
 }
 
 /**

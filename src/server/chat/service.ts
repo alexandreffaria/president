@@ -35,6 +35,7 @@ import {
 } from "../../core/api.ts";
 import { parseCardFileName } from "../../core/card-file.ts";
 import { findCard, isIgnoredFile, type LoadedCard } from "../cards.ts";
+import { checkoutsOf, type HubProject } from "../checkouts.ts";
 import { UserError } from "../errors.ts";
 import { isNotFound } from "../fs-utils.ts";
 import { decisionsDirOf, type Project, type Registry } from "../registry.ts";
@@ -43,6 +44,8 @@ import { type CardWriter, NewOptionsRuns } from "./new-options.ts";
 import {
   ASK_LABEL,
   askRequest,
+  cardCheckout,
+  cardPlace,
   isViewAsked,
   pickHash,
   pickLine,
@@ -117,10 +120,10 @@ export interface ChatHost {
   readonly bus: EventBus;
   /** Claude Code's folder, where its transcripts are. */
   readonly claudeDir: string;
-  card(project: Project, id: string): Promise<LoadedCard>;
-  conversation(project: Project, id: string): Promise<ChatDto>;
+  card(project: HubProject, id: string): Promise<LoadedCard>;
+  conversation(project: HubProject, id: string): Promise<ChatDto>;
   converse(
-    project: Project,
+    project: HubProject,
     card: LoadedCard,
     key: CardKey,
     entry: SessionEntry | undefined,
@@ -129,7 +132,7 @@ export interface ChatHost {
   run(
     request: Pick<
       RunRequest,
-      "cwd" | "session" | "message" | "appendSystemPrompt" | "jsonSchema" | "signal"
+      "cwd" | "addDirs" | "session" | "message" | "appendSystemPrompt" | "jsonSchema" | "signal"
     >,
     handlers?: Parameters<typeof runClaude>[1],
   ): Promise<RunResult>;
@@ -212,7 +215,7 @@ export class ChatService {
     }
   }
 
-  async conversation(project: Project, id: string): Promise<ChatDto> {
+  async conversation(project: HubProject, id: string): Promise<ChatDto> {
     const key = { project: project.name, id };
     // Read before the copy and the record: a run that ends while they are read is still
     // reported as going on (the page reads again when it ends), never as over with what the
@@ -253,7 +256,7 @@ export class ChatService {
    * caller streams. Refused while another run on the card is going on, a new-options run
    * included (also while it waits for a reply to end).
    */
-  async send(project: Project, id: string, input: SendInput): Promise<ChatRun> {
+  async send(project: HubProject, id: string, input: SendInput): Promise<ChatRun> {
     const card = await this.#card(project, id);
     const key = { project: project.name, id: card.id };
     if (this.#runs.hasNewOptionsRun(keyName(key))) throw this.#runs.busyError(key);
@@ -276,7 +279,7 @@ export class ChatService {
   }
 
   async #reply(
-    project: Project,
+    project: HubProject,
     card: LoadedCard,
     key: CardKey,
     input: SendInput,
@@ -300,10 +303,10 @@ export class ChatService {
       revealedNow,
       notice: save,
       first: async () => {
-        await save(this.#message("you", shown));
         // Unsummarized from the moment the message is in (#0024): leaving while the agent
-        // thinks still gets the reminder.
+        // thinks still gets the reminder. Marked first, so no read sees the message without it.
         await this.store.updateEntry(key, (e) => ({ ...e, unsummarized: true }));
+        await save(this.#message("you", shown));
       },
       onText: (text) => {
         texts.push(text);
@@ -338,7 +341,7 @@ export class ChatService {
    * the session after the pick line.
    */
   async #converse(
-    project: Project,
+    project: HubProject,
     card: LoadedCard,
     key: CardKey,
     entry: SessionEntry | undefined,
@@ -376,8 +379,13 @@ export class ChatService {
       viewAsked = asksNow ? revealed : undefined;
       // What this machine's entry holds until then: the reveal, unless it is that view.
       const stored = asksNow ? (resume ? entry?.revealed : undefined) : revealed;
+      // A resumed session knows where the card was when it was last told: say so if it moved.
+      // Kept only for a card outside the project's own decisions/ (the usual place).
+      const place = cardPlace(project, card, entry?.cardPath);
+      const moved = resume ? place.moved : "";
+      const { cardPath } = place;
       const message = withPickLine(
-        pickLine(card, revealed, asksNow),
+        pickLine(card, revealed, asksNow) + moved,
         startOver ? `${startOverNote(card, fresh)}\n\n${turn.text}` : turn.text,
       );
       if (resume) {
@@ -387,9 +395,10 @@ export class ChatService {
           ...(stored ? { revealed: stored } : {}),
         }));
       }
-      return this.#run(
+      const result = await this.#run(
         {
           cwd: project.path,
+          addDirs: cardCheckout(project, card),
           session: resume ? { resume: session } : { start: session },
           message,
           appendSystemPrompt: resume ? undefined : sessionInstructions(card),
@@ -404,6 +413,8 @@ export class ChatService {
             entryWrite = this.store
               .updateEntry(key, (e) => {
                 const next: SessionEntry = { ...e, session };
+                if (cardPath) next.cardPath = cardPath;
+                else delete next.cardPath;
                 delete next.fresh;
                 if (stored) next.revealed = stored;
                 else delete next.revealed;
@@ -415,6 +426,17 @@ export class ChatService {
           ...(turn.onActivity ? { onActivity: turn.onActivity } : {}),
         },
       );
+      // The resumed session now knows where the card is, once a run has read the message
+      // (as summaries do): a failed run tells the next turn again.
+      if (resume && moved && result.ok) {
+        await this.store.updateEntry(key, (e) => {
+          const next: SessionEntry = { ...e };
+          if (cardPath) next.cardPath = cardPath;
+          else delete next.cardPath;
+          return next;
+        });
+      }
+      return result;
     };
 
     let result = await attempt();
@@ -442,7 +464,7 @@ export class ChatService {
    * winds down after an Undo. `started: false`: the note is written but its run couldn't be.
    */
   newOptionsAsked(
-    project: Project,
+    project: HubProject,
     id: string,
     write: () => Promise<LoadedCard>,
   ): Promise<{ card: LoadedCard; started: boolean }> {
@@ -453,13 +475,13 @@ export class ChatService {
    * Undoes a card action (`undo`) one after the other with starting runs, and stops the card's
    * new-options run when the card no longer waits on its note (new-options.ts).
    */
-  undoing(project: Project, id: string, undo: () => Promise<LoadedCard>): Promise<LoadedCard> {
+  undoing(project: HubProject, id: string, undo: () => Promise<LoadedCard>): Promise<LoadedCard> {
     return this.#newOptions.undoing(project, id, undo);
   }
 
   /** Try again (202611111gpm): starts the run again for the note recorded at `input.note`. */
   startNewOptions(
-    project: Project,
+    project: HubProject,
     id: string,
     input: { note: string; revealed?: boolean | undefined; revision?: string | undefined },
   ): Promise<StartNewOptionsResponse> {
@@ -475,7 +497,7 @@ export class ChatService {
    * is written from the copy). Nothing happens without a conversation, or right after a
    * divider. Refused while a run is going on.
    */
-  async newConversation(project: Project, id: string): Promise<ChatDto> {
+  async newConversation(project: HubProject, id: string): Promise<ChatDto> {
     const card = await this.#card(project, id);
     const key = { project: project.name, id: card.id };
     if (this.#runs.hasNewOptionsRun(keyName(key))) throw this.#runs.busyError(key);
@@ -504,7 +526,7 @@ export class ChatService {
    * it for the human to edit. Nothing is saved.
    */
   summarize(
-    project: Project,
+    project: HubProject,
     id: string,
     input: Omit<SendInput, "text">,
   ): Promise<ChatSummaryResponse> {
@@ -516,7 +538,7 @@ export class ChatService {
    * decision made with "Decide without summary"). See summaries.ts.
    */
   closeWithoutSummary(
-    project: Project,
+    project: HubProject,
     id: string,
     options: { decision?: string } = {},
   ): Promise<ChatCloseResponse> {
@@ -524,12 +546,12 @@ export class ChatService {
   }
 
   /** Undoes `closeWithoutSummary` (its notice's Undo). */
-  reopen(project: Project, id: string, closed: string): Promise<ChatDto> {
+  reopen(project: HubProject, id: string, closed: string): Promise<ChatDto> {
     return this.#summaries.reopen(project, id, closed);
   }
 
   /** A summary was saved on the card, which wrote `revision`. */
-  summarySaved(project: Project, id: string, revision: string): Promise<void> {
+  summarySaved(project: HubProject, id: string, revision: string): Promise<void> {
     return this.#summaries.summarySaved(project, id, revision);
   }
 
@@ -545,18 +567,18 @@ export class ChatService {
   async cleanup(): Promise<void> {
     const now = this.#now();
     const projects = new Map((await this.#registry.list()).map((p) => [p.name, p]));
-    const idsByProject = new Map<string, Set<string> | "unknown" | undefined>();
+    const idsByProject = new Map<string, { ids: Set<string>; unknown: boolean }>();
     for (const key of await this.store.keys()) {
       const project = projects.get(key.project);
       let exists = false;
       if (project) {
         if (!idsByProject.has(project.name)) {
-          idsByProject.set(project.name, await cardIds(project));
+          idsByProject.set(project.name, await projectCardIds(project));
         }
-        const ids = idsByProject.get(project.name);
-        // The folder can't be read right now (permissions, ...): no verdict either way.
-        if (ids === "unknown") continue;
-        exists = ids?.has(key.id) ?? false;
+        const found = idsByProject.get(project.name);
+        exists = found?.ids.has(key.id) ?? false;
+        // Not found, and a checkout can't be read right now (permissions, ...): no verdict.
+        if (!exists && found?.unknown) continue;
       }
       const since = await this.store.missingSince(key);
       if (exists) {
@@ -569,7 +591,7 @@ export class ChatService {
     }
   }
 
-  async #card(project: Project, id: string): Promise<LoadedCard> {
+  async #card(project: HubProject, id: string): Promise<LoadedCard> {
     const found = await findCard(project, id);
     if (!found.ok) {
       throw new UserError(`card "${id}" is broken; fix it before talking about it`, {
@@ -583,7 +605,7 @@ export class ChatService {
   #run(
     request: Pick<
       RunRequest,
-      "cwd" | "session" | "message" | "appendSystemPrompt" | "jsonSchema" | "signal"
+      "cwd" | "addDirs" | "session" | "message" | "appendSystemPrompt" | "jsonSchema" | "signal"
     >,
     handlers: Parameters<typeof runClaude>[1] = {},
   ): Promise<RunResult> {
@@ -617,10 +639,25 @@ export class ChatService {
 }
 
 /**
- * The ids of the card files in the project's decisions/ (undefined: the folder is gone, as on
+ * The ids of the card files in every checkout of the project, and whether a checkout's
+ * decisions/ couldn't be read (then a card found nowhere else gets no verdict).
+ */
+async function projectCardIds(project: Project): Promise<{ ids: Set<string>; unknown: boolean }> {
+  const found = await Promise.all((await checkoutsOf(project)).map(cardIds));
+  const sets = found.filter((ids) => ids instanceof Set);
+  return {
+    ids: new Set(sets.flatMap((ids) => [...ids])),
+    unknown: found.includes("unknown"),
+  };
+}
+
+/**
+ * The ids of the card files in a checkout's decisions/ (undefined: the folder is gone, as on
  * another branch; "unknown": it can't be read).
  */
-async function cardIds(project: Project): Promise<Set<string> | "unknown" | undefined> {
+async function cardIds(
+  project: Pick<Project, "path">,
+): Promise<Set<string> | "unknown" | undefined> {
   try {
     const names = await readdir(decisionsDirOf(project));
     const ids = new Set<string>();

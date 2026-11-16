@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import {
   chmod,
   mkdir,
@@ -9,9 +10,11 @@ import {
   utimes,
   writeFile,
 } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
+  AddProjectResponse,
   CardDetailDto,
   CardListResponse,
   CardResponse,
@@ -97,6 +100,33 @@ describe("projects API", () => {
       `the project folder ${demo} is missing. If it moved, remove this project and add it again from its new place.`,
     );
   });
+
+  it("warns when another checkout of the folder's repository is registered", async () => {
+    const { post, demo } = await setup();
+    const git = (...args: string[]) =>
+      promisify(execFile)("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+        cwd: demo,
+        env: {
+          ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_"))),
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_CONFIG_GLOBAL: "/dev/null",
+        },
+      });
+    await git("init", "-q", "-b", "main");
+    await git("add", ".");
+    await git("commit", "-qm", "cards");
+    const wt = join(dirname(demo), "demo-feat");
+    await git("worktree", "add", "-q", "-b", "feat", wt);
+    const added = await post("/api/projects", { path: wt });
+    expect(added.status).toBe(201);
+    const body = (await added.json()) as AddProjectResponse;
+    expect(body.warning).toMatch(/is another checkout of demo's git repository .*shows them twice/);
+    // The folder itself again: already registered, no warning.
+    const again = (await (
+      await post("/api/projects", { path: demo })
+    ).json()) as AddProjectResponse;
+    expect(again.warning).toBeUndefined();
+  }, 30_000);
 
   it("adds and removes projects and announces the change", async () => {
     const { post, remove, events } = await setup();
@@ -198,6 +228,7 @@ describe("cards API", () => {
         project: "demo",
         fileName: "0009-broken.md",
         id: "0009",
+        branch: null,
         errors: [expect.stringMatching(/^status:/)],
       },
     ]);
@@ -226,6 +257,7 @@ describe("cards API", () => {
         project: "demo",
         fileName: "0009-broken.md",
         id: "0009",
+        branch: null,
         errors: [
           expect.stringMatching(/^feedback\[0\]\.previous_resolution\.choice: expected text/),
         ],
@@ -272,6 +304,7 @@ describe("cards API", () => {
         project: "demo",
         fileName: "0007-outside.md",
         id: "0007",
+        branch: null,
         errors: [expect.stringMatching(/symlink; president doesn't follow symlinks/)],
       },
     ]);

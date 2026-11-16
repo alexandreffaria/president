@@ -15,6 +15,7 @@ import { type ChangedBy, useCardLoad } from "../card-load.ts";
 import { useCardChat, useMinWidth } from "../chat.ts";
 import { ActionBar } from "../components/ActionBar.tsx";
 import { BeforeDeciding } from "../components/BeforeDeciding.tsx";
+import { BranchName } from "../components/BranchName.tsx";
 import { BrokenCard } from "../components/BrokenCard.tsx";
 import { CardChat } from "../components/CardChat.tsx";
 import { CardId } from "../components/CardId.tsx";
@@ -415,6 +416,7 @@ export function CardView({ project, id }: { project: string; id: string }) {
       <header className="card-header">
         <p className="card-meta">
           <span>{project}</span>
+          {card.branch !== null && <BranchName branch={card.branch} />}
           <CardId id={card.id} />
           <span>{KIND_LABEL[fm.kind]}</span>
           <span className={`priority-label priority-label-${fm.priority}`}>

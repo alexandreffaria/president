@@ -83,7 +83,7 @@ export async function noUpstream(
         "not-now",
         `Not now: the branch ${branch} in ${name} has no upstream branch to pull from and push to`,
         {
-          action: `Set one (for example git push -u origin ${branch} in ${dir}), then press Sync again.`,
+          action: `If ${branch} is the main branch, set its upstream (for example git push -u origin ${branch} in ${dir}), then press Sync again. If it is a feature branch, its cards travel with it: its agent commits your answers there, and its pull request takes them to main.`,
         },
       )
     : result("not-now", `Not now: ${name} has no branch checked out (a detached HEAD)`, {
@@ -142,7 +142,7 @@ export async function onMainBranch(
       "not-now",
       `Not now: ${name} has the branch ${branch} checked out, not ${main.name}`,
       {
-        action: `Your answers wait until the checkout is back on ${main.name}; then press Sync again.`,
+        action: `Cards on ${branch} travel with it: its agent commits your answers there, and its pull request takes them to ${main.name}. Answers to cards that are on ${main.name} wait until the checkout is back on it; then press Sync again.`,
       },
     );
   }

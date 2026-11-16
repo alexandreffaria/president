@@ -8,18 +8,12 @@ import { cp, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
+import { checkoutsOf, registeredCheckout, secondCheckoutWarning } from "../server/checkouts.ts";
 import { UserError } from "../server/errors.ts";
 import { DECISIONS_DIR, type Project, Registry } from "../server/registry.ts";
 
 import { DEMO_SOURCE, type Output } from "./main.ts";
-import {
-  isDirectory,
-  lstatIfThere,
-  noDecisionsError,
-  sameFolder,
-  single,
-  warnIfWorktree,
-} from "./shared.ts";
+import { isDirectory, lstatIfThere, noDecisionsError, sameFolder, single } from "./shared.ts";
 import { shellQuote } from "./shell.ts";
 
 export async function add(args: string[], out: Output): Promise<number> {
@@ -29,21 +23,33 @@ export async function add(args: string[], out: Output): Promise<number> {
     options: { name: { type: "string" }, create: { type: "boolean" } },
   });
   const path = resolve(single(positionals, "add <path>"));
-  // A hint, not a refusal: the human may register a worktree on purpose.
-  await warnIfWorktree(path, out);
+  const registry = new Registry();
+  // Before registering: afterwards this folder is a registered checkout itself.
+  const other = await registeredCheckout(path, await registry.list().catch(() => []));
   if (
     !values.create &&
     (await isDirectory(path)) &&
     // Something else there (a file, a link) is the registry's to explain (R8-4, R9-1).
     (await lstatIfThere(join(path, DECISIONS_DIR))) === undefined
   ) {
-    throw noDecisionsError(path, " Or add --create to make one here.");
+    // A worktree of a registered folder: its cards show already, don't suggest registering it.
+    throw noDecisionsError(
+      path,
+      other
+        ? ` ${other.project.name} is registered at ${other.at}, and the hub already shows the cards of this checkout; create ${DECISIONS_DIR}/ here only to write a card.`
+        : " Add --create to make one here.",
+    );
   }
-  const { project, alreadyRegistered, renamedFrom } = await new Registry().add({
+  const { project, alreadyRegistered, renamedFrom } = await registry.add({
     path,
     name: values.name,
     createDecisions: values.create,
   });
+  // A hint, not a refusal: the human may register a worktree on purpose.
+  const twice = alreadyRegistered ? undefined : await secondCheckoutWarning(path, other);
+  if (twice) {
+    out.error(`preside: warning: ${twice} Run \`preside remove ${shellQuote(path)}\` to undo.`);
+  }
   if (await sameFolder(project.path, DEMO_SOURCE)) {
     out.error(
       "preside: warning: this is president's own sample folder, tracked in git; every click in the UI changes its files. To try president, run `preside demo` instead: it works on a copy.",
@@ -153,9 +159,13 @@ export async function serve(out: Output): Promise<number> {
   return runServer(out);
 }
 
-/** "folder" when the project's folder is gone, "decisions/ folder" when only that is. */
+/**
+ * "folder" when the project's folder is gone, "decisions/ folder" when only that is and no
+ * other checkout of it has one (as the hub reports it: the folder's branch may have no cards).
+ */
 async function missingFolder(project: Project): Promise<string | undefined> {
   if (!(await isDirectory(project.path))) return "folder";
-  if (!(await isDirectory(join(project.path, DECISIONS_DIR)))) return `${DECISIONS_DIR}/ folder`;
-  return undefined;
+  const checkouts = await checkoutsOf(project);
+  const found = await Promise.all(checkouts.map((c) => isDirectory(join(c.path, DECISIONS_DIR))));
+  return found.some(Boolean) ? undefined : `${DECISIONS_DIR}/ folder`;
 }

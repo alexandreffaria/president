@@ -27,7 +27,7 @@ function card(id: string, fields: Record<string, unknown> = {}, project = "p"): 
     created_by: "test",
     ...fields,
   });
-  return { project, id, fileName: `${id}.md`, revision: "r", frontmatter };
+  return { project, id, fileName: `${id}.md`, revision: "r", frontmatter, branch: null };
 }
 
 const resolved = (at: string) => ({
