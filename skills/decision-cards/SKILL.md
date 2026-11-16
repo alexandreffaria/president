@@ -56,7 +56,8 @@ human's answer into the card file where it is.
 ## At the start of a session
 
 1. Make sure the project is registered with the hub. `preside pending <project>` (step 2)
-   says so when no checkout of it is registered; only then register it, from its folder:
+   says so when no checkout of it is registered (also for a new project without a
+   `decisions/` folder); only then register it, from its folder:
    the first entry of `git worktree list` (plus the subfolder, if the project is one; in a
    bare repository, the checkout the human chose), not another worktree, since the hub
    already shows every checkout of a registered folder:
@@ -307,7 +308,10 @@ resolution:
   resolved_at: 2026-11-10T15:20:00Z
 ```
 
-For each one `preside pending <project>` lists:
+For each one `preside pending <project>` lists that is yours: a card your branch added, or
+one the human answered in your checkout. A card that reached your branch from main already
+answered isn't yours to apply: the agent working on main applies it (in the registered
+folder), so skip it rather than apply it on every branch.
 
 1. Read the whole card, including the resolution's `note` and the new notes `pending` shows.
    The note can change or narrow the chosen option; follow it.

@@ -31,7 +31,6 @@
  */
 import { randomUUID } from "node:crypto";
 import { readdir } from "node:fs/promises";
-import { join } from "node:path";
 import { timestamp } from "../../core/actions.ts";
 import {
   type ChatAsk,
@@ -48,14 +47,14 @@ import { findCard, isIgnoredFile, type LoadedCard } from "../cards.ts";
 import { checkoutsOf, type HubProject } from "../checkouts.ts";
 import { UserError } from "../errors.ts";
 import { isNotFound } from "../fs-utils.ts";
-import { DECISIONS_DIR, decisionsDirOf, type Project, type Registry } from "../registry.ts";
+import { decisionsDirOf, type Project, type Registry } from "../registry.ts";
 import type { EventBus } from "../watcher.ts";
 import { type CardWriter, NewOptionsRuns } from "./new-options.ts";
 import {
   ASK_LABEL,
   askRequest,
   cardCheckout,
-  cardMovedLine,
+  cardPlace,
   forkIntro,
   isViewAsked,
   pickHash,
@@ -399,10 +398,9 @@ export class ChatService {
       // A resumed session knows where the card was when it was last told: say so if it moved.
       // Kept only for a card outside the project's own decisions/ (the usual place). A new
       // session, a fork's included, is told the card's path in its instructions.
-      const usual = join(project.path, DECISIONS_DIR, card.fileName);
-      const told = entry?.cardPath ?? usual;
-      const moved = resume && told !== card.path ? ` ${cardMovedLine(card)}` : "";
-      const cardPath = card.path === usual ? undefined : card.path;
+      const place = cardPlace(project, card, entry?.cardPath);
+      const moved = resume ? place.moved : "";
+      const { cardPath } = place;
       const withLine = withPickLine(
         pickLine(card, revealed, asksNow) + moved,
         startOver

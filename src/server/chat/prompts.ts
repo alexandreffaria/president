@@ -20,13 +20,14 @@
  *   and the chat's instructions go in the message.
  */
 import { createHash } from "node:crypto";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import type { ChatAsk, ChatMessageDto } from "../../core/api.ts";
 import { CUSTOM_CHOICE, KEYED_OPTIONS, OPTION_ID_PATTERN } from "../../core/model.ts";
 import { unseenFeedback } from "../../core/pending.ts";
 import type { FeedbackEntry, Frontmatter } from "../../core/schema.ts";
 import { FOR_THE_CHAT } from "../../core/sections.ts";
 import type { LoadedCard } from "../cards.ts";
+import { DECISIONS_DIR } from "../registry.ts";
 import { SESSION_TOOLS } from "./runner.ts";
 
 /**
@@ -39,9 +40,23 @@ export function cardCheckout(project: { path: string }, card: LoadedCard): strin
   return checkout === project.path ? [] : [checkout];
 }
 
-/** Added to the pick line when the card's file is no longer where the session was told. */
-export function cardMovedLine(card: Pick<LoadedCard, "path">): string {
-  return `The card's file is now ${card.path}; read it there.`;
+/**
+ * Where a session is told the card's file is. `moved`: what to add to a resumed session's
+ * pick line when the file is no longer where it was last told (empty when it is). `cardPath`:
+ * what the session entry keeps (none for a card in the project's own decisions/, where an
+ * older session, told `decisions/<file>`, already looks).
+ */
+export function cardPlace(
+  project: { path: string },
+  card: Pick<LoadedCard, "path" | "fileName">,
+  told: string | undefined,
+): { moved: string; cardPath: string | undefined } {
+  const usual = join(project.path, DECISIONS_DIR, card.fileName);
+  return {
+    moved:
+      (told ?? usual) === card.path ? "" : ` The card's file is now ${card.path}; read it there.`,
+    cardPath: card.path === usual ? undefined : card.path,
+  };
 }
 
 export function sessionInstructions(card: LoadedCard): string {
