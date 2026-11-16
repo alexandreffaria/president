@@ -44,7 +44,8 @@ human's answer into the card file where it is.
   answers and notes (they show as changes under `decisions/` in `git status`), and your
   `applied`, `seen` and `update` changes. The pull request carries them, and merging puts
   them on main. Commit them by path (`git add <project>/decisions/<file>`), not with
-  `git add -A`.
+  `git add -A`. The one exception: in the registered folder with main checked out, leave
+  card changes uncommitted; the hub's Sync carries them (see **Sync** in `reference.md`).
 - Commit card changes before you switch branch or remove a worktree: an answer the hub just
   wrote is an uncommitted change, and git would carry it to the other branch or delete it.
   Push your branch with its cards, so they aren't lost with the checkout.

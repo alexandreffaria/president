@@ -11,7 +11,8 @@ export function BrokenCard({ broken }: { broken: BrokenCardDto }) {
       </nav>
       <h1 className="card-title">This card is broken</h1>
       <p>
-        <code>{broken.fileName}</code> in <strong>{broken.project}</strong> couldn't be read:
+        <code>{broken.fileName}</code> in <strong>{broken.project}</strong>
+        {typeof broken.branch === "string" && <> (on {broken.branch})</>} couldn't be read:
       </p>
       <ul className="broken">
         {broken.errors.map((error, i) => (

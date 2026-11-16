@@ -198,6 +198,7 @@ describe("cards API", () => {
         project: "demo",
         fileName: "0009-broken.md",
         id: "0009",
+        branch: null,
         errors: [expect.stringMatching(/^status:/)],
       },
     ]);
@@ -226,6 +227,7 @@ describe("cards API", () => {
         project: "demo",
         fileName: "0009-broken.md",
         id: "0009",
+        branch: null,
         errors: [
           expect.stringMatching(/^feedback\[0\]\.previous_resolution\.choice: expected text/),
         ],
