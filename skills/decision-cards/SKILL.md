@@ -45,9 +45,9 @@ human's answer into the card file where it is.
   `applied`, `seen` and `update` changes. The pull request carries them, and merging puts
   them on main. Commit them by path (`git add <project>/decisions/<file>`), not with
   `git add -A`. In the registered folder with main checked out, commit card changes only
-  if you work in that folder or the project's instructions say so, and push main too, or
-  Sync can't pull there (it only pulls, and only fast-forwards; see **Sync** in
-  `reference.md`).
+  if you work in that folder, or the human or the project's instructions ask you to, and
+  push main too, or Sync can't pull there (it only pulls, and only fast-forwards; see
+  **Sync** in `reference.md`).
 - Commit card changes before you switch branch or remove a worktree: an answer the hub just
   wrote is an uncommitted change, and git would carry it to the other branch or delete it.
   Push your branch with its cards, so they aren't lost with the checkout.
