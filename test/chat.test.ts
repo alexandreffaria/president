@@ -737,7 +737,8 @@ describe("a chat that starts from the card's author (created_session)", () => {
     expect(stdin).toMatch(/^This is president, not the human\./);
     expect(stdin).toMatch(/you are not the working agent: you are this card's chat/);
     expect(stdin).toContain(`The project is now at your current folder, ${t.demo}.`);
-    expect(stdin).toMatch(/decisions\/0002-api-errors\.md/);
+    // The card by its absolute path (a card in a worktree isn't under the run's cwd).
+    expect(stdin).toMatch(/[\\/]decisions[\\/]0002-api-errors\.md, so that/);
     expect(stdin).toMatch(/You can't change anything, and you never apply decisions/);
     expect(stdin).toMatch(
       /Follow the line about the pick strictly, even if this session recommended/,
