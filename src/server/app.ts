@@ -36,9 +36,10 @@
  *                                            the card's session; the next message starts a
  *                                            new one from the card and its summaries.
  *                                            Answers the conversation (ChatDto)
- *   GET    /api/sync                         per project: answers not synced, card changes on
- *                                            the remote, the last Sync's result (sync/)
- *   POST   /api/sync                         {}  runs Sync in every project; answers when done
+ *   GET    /api/sync                         per project: card changes on the remote, the
+ *                                            last Sync's result (sync/)
+ *   POST   /api/sync                         {}  runs Sync (pulls main) in every project;
+ *                                            answers when done
  *   GET    /api/events                       a WebSocket of live events (routes/events.ts;
  *                                            server.ts serves it, web/live.ts connects)
  *

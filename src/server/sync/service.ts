@@ -180,19 +180,12 @@ export class SyncService {
         const running = this.#running.has(project.path);
         // Mid-Sync the checkout is in flux; show the counts from before.
         const counts =
-          running && state.counts
-            ? state.counts
-            : await repoStatus(project.path, this.#options, project.name);
+          running && state.counts ? state.counts : await repoStatus(project.path, this.#options);
         if (!running) state.counts = counts;
         return {
           project: project.name,
           ...(counts.unavailable ? { unavailable: counts.unavailable } : {}),
-          unsynced: counts.unsynced,
-          ...(counts.skippedUnsynced !== undefined
-            ? { skippedUnsynced: counts.skippedUnsynced }
-            : {}),
           remoteChanges: counts.remoteChanges,
-          ...(counts.rebase ? { rebase: counts.rebase } : {}),
           ...(state.fetchError ? { fetchError: state.fetchError } : {}),
           fetchRetrying: this.#retrying.has(project.path),
           running,
@@ -232,7 +225,7 @@ export class SyncService {
             return run.result;
           } catch (error) {
             console.error(error);
-            return result("not-synced", `Not synced: something went wrong in ${project.name}`, {
+            return result("failed", `Not pulled: something went wrong in ${project.name}`, {
               action: "See the president server's log.",
             });
           } finally {
@@ -250,8 +243,8 @@ export class SyncService {
       // This Sync fetched (or said why it couldn't): the start-up fetch's error is old news.
       if (fetched) delete state.fetchError;
       results.push(done);
-      // A pull (or an abort) may have rewritten card files: open card views reload. The
-      // watcher notices too, a moment later.
+      // A pull (even one that failed partway) may have rewritten card files: open card
+      // views reload. The watcher notices too, a moment later.
       if (!["nothing", "not-now", "unavailable"].includes(done.outcome)) {
         this.#bus.emit({ type: "cards", project: project.name });
       }

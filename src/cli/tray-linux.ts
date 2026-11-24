@@ -37,10 +37,11 @@ const UI_SOURCES = [join("src", "web"), join("src", "core"), "vite.config.ts"];
 const ANSWER_TRIES = 20;
 /**
  * How long systemd lets the hub stop. The hub waits for a Sync in progress to finish, so a
- * stop doesn't leave a rebase halfway: its fetch, pull --rebase and push (each with git's
- * network timeout), two local steps (the local timeout) and a minute to spare: 300 s.
+ * stop doesn't cut its pull short: its fetch and the remote's default branch (each with
+ * git's network timeout), the merge and one more local step (the local timeout) and a
+ * minute to spare: 240 s.
  */
-const STOP_TIMEOUT_SEC = (3 * DEFAULT_NETWORK_TIMEOUT_MS + 2 * DEFAULT_TIMEOUT_MS + 60_000) / 1000;
+const STOP_TIMEOUT_SEC = (2 * DEFAULT_NETWORK_TIMEOUT_MS + 2 * DEFAULT_TIMEOUT_MS + 60_000) / 1000;
 const LOGS = `journalctl --user -u ${HUB_UNIT} -u ${ICON_UNIT}`;
 
 export async function linuxTray(

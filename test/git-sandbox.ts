@@ -27,7 +27,7 @@ export interface Sandbox {
   laptop: string;
   /** The other machine. */
   desktop: string;
-  /** What Sync gets: the sandbox's git config, generous timeouts, machine name "laptop". */
+  /** What Sync gets: the sandbox's git config and generous timeouts. */
   options: SyncOptions;
   git(cwd: string, ...args: string[]): string;
   write(repo: string, file: string, text: string): Promise<void>;
@@ -125,7 +125,6 @@ export async function gitSandbox(): Promise<Sandbox> {
       env: sandboxEnv(root),
       timeoutMs: 30_000,
       networkTimeoutMs: 60_000,
-      hostname: "laptop",
     },
     git,
     write,

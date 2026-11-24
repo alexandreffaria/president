@@ -152,7 +152,7 @@ describe.skipIf(process.platform === "win32")("preside tray on Linux", () => {
     expect(hub).toContain("Type=exec");
     // Sync's git gets to finish: SIGTERM to the hub alone, and time for it to stop.
     expect(hub).toContain("KillMode=mixed");
-    expect(hub).toContain("TimeoutStopSec=300");
+    expect(hub).toContain("TimeoutStopSec=240");
     expect(hub).toContain("WantedBy=default.target");
     expect(hub).toContain('Environment="PATH=/usr/bin:/bin"');
     expect(hub).toContain('Environment="PRESIDENT_PORT=4747"');

@@ -30,7 +30,7 @@ export interface GitOptions {
   env?: Record<string, string>;
   /** How long a local command may take (ms). */
   timeoutMs?: number;
-  /** How long a command that talks to the remote (fetch, pull, push, ls-remote) may take (ms). */
+  /** How long a command that talks to the remote (fetch, ls-remote) may take (ms). */
   networkTimeoutMs?: number;
   /** How much of stdout and stderr is kept, in characters (tests lower it). */
   maxOutput?: number;
@@ -55,7 +55,7 @@ const MAX_OUTPUT = 4 * 1024 * 1024;
 
 const NO_GIT = "git is not installed, or not on the PATH of the president server";
 
-const NETWORK_COMMANDS = new Set(["fetch", "pull", "push", "ls-remote"]);
+const NETWORK_COMMANDS = new Set(["fetch", "ls-remote"]);
 
 /**
  * What `git rev-parse --local-env-vars` prints on git 2.56. The installed git is asked too

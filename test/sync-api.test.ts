@@ -62,16 +62,22 @@ async function setup(s: Sandbox) {
   return { registry, bus, events, sync, request, post, status, act };
 }
 
-/** A pre-commit hook that holds Sync's commit until `release()`. */
-async function holdTheCommit(s: Sandbox): Promise<() => Promise<void>> {
+/** The desktop adds a line to a demo card and pushes it: something for Sync to pull. */
+async function desktopChangesACard(s: Sandbox, file = "decisions/0003-first-run-copy.md") {
+  await s.write(s.desktop, file, `${await s.read(s.desktop, file)}\nMore from the desktop.\n`);
+  s.push(s.desktop, "desktop edits a card");
+}
+
+/** A hook that holds Sync's fetch (its update of the remote-tracking branch) until `release()`. */
+async function holdTheFetch(s: Sandbox): Promise<() => Promise<void>> {
   const hooks = join(s.root, "hooks");
   const go = join(s.root, "go");
   await s.write(
     s.root,
-    "hooks/pre-commit",
+    "hooks/reference-transaction",
     `#!/bin/sh\ni=0\nwhile [ ! -e "${go}" ] && [ $i -lt 400 ]; do sleep 0.05; i=$((i+1)); done\n`,
   );
-  await chmod(join(hooks, "pre-commit"), 0o755);
+  await chmod(join(hooks, "reference-transaction"), 0o755);
   s.git(s.laptop, "config", "core.hooksPath", hooks);
   return () => writeFile(go, "");
 }
@@ -80,47 +86,43 @@ async function holdTheCommit(s: Sandbox): Promise<() => Promise<void>> {
 const GIT_WAIT = { timeoutMs: 30_000, everyMs: 25 };
 
 describe("the Sync API", () => {
-  it("counts answers not synced, syncs, and keeps the result for every tab", async () => {
+  it("pulls, never commits an answer, and keeps the result for every tab", async () => {
     const s = await cardsSandbox();
     const { status, post, act, events } = await setup(s);
     expect((await status()).projects).toEqual([
-      { project: "shop", unsynced: 0, remoteChanges: 0, fetchRetrying: false, running: false },
+      { project: "shop", remoteChanges: 0, fetchRetrying: false, running: false },
     ]);
-
     expect((await act("0001", { type: "resolve", choice: "dexie" })).status).toBe(200);
-    expect((await act("0002", { type: "defer" })).status).toBe(200);
-    expect((await status()).projects[0]).toMatchObject({ unsynced: 2 });
+    await desktopChangesACard(s);
+    const remoteBefore = s.remoteLog();
 
     const response = await post("/api/sync", {});
     expect(response.status).toBe(200);
     const { results } = (await response.json()) as SyncRunResponse;
     expect(results).toEqual([
-      expect.objectContaining({
-        project: "shop",
-        outcome: "synced",
-        message: "Synced: sent 0001, 0002",
-      }),
+      expect.objectContaining({ project: "shop", outcome: "pulled", message: "Pulled 0003" }),
     ]);
-    expect(s.remoteLog()[0]).toBe("decisions from laptop: 0001, 0002");
+    expect(s.head(s.laptop)).toBe(s.head(s.desktop));
+    expect(s.remoteLog()).toEqual(remoteBefore);
+    // The answer stays uncommitted, for an agent to commit.
+    expect(s.status(s.laptop)).toEqual([" M decisions/0001-offline-storage.md"]);
     const after = (await status()).projects[0];
-    expect(after).toMatchObject({ unsynced: 0, running: false, last: { outcome: "synced" } });
+    expect(after).toMatchObject({ running: false, last: { outcome: "pulled" } });
     expect(events).toContainEqual({ type: "sync" });
     expect(events).toContainEqual({ type: "cards", project: "shop" });
   });
 
-  it("reports a skipped project's answers apart from the ones Sync moves (B2)", async () => {
+  it("says when Sync skips a project", async () => {
     const s = await gitSandbox();
     const web = join(s.laptop, "web");
     await s.write(web, "decisions/0001-a.md", "status: open\n");
     const { registry, status } = await setup(s);
     await registry.add({ path: web, name: "web" });
     expect((await status()).projects).toEqual([
-      { project: "shop", unsynced: 0, remoteChanges: 0, fetchRetrying: false, running: false },
+      { project: "shop", remoteChanges: 0, fetchRetrying: false, running: false },
       {
         project: "web",
         unavailable: "it isn't the top folder of a git repository",
-        unsynced: 0,
-        skippedUnsynced: 1,
         remoteChanges: 0,
         fetchRetrying: false,
         running: false,
@@ -159,7 +161,8 @@ describe("the Sync API", () => {
     const s = await cardsSandbox();
     const { status, post, act } = await setup(s);
     expect((await act("0001", { type: "resolve", choice: "dexie" })).status).toBe(200);
-    const release = await holdTheCommit(s);
+    await desktopChangesACard(s);
+    const release = await holdTheFetch(s);
 
     const syncing = post("/api/sync", {});
     await until(async () => (await status()).running, "the Sync to start", GIT_WAIT);
@@ -172,7 +175,7 @@ describe("the Sync API", () => {
 
     await release();
     const { results } = (await (await syncing).json()) as SyncRunResponse;
-    expect(results[0]).toMatchObject({ outcome: "synced", sent: ["0001"] });
+    expect(results[0]).toMatchObject({ outcome: "pulled", pulled: ["0003"] });
     expect((await act("0002", { type: "defer" })).status).toBe(200);
   });
 
@@ -188,7 +191,7 @@ describe("the Sync API", () => {
           finishWrite = done;
         }),
     );
-    await s.write(s.laptop, "decisions/0001-offline-storage.md", "changed\n");
+    await desktopChangesACard(s);
     const before = s.head(s.laptop);
 
     const syncing = sync.sync();
@@ -202,13 +205,13 @@ describe("the Sync API", () => {
     finishWrite();
     await write;
     const { results } = await syncing;
-    expect(results[0]).toMatchObject({ outcome: "synced", sent: ["0001"] });
+    expect(results[0]).toMatchObject({ outcome: "pulled", pulled: ["0003"] });
   });
 
   it("runs one Sync per project at a time", async () => {
     const s = await cardsSandbox();
-    const { post, act } = await setup(s);
-    expect((await act("0001", { type: "resolve", choice: "dexie" })).status).toBe(200);
+    const { post } = await setup(s);
+    await desktopChangesACard(s);
 
     const [first, second] = await Promise.all([post("/api/sync", {}), post("/api/sync", {})]);
 
@@ -216,8 +219,8 @@ describe("the Sync API", () => {
       ((await first.json()) as SyncRunResponse).results[0]?.outcome,
       ((await second.json()) as SyncRunResponse).results[0]?.outcome,
     ];
-    expect(outcomes.sort()).toEqual(["nothing", "synced"]);
-    expect(s.remoteLog()).toEqual(["decisions from laptop: 0001", "demo cards", "init"]);
+    expect(outcomes.sort()).toEqual(["nothing", "pulled"]);
+    expect(s.head(s.laptop)).toBe(s.head(s.desktop));
   });
 });
 
@@ -254,7 +257,7 @@ describe("cards a Sync brought in (card 20261112xp4s, from-sync)", () => {
       }
     });
 
-    expect((await sync.sync()).results[0]).toMatchObject({ outcome: "synced", received: ["0003"] });
+    expect((await sync.sync()).results[0]).toMatchObject({ outcome: "pulled", pulled: ["0003"] });
 
     expect(atCardsEvent).toEqual([true]);
     const after = await detail("0003", before.revision);
@@ -307,7 +310,6 @@ describe("the hub at start", () => {
       const projects = (await status()).projects;
       expect(projects.find((p) => p.project === "shop")).toEqual({
         project: "shop",
-        unsynced: 0,
         remoteChanges: 1,
         fetchRetrying: false,
         running: false,
@@ -377,7 +379,7 @@ describe("the hub at start", () => {
   it("stops retrying once a Sync ran in the project", async () => {
     const { sync, shop } = await unreachable([100, 100, 100, 100, 100]);
     try {
-      expect((await sync.sync()).results[0]?.outcome).not.toBe("synced");
+      expect((await sync.sync()).results[0]?.outcome).not.toBe("pulled");
       expect(await shop()).toMatchObject({ fetchRetrying: false });
       expect((await shop())?.fetchError).toBeUndefined();
       // A retry would fail again and bring the error back.
@@ -454,34 +456,5 @@ describe("the hub at start", () => {
     // A retry would now work and clear the error.
     await severalRetries();
     expect((await shop())?.fetchError).toMatch(/gone\.git/);
-  });
-
-  it("shows a rebase a Sync cut short left behind, with the files it set aside (S-8)", async () => {
-    const s = await gitSandbox();
-    await s.write(s.desktop, "decisions/0001-colour.md", "status: resolved\nnote: desktop\n");
-    s.push(s.desktop, "desktop");
-    await s.write(s.laptop, "decisions/0001-colour.md", "status: resolved\nnote: laptop\n");
-    await s.write(s.laptop, "lib.js", "y = wip\n");
-    // Sync's commit, then its pull stopped on the card's conflict when the hub went away.
-    s.git(s.laptop, "commit", "--quiet", "-m", "decisions from laptop: 0001", "--", "decisions/");
-    expect(() => s.git(s.laptop, "pull", "--quiet", "--rebase", "--autostash")).toThrow();
-
-    const registry = new Registry(join(await tempDir(), "config"));
-    await registry.add({ path: s.laptop, name: "shop" });
-    const hub = await startHub({
-      port: 0,
-      registry,
-      staticDir: join(await tempDir(), "none"),
-      sync: s.options,
-    });
-    try {
-      const status = (await (await fetch(`${hub.url}/api/sync`)).json()) as SyncStatusResponse;
-      const shop = status.projects.find((p) => p.project === "shop");
-      expect(shop?.rebase?.message).toMatch(/^A rebase is in progress in shop/);
-      expect(shop?.rebase?.action).toMatch(/uncommitted changes to lib\.js/);
-      expect(shop?.rebase?.action).toContain(`git rebase --abort in ${s.laptop}`);
-    } finally {
-      await hub.close();
-    }
   });
 });

@@ -127,7 +127,7 @@ export async function startHub(
       await watcher.close();
       await chat.close();
       // Let a Sync in progress finish (each git call has a timeout): stopping it halfway
-      // could leave a rebase behind.
+      // could cut its pull short.
       await sync.close();
       await new Promise<void>((resolve) => {
         server.close(() => resolve());

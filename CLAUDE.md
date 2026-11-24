@@ -33,7 +33,7 @@ On Windows it also installs the tray helper and runs its self-test.
 ## Where to work
 
 Never branch or edit in the main checkout, the one registered with the hub: the hub runs
-and syncs from it. Work in a git worktree.
+from it, and Sync pulls main into it. Work in a git worktree.
 
 ## Cards and docs
 

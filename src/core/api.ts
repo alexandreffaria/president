@@ -264,24 +264,18 @@ export type LiveMessage = HubEvent | { type: "ready" } | { type: "ping" };
 export const HEARTBEAT_MS = 25_000;
 
 /**
- * How one project's Sync ended (see server/sync/):
+ * How one project's Sync ended (see server/sync/). Sync only pulls main; it never commits
+ * or pushes (20261116d34o):
  *
- * - "synced": committed, pulled and pushed.
- * - "nothing": no card changes here or on the remote, so nothing was changed.
- * - "not-now": a check failed before anything changed (another branch checked out, an
- *   agent's unpushed commits, ...).
- * - "not-synced": the fetch, the commit or the pull failed; nothing was pushed.
- * - "not-pushed": the pull worked but Sync stopped before pushing, or the push failed.
+ * - "pulled": fast-forwarded main to the remote's, bringing in its card changes.
+ * - "nothing": the remote changed no card, so nothing was changed.
+ * - "not-now": a check failed before anything changed (another branch checked out, commits
+ *   that aren't on the remote, uncommitted changes the pull would overwrite, ...).
+ * - "failed": the fetch or the pull failed.
  * - "unavailable": the project folder isn't the top folder of a git repository, or it has
  *   git submodules.
  */
-export type SyncOutcome =
-  | "synced"
-  | "nothing"
-  | "not-now"
-  | "not-synced"
-  | "not-pushed"
-  | "unavailable";
+export type SyncOutcome = "pulled" | "nothing" | "not-now" | "failed" | "unavailable";
 
 export interface SyncResultDto {
   project: string;
@@ -292,9 +286,8 @@ export interface SyncResultDto {
   action?: string;
   /** git's own error output, when a git command failed. */
   gitError?: string;
-  /** Cards (ids; file names for other files) this Sync sent and received. */
-  sent: string[];
-  received: string[];
+  /** Cards (ids; file names for other files) this Sync pulled in. */
+  pulled: string[];
   /** When this project's Sync ended (ISO time). */
   at: string;
 }
@@ -303,32 +296,14 @@ export interface ProjectSyncStatus {
   project: string;
   /**
    * Why Sync can't work on this project (not a repository's top folder, or submodules);
-   * `unsynced` and `remoteChanges` are 0 then.
+   * `remoteChanges` is 0 then.
    */
   unavailable?: string;
   /**
-   * Changed and new files under decisions/, plus files there changed by local commits that
-   * aren't pushed yet ("3 answers not synced").
-   */
-  unsynced: number;
-  /**
-   * Set when Sync skips the project (`unavailable`): its card changes all the same, counted
-   * like `unsynced` (inside a bigger repository, against that repository's upstream, or only
-   * uncommitted changes where its branch tracks nothing or HEAD is detached; 0 for a folder
-   * outside git). Shown on a line of its own, never in the Sync button's number
-   * (20261112l9vh, count-apart).
-   */
-  skippedUnsynced?: number;
-  /**
    * Cards the remote changed as of the last fetch (`git diff --name-only HEAD...@{u} --
-   * decisions/`), for "3 card changes on the remote, press Sync".
+   * decisions/`), for "3 card changes on the remote, press Sync to pull them".
    */
   remoteChanges: number;
-  /**
-   * A rebase is in progress in the checkout (one a Sync cut short by the hub stopping left
-   * behind, say): what it set aside and how to get it back. Sync waits until it is done.
-   */
-  rebase?: { message: string; action: string };
   /**
    * Set when the fetch at hub start failed (offline, no remote). Not fatal. The hub retries
    * it after 5 s, 15 s, 30 s, 1 min, 2 min and 5 min, until one works or a Sync fetches,

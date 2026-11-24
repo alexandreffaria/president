@@ -201,8 +201,8 @@ export function useCardActions({
               })
               .catch((error: Error) => {
                 if (error instanceof RequestError && error.code === "syncing") {
-                  // Nothing was undone, and Sync is about to push the decision: keep the
-                  // undo within reach, so it can be tried again once Sync ends.
+                  // Nothing was undone while Sync pulls: keep the undo within reach, so it
+                  // can be tried again once Sync ends.
                   toast(`Not undone yet: ${error.message}`, {
                     tone: "error",
                     action: undo,

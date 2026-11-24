@@ -1,9 +1,9 @@
 /**
- * Sync (card #0001): the top bar's Sync button (and the `s` key), the "3 answers not
- * synced" and "3 card changes on the remote, press Sync" counts, and the report of the last
- * Sync of each project, and a line per project Sync skips that has answers not synced
- * (20261112l9vh). The server does the git work (server/sync/); every tab shows the same
- * state, refetched when cards change or a Sync starts or ends.
+ * Sync (cards #0001 and 20261116d34o, pull-only): the top bar's Sync button (and the `s`
+ * key), which pulls main into every project folder and never commits or pushes; the "3
+ * card changes on the remote, press Sync to pull them" count; and the report of the last
+ * Sync of each project. The server does the git work (server/sync/); every tab shows the
+ * same state, refetched when cards change or a Sync starts or ends.
  */
 import {
   createContext,
@@ -45,20 +45,14 @@ const SyncContext = createContext<SyncState | null>(null);
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-/** "3 answers not synced", the card's wording. */
-export function unsyncedText(n: number): string {
-  return `${plural(n, "answer", "answers")} not synced`;
-}
-
-/** "3 card changes on the remote, press Sync", the wording of docs/archive/roadmap-2026-11.md. */
+/** "3 card changes on the remote, press Sync to pull them". */
 export function remoteText(n: number): string {
-  return `${plural(n, "card change", "card changes")} on the remote, press Sync`;
+  return `${plural(n, "card change", "card changes")} on the remote, press Sync to pull ${n === 1 ? "it" : "them"}`;
 }
 
-/** "web: 2 answers not synced (Sync skips it)", the card's wording (20261112l9vh). */
-export function skippedText(project: string, n: number): string {
-  return `${project}: ${unsyncedText(n)} (Sync skips it)`;
-}
+/** The Sync button's tooltip: what it does, and what it doesn't. */
+export const SYNC_TITLE =
+  "Pull main into each project folder, to bring in merged cards and answers. Sync never commits or pushes.";
 
 /**
  * Shows the summary only where it fits (S4-6): `data-squeezed` on `.sync` hides it and puts
@@ -82,7 +76,7 @@ function resultItem(result: SyncResultDto): ReportItem {
     key: `result:${result.project}:${result.at}`,
     project: result.project,
     tone:
-      result.outcome === "synced" ? "done" : result.outcome === "unavailable" ? "muted" : "warn",
+      result.outcome === "pulled" ? "done" : result.outcome === "unavailable" ? "muted" : "warn",
     message: result.message,
     action: result.action,
     gitError: result.gitError,
@@ -138,7 +132,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       .sync()
       .then(({ results }) => {
         if (results.every((r) => r.outcome === "nothing")) {
-          toast("Nothing to sync: no card changes here or on the remote.");
+          toast("Nothing to pull: no card changes on the remote.");
         }
       })
       .catch((error: Error) => toast(`Couldn't sync: ${error.message}`, { tone: "error" }))
@@ -163,19 +157,6 @@ export function SyncProvider({ children }: { children: ReactNode }) {
             ? "The hub keeps trying on its own for a while; press Sync to fetch now."
             : "Press Sync to fetch again.",
           gitError: project.fetchError,
-        });
-      }
-      // A Sync that just said "Not now: a rebase is in progress" already says the same.
-      const lastSaysRebase =
-        project.last?.outcome === "not-now" &&
-        project.last.message.startsWith("Not now: a rebase is in progress");
-      if (project.rebase && !lastSaysRebase) {
-        items.push({
-          key: `rebase:${project.project}:${project.rebase.message}:${project.rebase.action}`,
-          project: project.project,
-          tone: "warn",
-          message: project.rebase.message,
-          action: project.rebase.action,
         });
       }
       if (project.last && project.last.outcome !== "nothing") items.push(resultItem(project.last));
@@ -204,15 +185,8 @@ export function useSync(): SyncState {
 export function SyncControl() {
   const { status, busy, run } = useSync();
   useKeyboard({ s: () => (busy ? undefined : run()) });
-  const projects = status?.projects ?? [];
-  const unsynced = projects.reduce((n, p) => n + p.unsynced, 0);
-  const remote = projects.reduce((n, p) => n + p.remoteChanges, 0);
-  const parts = [
-    unsynced > 0 ? unsyncedText(unsynced) : "",
-    remote > 0 ? remoteText(remote) : "",
-  ].filter(Boolean);
-  const pending = unsynced + remote;
-  const summary = parts.join(" · ");
+  const remote = (status?.projects ?? []).reduce((n, p) => n + p.remoteChanges, 0);
+  const summary = remote > 0 ? remoteText(remote) : "";
   const ref = useRef<HTMLDivElement>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: the summary's text changes its width
   useLayoutEffect(() => {
@@ -235,7 +209,7 @@ export function SyncControl() {
   }, []);
   return (
     <div className="sync" ref={ref}>
-      {parts.length > 0 && (
+      {summary && (
         <span className="sync-summary" id="sync-summary">
           {summary}
         </span>
@@ -247,34 +221,18 @@ export function SyncControl() {
         disabled={busy}
         aria-busy={busy}
         aria-keyshortcuts="s"
-        aria-describedby={parts.length > 0 ? "sync-summary" : undefined}
+        aria-describedby={summary ? "sync-summary" : undefined}
+        title={SYNC_TITLE}
       >
-        {busy ? "Syncing…" : "Sync"}
-        {!busy && pending > 0 && (
+        {busy ? "Pulling…" : "Sync"}
+        {!busy && remote > 0 && (
           <span className="count sync-count" aria-hidden="true">
-            {pending}
+            {remote}
           </span>
         )}
         <kbd>s</kbd>
       </button>
     </div>
-  );
-}
-
-/**
- * One line per project Sync skips that has answers not synced: pressing Sync never clears
- * it, so it stays out of the button's number (20261112l9vh, count-apart).
- */
-export function SyncSkipped() {
-  const { status } = useSync();
-  const skipped = (status?.projects ?? []).filter((p) => (p.skippedUnsynced ?? 0) > 0);
-  if (skipped.length === 0) return null;
-  return (
-    <ul className="sync-skipped" aria-label="Not synced, Sync skips these">
-      {skipped.map((p) => (
-        <li key={p.project}>{skippedText(p.project, p.skippedUnsynced ?? 0)}</li>
-      ))}
-    </ul>
   );
 }
 
