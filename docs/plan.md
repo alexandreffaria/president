@@ -131,4 +131,4 @@ answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.m
 - [x] Answering from another machine (20261116notj, `here-only`): each hub shows only its own
   checkouts' cards, which needs nothing new. What Sync becomes (20261116d34o, `pull-only`):
   Sync only fast-forwards main and never commits or pushes; the "answers not synced" counts,
-  including a skipped project's line, are gone. (#PR)
+  including a skipped project's line, are gone. (#58)
