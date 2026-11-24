@@ -40,7 +40,10 @@ card that is already on main sits uncommitted in the main checkout, and Sync say
 once a merged PR changes that card. Before applying such answers, the orchestrating session
 commits them straight on main there and pushes: only `decisions/` card files whose change is
 the human's answer or feedback from the hub, by path, with a message like "decisions:
-answers to <ids>". Never edit or commit any other file there.
+answers to <ids>". Never edit or commit any other file there. Do it only when main there
+has nothing that isn't on origin/main (`git log @{u}..` prints nothing; press Sync first),
+and push only that commit (`git push origin HEAD:main`). If the push is refused, don't
+rebase or merge there: tell the human.
 
 ## Cards and docs
 

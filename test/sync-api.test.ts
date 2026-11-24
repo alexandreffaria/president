@@ -208,6 +208,40 @@ describe("the Sync API", () => {
     expect(results[0]).toMatchObject({ outcome: "pulled", pulled: ["0003"] });
   });
 
+  it("starts no other project once the hub closes", async () => {
+    const s = await cardsSandbox();
+    const other = await cardsSandbox();
+    await desktopChangesACard(s);
+    await desktopChangesACard(other);
+    const registry = new Registry(join(await tempDir(), "config"));
+    // Sorted by name: "a-shop" syncs first.
+    await registry.add({ path: s.laptop, name: "a-shop" });
+    await registry.add({ path: other.laptop, name: "b-shop" });
+    const sync = new SyncService(registry, new EventBus(), s.options);
+    const first = (await registry.get("a-shop")) ?? expect.fail("no project");
+    // A card write in a-shop that its Sync waits for.
+    let finishWrite = () => {};
+    const write = sync.writeCard(
+      first,
+      () =>
+        new Promise<void>((done) => {
+          finishWrite = done;
+        }),
+    );
+    const otherHead = other.head(other.laptop);
+
+    const syncing = sync.sync();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const closing = sync.close();
+    finishWrite();
+    await write;
+    const { results } = await syncing;
+    await closing;
+
+    expect(results.map((r) => r.project)).toEqual(["a-shop"]);
+    expect(other.head(other.laptop)).toBe(otherHead);
+  });
+
   it("runs one Sync per project at a time", async () => {
     const s = await cardsSandbox();
     const { post } = await setup(s);
