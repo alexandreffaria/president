@@ -283,9 +283,12 @@ both want port 4747 (the icon then turns grey and says "port 4747 in use by anot
    Your next message on the card resumes the same session, so the agent remembers what it
    read, even after a saved summary. **New conversation** (in the panel's header) ends that
    session: your next message starts a new one from the card and its saved summaries. The
-   earlier messages stay in the panel above a divider, "── New conversation. It starts from the
-   card and its summaries. ──", and the pick is hidden again, on the page and in the chat,
-   until you press `r` (unless a saved summary names it).
+   earlier messages stay in the panel above a divider, "── New conversation. It starts again
+   from the card, without the messages above. ──", and the pick is hidden again, on the page
+   and in the chat, until you press `r` (unless a saved summary names it).
+   A new session may start as a fork of the Claude Code session that wrote the card, when
+   this machine has it and it is small enough, so the chat knows what the author found. Cards
+   can also carry a `## For the chat` note from their author, which the card page hides.
    Until you press `r`, the chat explains and compares the options without naming the card's
    pick or giving its own; asked, it says the pick is behind `r`. On a card with no pick (an
    open card, say), it says there is no pick and keeps its own view out so the answer is

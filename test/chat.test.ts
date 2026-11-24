@@ -734,7 +734,9 @@ describe("a chat that starts from the card's author (created_session)", () => {
     expect(stdin).toContain(`The project is now at your current folder, ${t.demo}.`);
     expect(stdin).toMatch(/decisions\/0002-api-errors\.md/);
     expect(stdin).toMatch(/You can't change anything, and you never apply decisions/);
-    expect(stdin).toMatch(/Follow the line about the pick strictly, even if you recommended/);
+    expect(stdin).toMatch(
+      /Follow the line about the pick strictly, even if this session recommended/,
+    );
     expect(stdin).toMatch(/## For the chat/);
     expect(stdin).toMatch(
       /\n\n\(president: The human has not revealed the card's pick\.[^\n]*\)\n\nWhy not throw\?$/,
@@ -932,7 +934,7 @@ describe("a chat that starts from the card's author (created_session)", () => {
     const third = (await t.calls())[2];
     expect(third?.args.slice(4, 7)).toEqual(["--resume", AUTHOR, "--fork-session"]);
     expect(third?.stdin).toMatch(
-      /An earlier conversation about this card isn't available here; this one starts from the card, its summaries and what you knew when you wrote the card\./,
+      /An earlier conversation about this card isn't available here; this one starts from the card, its summaries and what this session knew when it wrote the card\./,
     );
   });
 

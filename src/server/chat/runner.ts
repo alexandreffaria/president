@@ -470,8 +470,8 @@ export const MAX_TRANSCRIPT_BYTES = 8 * 1024 * 1024;
  * cache reads and output). Subagents' entries (`isSidechain`) don't count, nor do the ones
  * Claude Code writes for a failed API call (network, overload, usage limit, "Prompt is too
  * long"): `model: "<synthetic>"`, every count 0. Undefined when it can't be read: no such
- * entry, a format this doesn't know, or a file over MAX_TRANSCRIPT_BYTES. This is the only thing president
- * reads in a transcript.
+ * entry, a format this doesn't know, or a file over MAX_TRANSCRIPT_BYTES. This is the only
+ * thing president reads in a transcript.
  */
 export async function contextTokens(path: string): Promise<number | undefined> {
   try {
