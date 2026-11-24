@@ -1699,6 +1699,46 @@ describe("keeping the hub's copy (202611114wet)", () => {
     expect((await t.calls()).at(-1)?.args).not.toContain("--add-dir");
   });
 
+  it("forks the author's session for a card in a worktree, told where the card is", async () => {
+    const t = await setup();
+    // The author's transcript (authored also gives card 0002 its created_session).
+    await authored(t);
+    const git = (...args: string[]) =>
+      promisify(execFile)("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+        cwd: t.demo,
+        env: {
+          ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_"))),
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_CONFIG_GLOBAL: "/dev/null",
+        },
+      });
+    await git("init", "-q", "-b", "main");
+    await git("add", ".");
+    await git("commit", "-qm", "cards");
+    const wt = join(dirname(t.demo), "demo-feat");
+    await git("worktree", "add", "-q", "-b", "feat", wt);
+    const file = join(wt, "decisions", "20261124wtfk-question.md");
+    await writeFile(file, cardText({ id: '"20261124wtfk"', created_session: AUTHOR }));
+    forgetCheckouts();
+    await t.send("Hello", {}, "20261124wtfk");
+    const call = (await t.calls()).at(-1);
+    expect(call?.cwd).toBe(await realpath(t.demo));
+    expect(call?.args.slice(4, 7)).toEqual(["--resume", AUTHOR, "--fork-session"]);
+    expect(call?.args[(call?.args.indexOf("--add-dir") ?? -2) + 1]).toBe(wt);
+    const stdin = call?.stdin ?? "";
+    expect(stdin).toContain(
+      `a decision card written in this session (by you or a subagent you ran), ${file}, so that`,
+    );
+    expect(stdin).toContain(
+      `The project is now at your current folder, ${await realpath(t.demo)}, and you can also read the checkout that holds the card, ${wt}.`,
+    );
+    expect(stdin).toContain(`The card is the file ${file}`);
+    expect((await t.sessions())["demo/20261124wtfk"]).toMatchObject({
+      forked: true,
+      cardPath: file,
+    });
+  }, 30_000);
+
   it("keeps a copy whose card is only in a git worktree of the project", async () => {
     const t = await setup();
     await t.send("One");

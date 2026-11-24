@@ -145,7 +145,14 @@ export interface ChatHost {
   run(
     request: Pick<
       RunRequest,
-      "cwd" | "addDirs" | "session" | "message" | "forked" | "appendSystemPrompt" | "jsonSchema" | "signal"
+      | "cwd"
+      | "addDirs"
+      | "session"
+      | "message"
+      | "forked"
+      | "appendSystemPrompt"
+      | "jsonSchema"
+      | "signal"
     >,
     handlers?: Parameters<typeof runClaude>[1],
   ): Promise<RunResult>;
@@ -641,7 +648,14 @@ export class ChatService {
   #run(
     request: Pick<
       RunRequest,
-      "cwd" | "addDirs" | "session" | "message" | "forked" | "appendSystemPrompt" | "jsonSchema" | "signal"
+      | "cwd"
+      | "addDirs"
+      | "session"
+      | "message"
+      | "forked"
+      | "appendSystemPrompt"
+      | "jsonSchema"
+      | "signal"
     >,
     handlers: Parameters<typeof runClaude>[1] = {},
   ): Promise<RunResult> {

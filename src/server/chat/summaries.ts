@@ -95,7 +95,10 @@ export class Summaries {
           cwd: project.path,
           addDirs: cardCheckout(project, card),
           session: { resume: entry.session },
-          message: withPickLine(line + place.moved, summaryRequest(since > 0, entry.forked === true)),
+          message: withPickLine(
+            line + place.moved,
+            summaryRequest(since > 0, entry.forked === true),
+          ),
           forked: entry.forked === true,
         });
         if (result.ok && place.moved) {
