@@ -170,8 +170,8 @@ and `CLAUDE_CONFIG_DIR` you ran `install` with, so it finds `claude` and `git`),
 `president-tray.service` runs the icon. The hub's unit starts the icon, but a hub that crashes
 and restarts leaves the icon running (grey meanwhile); `install` restarts both, and Quit and
 `uninstall` stop both; stopping the icon never closes a browser it opened. Stopping the hub
-waits for a Sync in progress to finish (systemd gives it up to 4 minutes, room for a Sync whose
-fetch runs to git's 60-second network timeout before it pulls). Don't also run `npm start`:
+waits for a Sync in progress to finish (systemd gives it up to 4½ minutes, room for a Sync whose
+fetch and merge each run to git's 60-second timeout). Don't also run `npm start`:
 both want port 4747 (the icon then turns grey and says "port 4747 in use by another program").
 
 - **Serve another build:** run `install` with another checkout's `preside.js`, a pull request's
@@ -495,7 +495,7 @@ How it fits together:
   variables that point git at another repository (the ones `git rev-parse --local-env-vars`
   lists, such as `GIT_DIR`; your own `GIT_SSH_COMMAND` or `GIT_CONFIG_GLOBAL` are kept),
   `GIT_TERMINAL_PROMPT=0`, no askpass program and no terminal, and a timeout (60 s for
-  fetch, 30 s for the rest) after which git and whatever it started are stopped. It merges
+  fetch and the merge, 30 s for the rest) after which git and whatever it started are stopped. It merges
   exactly the commit it checked (`git merge --ff-only <commit>`), never with a bare
   `git pull`.
   `POST /api/sync` passes the same Host and Origin checks as every write. While a project's

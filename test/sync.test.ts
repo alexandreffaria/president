@@ -226,8 +226,18 @@ describe("Sync: the clean case", () => {
 
     const result = await syncRepo(s.laptop, "shop", s.options);
 
-    expect(result).toEqual({ outcome: "nothing", message: "Nothing to pull", pulled: [] });
+    // Not "Nothing to pull": main isn't current, only no card changed.
+    expect(result).toEqual({ outcome: "nothing", message: "No card changes to pull", pulled: [] });
     expect(snapshot(s)).toEqual(before);
+  });
+
+  it("says Nothing to pull when main already has everything", async () => {
+    const s = await gitSandbox();
+    expect(await syncRepo(s.laptop, "shop", s.options)).toEqual({
+      outcome: "nothing",
+      message: "Nothing to pull",
+      pulled: [],
+    });
   });
 
   it("a second Sync changes nothing", async () => {
@@ -667,6 +677,68 @@ describe("Sync waits for any git operation in progress (S-3)", () => {
     expect(s.head(s.laptop)).toBe(head);
     expect(s.status(s.laptop)).toEqual([" M decisions/0001-colour.md", " M lib.js"]);
   });
+
+  it("doesn't pull when an agent commits on main during the fetch", async () => {
+    const s = await gitSandbox();
+    await desktopChangesACard(s);
+    const done = join(s.root, "committed");
+    await hook(
+      s,
+      "reference-transaction",
+      [
+        '[ "$1" = committed ] || exit 0',
+        `[ -e "${done}" ] && exit 0`,
+        `touch "${done}"`,
+        "unset GIT_INDEX_FILE",
+        'echo "x = agent" > app.js',
+        'git commit --quiet -m "agent code commit" app.js',
+      ].join("\n"),
+    );
+
+    const result = await syncRepo(s.laptop, "shop", s.options);
+
+    expect(result).toMatchObject({
+      outcome: "not-now",
+      message: "Not now: main in shop has commits that aren't on origin/main",
+    });
+    expect(s.git(s.laptop, "log", "--format=%s", "-1").trim()).toBe("agent code commit");
+    expect(s.status(s.laptop)).toEqual([]);
+  });
+
+  // The wrapper below is a shell script named git, which Windows doesn't run as git.
+  it.skipIf(process.platform === "win32")(
+    "refuses, with merge.autoStash set, a file edited after the checks (no conflict markers)",
+    async () => {
+      const s = await gitSandbox();
+      await desktopPushes(s, { "app.js": "x = remote\n", "decisions/0002-size.md": "x\n" });
+      s.git(s.laptop, "config", "merge.autoStash", "true");
+      // An agent edits app.js after check 3, just as the merge starts: a git wrapper first
+      // in PATH does it when it is asked to merge.
+      const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+      await s.write(
+        s.root,
+        "agent-git/git",
+        `#!/bin/sh\n[ "$1" = merge ] && echo "x = agent" > app.js\nexec "${realGit}" "$@"\n`,
+      );
+      await chmod(join(s.root, "agent-git/git"), 0o755);
+      const env = {
+        ...s.options.env,
+        PATH: `${join(s.root, "agent-git")}:${process.env.PATH ?? ""}`,
+      };
+      const head = s.head(s.laptop);
+
+      const result = await syncRepo(s.laptop, "shop", { ...s.options, env });
+
+      expect(result).toMatchObject({
+        outcome: "failed",
+        message: "Not pulled: the pull failed in shop",
+      });
+      expect(result.gitError).toMatch(/app\.js/);
+      expect(await s.read(s.laptop, "app.js")).toBe("x = agent\n");
+      expect(s.head(s.laptop)).toBe(head);
+      expect(s.stashCount(s.laptop)).toBe(0);
+    },
+  );
 
   it("doesn't pull when the checkout moved to another branch during the fetch", async () => {
     const s = await gitSandbox();

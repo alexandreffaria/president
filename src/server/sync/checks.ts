@@ -144,16 +144,23 @@ export async function onMainBranch(
   return { branch, remoteName, main, expected };
 }
 
-/** The remote changed no card since the last commit in common: nothing to pull. */
+/**
+ * The remote changed no card since the last commit in common with `head`: nothing to pull.
+ * "Nothing to pull" when main already has everything, "No card changes to pull" when the
+ * remote changed only other files (Sync leaves those for a pull with the next card).
+ */
 export async function nothingToPull(
   { repo, name, dir }: Run,
+  head: string,
   upstream: string,
 ): Promise<RepoSyncResult | undefined> {
   const tooMany = `The online copy of ${name} changed too many cards for Sync to list. Pull by hand (git pull --ff-only in ${dir}).`;
-  if ((await repo.remoteCardChanges(upstream, tooMany)).length === 0) {
-    return result("nothing", "Nothing to pull");
+  if ((await repo.remoteCardChanges(`${head}...${upstream}`, tooMany)).length > 0) {
+    return undefined;
   }
-  return undefined;
+  return (await repo.isAncestor(upstream, head))
+    ? result("nothing", "Nothing to pull")
+    : result("nothing", "No card changes to pull");
 }
 
 /** Check 2: main has no commit the remote's main lacks, so the pull is a fast-forward. */
@@ -227,14 +234,25 @@ export async function sameCheckout(
   return undefined;
 }
 
-/** git merge --ff-only of exactly the commit the checks looked at. */
+/**
+ * git merge --ff-only of exactly the commit the checks looked at.
+ *
+ * Not atomic with the checks: an agent that commits or switches branches in the moment
+ * between sameCheckout and this merge isn't seen. A new commit makes the fast-forward
+ * impossible and git refuses; a new branch made from main (`git switch -c`) would be
+ * fast-forwarded instead of main. git has no "merge only if HEAD is still <ref> at
+ * <commit>", and updating the ref apart from the files (update-ref) would leave the tree
+ * behind, so the window stays, a few milliseconds wide.
+ */
 export async function pull(
   { repo, name }: Run,
   upstream: string,
 ): Promise<RepoSyncResult | undefined> {
   // English messages, which the untracked-file wording below is matched against. LANGUAGE
   // goes before LC_ALL and LANG for a localized git (and the C locale is English anyway).
-  const merged = await repo.run(["merge", "--ff-only", "--quiet", upstream], {
+  // --no-autostash: with merge.autoStash set, git would stash a file edited since check 3,
+  // put it back with conflict markers and still exit 0; without it, git refuses.
+  const merged = await repo.run(["merge", "--ff-only", "--no-autostash", "--quiet", upstream], {
     LANGUAGE: "en",
   });
   if (merged.code === 0) return undefined;

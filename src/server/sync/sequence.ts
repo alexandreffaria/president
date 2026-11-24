@@ -119,7 +119,7 @@ async function runSequence(
   // Read once: every check, and the pull, use exactly these two commits.
   const theirs = await repo.commit(target.expected);
   const head = await repo.commit("HEAD");
-  const nothing = await nothingToPull(run, theirs);
+  const nothing = await nothingToPull(run, head, theirs);
   if (nothing) return nothing;
   const diverged = await fastForward(run, target, head, theirs);
   if (diverged) return diverged;

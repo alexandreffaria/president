@@ -165,12 +165,12 @@ export class Repo {
     return (await this.out(["remote"])).trim() !== "";
   }
 
-  /** Cards `upstream` changed since this checkout's last common commit with it. */
-  remoteCardChanges(upstream = "@{u}", tooLarge?: string): Promise<string[]> {
-    return this.paths(
-      ["diff", "--name-only", "-z", "--no-renames", `HEAD...${upstream}`, "--", CARDS],
-      tooLarge,
-    );
+  /**
+   * Cards the right side of `range` ("a...b") changed since its last common commit with the
+   * left: by default, the upstream's since HEAD's.
+   */
+  remoteCardChanges(range = "HEAD...@{u}", tooLarge?: string): Promise<string[]> {
+    return this.paths(["diff", "--name-only", "-z", "--no-renames", range, "--", CARDS], tooLarge);
   }
 
   /** The commit `rev` names. */

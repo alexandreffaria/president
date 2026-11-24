@@ -205,6 +205,8 @@ export class SyncService {
     const projects = await this.#registry.list();
     const results: SyncResultDto[] = [];
     for (const project of projects) {
+      // The hub is stopping: finish the project under way, start no other.
+      if (this.#closed) break;
       let fetched = false;
       const outcome = await this.#lock.run(project.path, () =>
         this.#gate.exclusive(project.path, async () => {
