@@ -141,6 +141,12 @@ export const FrontmatterSchema = z
      * its own state folder (server/chat/store.ts). Still accepted, and kept as it is.
      */
     session_id: z.string().optional(),
+    /**
+     * The Claude Code session that wrote the card (`$CLAUDE_CODE_SESSION_ID`): a card's chat
+     * starts as a fork of it when this machine still has it (server/chat/service.ts). A value
+     * that isn't a session id only warns (cardWarnings); the chat ignores it.
+     */
+    created_session: z.string().optional(),
   })
   .superRefine((card, ctx) => {
     const optionIds = card.options.map((o) => o.id);
@@ -247,15 +253,29 @@ export interface CardWarningIssue {
  * it isn't told to use fewer.
  */
 export function cardWarnings(card: Frontmatter): CardWarningIssue[] {
+  const warnings: CardWarningIssue[] = [];
   const count = card.options.length;
-  return count > KEYED_OPTIONS && card.status !== "resolved"
-    ? [
-        {
-          field: "options",
-          message: `${count} options, but the hub's keys 1-${KEYED_OPTIONS} pick only the first ${KEYED_OPTIONS}; use ${KEYED_OPTIONS} or fewer`,
-        },
-      ]
-    : [];
+  if (count > KEYED_OPTIONS && card.status !== "resolved") {
+    warnings.push({
+      field: "options",
+      message: `${count} options, but the hub's keys 1-${KEYED_OPTIONS} pick only the first ${KEYED_OPTIONS}; use ${KEYED_OPTIONS} or fewer`,
+    });
+  }
+  if (card.created_session !== undefined && !isSessionId(card.created_session)) {
+    warnings.push({
+      field: "created_session",
+      message:
+        "is not a Claude Code session id (a UUID, from $CLAUDE_CODE_SESSION_ID); the card's chat ignores it",
+    });
+  }
+  return warnings;
+}
+
+/** A Claude Code session id: a UUID, 8-4-4-4-12 hex digits. */
+export const SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isSessionId(value: string): boolean {
+  return SESSION_ID_PATTERN.test(value);
 }
 
 /** A warning as a `field: message` line, with ` (line N)` when the field's line is known. */

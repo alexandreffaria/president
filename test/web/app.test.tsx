@@ -211,6 +211,21 @@ const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 50))
 
 const CARD_TITLE = "Where should trip data live on the device?";
 
+describe("the author's note for the chat", () => {
+  it("isn't shown on the card page; the sections around it are", async () => {
+    const file = join(demo, "decisions", "0002-api-errors.md");
+    await editFile(
+      file,
+      "## Sources",
+      "## For the chat\n\nLooked at src/http.ts; ruled out exceptions-only.\n\n## Sources",
+    );
+    await open("/card/demo/0002", () => text().includes("discriminated unions"), "the card");
+    expect(text()).not.toContain("For the chat");
+    expect(text()).not.toContain("ruled out exceptions-only");
+    expect(text()).toContain("Sources");
+  });
+});
+
 describe("card view keyboard", () => {
   it("leaves Enter on a focused button to the button, never a decision", async () => {
     await open("/card/demo/0001", () => text().includes(CARD_TITLE), "the card");

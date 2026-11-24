@@ -12,6 +12,7 @@ describe("splitSections", () => {
       context: "## Context\n\nWhy.",
       options: [],
       appendix: "## Sources\n\n- a link",
+      forChat: "",
     });
     // A first heading other than Context, and a Context heading, stay context; fences count.
     expect(splitSections("## Background\n\nText.\n")).toMatchObject({ appendix: "" });
@@ -66,12 +67,47 @@ describe("splitSections", () => {
       context: "Just some words.\n\nMore.",
       options: [],
       appendix: "",
+      forChat: "",
     });
     expect(splitSections("Just some words.\n\n## Notes\n\nMore.")).toEqual({
       context: "Just some words.",
       options: [],
       appendix: "## Notes\n\nMore.",
+      forChat: "",
     });
+  });
+
+  it("keeps the author's ## For the chat apart from what the card page shows", () => {
+    // After the context, in a body without option sections.
+    expect(
+      splitSections("## Context\n\nWhy.\n\n## For the chat\n\n- Ruled out X.\n\n## Notes\n\nN.\n"),
+    ).toEqual({
+      context: "## Context\n\nWhy.",
+      options: [],
+      appendix: "## Notes\n\nN.",
+      forChat: "- Ruled out X.",
+    });
+    // Before the option sections and after them; a fenced heading isn't one.
+    const body = [
+      "## Context",
+      "Why.",
+      "## for the chat",
+      "Looked at a.ts.",
+      "```",
+      "## Option b",
+      "```",
+      "## Option a",
+      "A.",
+      "## For the chat",
+      "Ruled out c.",
+    ].join("\n");
+    const sections = splitSections(body);
+    expect(sections.context).toBe("## Context\nWhy.");
+    expect(sections.options.map((o) => [o.id, o.markdown])).toEqual([["a", "A."]]);
+    expect(sections.appendix).toBe("");
+    expect(sections.forChat).toBe("Looked at a.ts.\n```\n## Option b\n```\n\nRuled out c.");
+    // A level-3 heading of that name is ordinary text.
+    expect(splitSections("## Context\n\n### For the chat\nx").forChat).toBe("");
   });
 
   it("does not treat level-3 headings as option sections", () => {
@@ -108,6 +144,15 @@ describe("splitSections follows CommonMark", () => {
 });
 
 describe("replaceOptionSections (#0007's new options)", () => {
+  it("keeps a ## For the chat between the old option sections when none are written", () => {
+    expect(
+      replaceOptionSections(
+        "Ctx\n\n## Option a: A\n\naa\n\n## For the chat\n\nnote\n\n## Option b: B\n\nbb\n\n## Sources\n\nlinks\n",
+        [],
+      ),
+    ).toBe("Ctx\n\n## For the chat\n\nnote\n\n## Sources\n\nlinks\n");
+  });
+
   const sections = [
     { id: "x", title: "Ex", markdown: "X is new." },
     { id: "y", title: "Why", markdown: "```\n## Option z\n```" },

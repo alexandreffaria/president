@@ -6,7 +6,9 @@
  * - logs each call ({ args, stdin, cwd, path: its PATH }) to $FAKE_CLAUDE_DIR/calls.jsonl;
  * - like Claude Code, keeps a transcript per session in
  *   $CLAUDE_CONFIG_DIR/projects/<folder>/<session>.jsonl (empty: only its existence counts),
- *   and refuses `--resume` of a session without one ("No conversation found ...");
+ *   finds one for `--resume` in any project folder, and refuses `--resume` of a session
+ *   without one ("No conversation found ..." on stderr, and an error result line); with
+ *   `--fork-session`, the copy is the `--session-id` one, kept under the cwd's folder;
  * - answers with the next entry of $FAKE_CLAUDE_DIR/script.json when there is one
  *   ({ lines?: object[], text?: string, structured?: object, stderr?: string, exit?: number,
  *   delayMs?: number, pauseMs?: number, gate?: string, lateTranscript?: boolean,
@@ -23,7 +25,14 @@
  *   detached (not with "attached"), after answering, and leaves it running.
  */
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 const args = process.argv.slice(2);
@@ -43,15 +52,25 @@ appendFileSync(
   `${JSON.stringify({ args, stdin, cwd: process.cwd(), path: process.env.PATH })}\n`,
 );
 
-const folder = join(claudeDir, "projects", process.cwd().replace(/[^A-Za-z0-9]/g, "-"));
+const projects = join(claudeDir, "projects");
+const folder = join(projects, process.cwd().replace(/[^A-Za-z0-9]/g, "-"));
 const transcript = (id) => join(folder, `${id}.jsonl`);
+/** Like Claude Code, `--resume` finds a session in any project folder. */
+const found = (id) =>
+  existsSync(projects) &&
+  readdirSync(projects).some((f) => existsSync(join(projects, f, `${id}.jsonl`)));
 const resume = flag("--resume");
 const start = flag("--session-id");
-if (resume && !existsSync(transcript(resume))) {
+const fork = args.includes("--fork-session");
+if (resume && !found(resume)) {
   process.stderr.write(`No conversation found with session ID: ${resume}\n`);
+  // Claude Code also prints a result line for it.
+  process.stdout.write(
+    `${JSON.stringify({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 0, session_id: start ?? resume })}\n`,
+  );
   process.exit(1);
 }
-const session = resume ?? start ?? "00000000-0000-4000-8000-000000000000";
+const session = (fork ? start : resume) ?? start ?? "00000000-0000-4000-8000-000000000000";
 const writeTranscript = () => {
   if (start && !args.includes("--no-session-persistence")) {
     mkdirSync(folder, { recursive: true });

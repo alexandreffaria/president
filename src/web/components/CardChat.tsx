@@ -21,8 +21,8 @@
  * - Your next message resumes the same session (20261112lvbu `choose`); New conversation, in
  *   the panel's header, ends it: the next message starts a new session from the card and its
  *   summaries, neutral about the pick again (the page hides it again too). The earlier
- *   messages stay, above a divider: "── New conversation. It starts from the card and its
- *   summaries. ──".
+ *   messages stay, above a divider: "── New conversation. It starts again from the card,
+ *   without the messages above. ──".
  * - Teach me (#0005, 20261111fauj) and More info (20261112e1ik): buttons next to the message
  *   box (#0002's sketch); the hub writes their requests.
  * - While the "Before deciding" box is open (#0019, BeforeDeciding.tsx), the summary is edited

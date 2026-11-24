@@ -41,6 +41,11 @@ export interface SessionEntry {
    * new session from the card and its summaries, and the session id is replaced once it has.
    */
   fresh?: boolean;
+  /**
+   * The session started as a fork of the card author's (its `created_session`): a run that
+   * stops at the spending cap says New conversation may help.
+   */
+  forked?: boolean;
   /** Messages were exchanged since the last saved summary (#0024's reminder). */
   unsummarized?: boolean;
   /**

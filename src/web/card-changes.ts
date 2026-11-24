@@ -1,7 +1,9 @@
 /**
  * What changed between the version of a card the human read and the one on disk now, in
  * words. Everything counts except an agent marking feedback as read (`seen_at`) or
- * applying a decision (`applied_at`), which changes nothing the human has to look at again.
+ * applying a decision (`applied_at`), which changes nothing the human has to look at again,
+ * and what the card page never shows: `created_session` and the `## For the chat` section
+ * (its `forChat`, not compared below).
  * Changes this file has no words for are still reported, as "Other details changed."
  */
 import type { CardDetailDto } from "../core/api.ts";
@@ -10,7 +12,7 @@ import { CUSTOM_CHOICE } from "../core/model.ts";
 import { optionLabel, PRIORITY_LABEL } from "./format.ts";
 
 /** Fields whose changes the human doesn't have to read again. */
-const UNREAD_FIELDS = new Set(["seen_at", "applied_at"]);
+const UNREAD_FIELDS = new Set(["seen_at", "applied_at", "created_session"]);
 /** Fields described in words below. */
 const DESCRIBED_FIELDS = new Set([
   "title",

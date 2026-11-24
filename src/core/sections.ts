@@ -9,6 +9,10 @@
  * the first level-2 heading that isn't `## Context` and has text before it, so `## Sources`
  * stays below the options. Headings inside fenced code blocks are ignored.
  *
+ * A `## For the chat` section (FOR_THE_CHAT) is the card's author writing for the card's
+ * chat, not for the human: it is taken out of the context and the appendix (an option's
+ * section ends at its heading), and kept apart (`forChat`), so the card page doesn't show it.
+ *
  * Headings and fences follow CommonMark, so the sections match what the markdown renderer
  * shows: a heading may be indented up to 3 spaces and needs a space after `##`; a fence
  * closes only on a line with the same character, at least as many of them, and nothing else.
@@ -27,7 +31,13 @@ export interface BodySections {
   context: string;
   options: OptionSection[];
   appendix: string;
+  /** The `## For the chat` section's text, without its heading ("" when there is none). */
+  forChat: string;
 }
+
+/** The heading of the section the card's author writes for the card's chat. */
+export const FOR_THE_CHAT = "For the chat";
+const FOR_THE_CHAT_HEADING = /^for the chat$/i;
 
 /** An ATX level-2 heading; group 1 is its text without the optional closing `#`s. */
 const H2 = /^ {0,3}##(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
@@ -105,14 +115,60 @@ function splitLines(lines: string[]): { sections: BodySections; appendixAt: numb
   // Without option sections every line went to `context`, so it splits at appendixAt.
   const contextLines = appendixAt === null ? context : context.slice(0, appendixAt);
   const appendixLines = appendixAt === null ? appendix : context.slice(appendixAt);
+  const forChat: string[] = [];
   return {
     sections: {
-      context: trimBlankLines(contextLines.join("\n")),
+      context: trimBlankLines(withoutForChat(contextLines, forChat).join("\n")),
       options,
-      appendix: trimBlankLines(appendixLines.join("\n")),
+      appendix: trimBlankLines(withoutForChat(appendixLines, forChat).join("\n")),
+      forChat: forChat.join("\n\n"),
     },
     appendixAt,
   };
+}
+
+/**
+ * `lines` without their `## For the chat` sections (the heading up to the next level-2
+ * heading outside a code fence), whose text is added to `taken`.
+ */
+function withoutForChat(lines: string[], taken: string[]): string[] {
+  const kept: string[] = [];
+  let section: string[] | null = null;
+  let fence: string | null = null;
+  const end = () => {
+    if (section) {
+      const text = trimBlankLines(section.join("\n"));
+      if (text) taken.push(text);
+    }
+    section = null;
+  };
+  for (const line of lines) {
+    const target: string[] = section ?? kept;
+    if (fence === null) {
+      const open = FENCE_OPEN.exec(line)?.[1];
+      if (open) {
+        fence = open;
+        target.push(line);
+        continue;
+      }
+    } else {
+      const close = FENCE_CLOSE.exec(line)?.[1];
+      if (close && close[0] === fence[0] && close.length >= fence.length) fence = null;
+      target.push(line);
+      continue;
+    }
+    const heading = H2.exec(line);
+    if (heading) {
+      end();
+      if (FOR_THE_CHAT_HEADING.test(heading[1]?.trim() ?? "")) {
+        section = [];
+        continue;
+      }
+    }
+    (section ?? kept).push(line);
+  }
+  end();
+  return kept;
 }
 
 function trimBlankLines(text: string): string {
@@ -147,7 +203,8 @@ export function replaceOptionSections(body: string, sections: NewOptionSection[]
   if (sections.length === 0) {
     if (!first || !last) return body;
     const before = lines.slice(0, first.line - 1);
-    const after = lines.slice(sectionEnd(lines, last.line - 1));
+    const end = sectionEnd(lines, last.line - 1);
+    const after = [...forChatBetween(lines, first.line - 1, end), ...lines.slice(end)];
     while (before.length > 0 && before.at(-1)?.trim() === "") before.pop();
     return [...before, ...(after.length > 0 ? ["", ...after] : [""])].join(newline);
   }
@@ -166,7 +223,8 @@ export function replaceOptionSections(body: string, sections: NewOptionSection[]
   // isn't one (splitSections ends a section there); fences are skipped the same way.
   const appendixAt = sectionEnd(lines, last.line - 1);
   const before = lines.slice(0, first.line - 1);
-  const after = lines.slice(appendixAt);
+  // A `## For the chat` between the old option sections stays, right after the new ones.
+  const after = [...forChatBetween(lines, first.line - 1, appendixAt), ...lines.slice(appendixAt)];
   while (before.length > 0 && before.at(-1)?.trim() === "") before.pop();
   return [
     ...before,
@@ -174,6 +232,26 @@ export function replaceOptionSections(body: string, sections: NewOptionSection[]
     ...written,
     ...(after.length > 0 ? ["", ...after] : [""]),
   ].join(newline);
+}
+
+/**
+ * The `## For the chat` sections among `lines[from..to)`, each from its heading to the next
+ * level-2 heading, as they are, each followed by a blank line.
+ */
+function forChatBetween(lines: string[], from: number, to: number): string[] {
+  const kept: string[] = [];
+  // `from` is a level-2 heading, and sectionEnd skips code fences, so each step is one.
+  for (let i = from; i < to; ) {
+    const end = Math.min(sectionEnd(lines, i), to);
+    const heading = H2.exec(lines[i] as string);
+    if (heading && FOR_THE_CHAT_HEADING.test(heading[1]?.trim() ?? "")) {
+      const section = lines.slice(i, end);
+      while (section.length > 0 && section.at(-1)?.trim() === "") section.pop();
+      kept.push(...section, "");
+    }
+    i = end;
+  }
+  return kept;
 }
 
 /** The index of the line after the section whose heading is at `headingIndex`. */

@@ -113,3 +113,10 @@ answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.m
   `claude.cmd`, and run the chat tests on Windows CI. (#44)
 - Freeze (202611147ch5): until 2026-11-28 nothing beyond this plan gets built, unless
   CellSignalMapper or geode asks for it.
+
+### 7. Asked for by real use, during the freeze
+
+- [x] The card's chat knows what the card's author knew (decided in conversation,
+  2026-11-24): it starts as a fork of the author's Claude Code session (`created_session`)
+  when this machine has it and it holds at most 70k tokens (the $1 cap), and reads the
+  author's `## For the chat` note, which the card page hides. (#57)

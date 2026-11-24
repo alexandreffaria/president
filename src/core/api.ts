@@ -134,10 +134,16 @@ export interface ChatMessageDto {
  * The "hub" line a New conversation leaves in the copy (20261112lvbu `choose`): the panel
  * shows it as a divider, with the earlier messages above it.
  */
-export const NEW_CONVERSATION = "New conversation. It starts from the card and its summaries.";
+export const NEW_CONVERSATION =
+  "New conversation. It starts again from the card, without the messages above.";
+/** The divider's words before the chat could start from the card author's session. */
+const OLD_NEW_CONVERSATION = "New conversation. It starts from the card and its summaries.";
 
 export function isNewConversation(message: Pick<ChatMessageDto, "from" | "text">): boolean {
-  return message.from === "hub" && message.text === NEW_CONVERSATION;
+  return (
+    message.from === "hub" &&
+    (message.text === NEW_CONVERSATION || message.text === OLD_NEW_CONVERSATION)
+  );
 }
 
 export interface ChatDto {

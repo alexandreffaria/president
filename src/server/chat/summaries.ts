@@ -90,7 +90,8 @@ export class Summaries {
         result = await this.#host.run({
           cwd: project.path,
           session: { resume: entry.session },
-          message: withPickLine(line, summaryRequest(since > 0)),
+          message: withPickLine(line, summaryRequest(since > 0, entry.forked === true)),
+          forked: entry.forked === true,
         });
         if (!result.ok && result.sessionNotFound) {
           fromCopy = true;

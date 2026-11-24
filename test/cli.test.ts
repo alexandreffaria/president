@@ -457,6 +457,23 @@ describe("preside CLI", () => {
     });
   });
 
+  it("warns about a created_session that isn't a session id, and takes a real one", async () => {
+    const dir = await tempDir();
+    const bad = join(dir, "0001-bad.md");
+    await writeFile(bad, cardText({ created_session: "agent-a82fb3a292e6f6026" }));
+    const result = await cli("validate", bad);
+    expect(result.code).toBe(0);
+    expect(result.err).toMatch(
+      /^warning 0001-bad\.md: created_session: is not a Claude Code session id .*\(line \d+\)$/,
+    );
+    const good = join(dir, "0002-good.md");
+    await writeFile(
+      good,
+      cardText({ id: '"0002"', created_session: "801d9c51-8078-453d-bcb3-711e35f8698f" }),
+    );
+    expect(await cli("validate", good)).toMatchObject({ code: 0, err: "" });
+  });
+
   describe("withdrawn cards (#0014, 202611116ff6)", () => {
     const withdrawn = '\n  at: 2026-11-14T10:00:00Z\n  reason: "We dropped the map\n    screen."';
     const writeMapCards = async (demo: string, extra: Record<string, string> = {}) => {

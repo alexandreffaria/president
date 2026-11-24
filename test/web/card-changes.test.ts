@@ -73,6 +73,23 @@ describe("describeChanges", () => {
     expect(changed("depends_on: []", "depends_on: []\nseen_at: 2026-11-10T00:00:00Z")).toEqual([]);
   });
 
+  // The card page shows neither, so there is nothing for the human to read again.
+  it("ignores the author's created_session and ## For the chat", () => {
+    expect(
+      changed(
+        "depends_on: []",
+        "depends_on: []\ncreated_session: 801d9c51-8078-453d-bcb3-711e35f8698f",
+      ),
+    ).toEqual([]);
+    expect(
+      changed("## Sources", "## For the chat\n\n- Looked at src/http.ts.\n\n## Sources"),
+    ).toEqual([]);
+    // A body change the page does show still counts.
+    expect(changed("## Sources", "## Notes\n\nN.\n\n## Sources")).toEqual([
+      "The notes below the options changed.",
+    ]);
+  });
+
   it("says which option was decided by its title", () => {
     const decided = original
       .replace("status: open", "status: resolved")
