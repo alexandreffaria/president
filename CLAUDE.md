@@ -38,15 +38,22 @@ from it, and Sync pulls main into it. Work in a git worktree.
 One exception, for the orchestrating session only: Sync never commits, so an answer to a
 card that is already on main sits uncommitted in the main checkout, and Sync says "Not now"
 once a merged PR changes that card. Before applying such answers, the orchestrating session
-commits them straight on main there and pushes: only `decisions/` card files whose change is
-the human's answer or feedback from the hub, by path, with a message like "decisions:
-answers to <ids>". Never edit or commit any other file there. First run `git fetch`
-there; then both `git log @{u}..` and `git log ..@{u}` must print nothing. If the first
-prints, stop and tell the human. If only the second prints (a code-only PR merged: Sync
-doesn't pull those), first run `git merge --ff-only @{u}`; if git refuses because it would
-touch the uncommitted answer, tell the human before committing anything. Then commit, and
-push only that commit (`git push origin HEAD:main`). If the push is refused, don't rebase
-or merge there: tell the human.
+commits and pushes them on main there: only the `decisions/` card files the hub changed (the
+human's answers and feedback), and it never edits anything else there. Exactly this, in the
+main checkout:
+
+```
+git fetch
+git symbolic-ref --short HEAD          # must print main
+git rev-parse --abbrev-ref @{u}        # must print origin/main
+git log --oneline @{u}..               # must print nothing
+git merge --ff-only @{u}               # catches up if behind; no-op if level
+git commit -m "decisions: answers to <ids>" -- decisions/<file>...
+git push origin main:main
+```
+
+If a check fails or a command refuses: stop, change nothing else there, and tell the human.
+Never rebase, reset or merge any other way there.
 
 ## Cards and docs
 
