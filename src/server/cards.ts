@@ -56,7 +56,14 @@ export interface LoadedCard extends ParsedCard {
   revision: string;
   /** The branch of the checkout the file is in (null: detached HEAD, or not in git). */
   branch: string | null;
-  /** When the file last changed (ms), to choose between differing copies (pickCopy). */
+  /**
+   * The branch the card is shown as on (CardDto.branch): `branch`, unless it is the
+   * registered folder's own branch (or null).
+   */
+  shownBranch: string | null;
+  /** Whether the file is in the registered folder rather than another checkout (pickCopy). */
+  registered: boolean;
+  /** When the file last changed (ms), to choose between copies (pickCopy). */
   changedMs: number;
 }
 
@@ -69,6 +76,26 @@ export type CardScope = Project & { checkouts?: HubProject["checkouts"] };
 /** The checkouts of `scope`, the registered folder first. */
 export function checkoutsIn(scope: CardScope): readonly Checkout[] {
   return scope.checkouts ?? [{ path: scope.path, branch: null }];
+}
+
+/** A checkout, with what its cards say about it (LoadedCard.registered and shownBranch). */
+interface PlacedCheckout extends Checkout {
+  registered: boolean;
+  shownBranch: string | null;
+}
+
+/**
+ * {@link checkoutsIn}, placed: a checkout on the registered folder's own branch (the folder
+ * itself, or a worktree on the same branch) shows no branch.
+ */
+function placedCheckouts(scope: CardScope): PlacedCheckout[] {
+  const all = checkoutsIn(scope);
+  const folderBranch = all[0]?.branch ?? null;
+  return all.map((checkout, i) => ({
+    ...checkout,
+    registered: i === 0,
+    shownBranch: checkout.branch === folderBranch ? null : checkout.branch,
+  }));
 }
 
 /** Something odd about a valid card that an agent should look at. */
@@ -148,7 +175,7 @@ async function cardFileNames(dir: string): Promise<string[]> {
  * decisions/ (its branch has none) is no error either while another checkout has one.
  */
 export async function loadProjectCards(scope: CardScope): Promise<ProjectCards> {
-  const checkouts = checkoutsIn(scope);
+  const checkouts = placedCheckouts(scope);
   const loaded = await Promise.all(checkouts.map((checkout) => loadCheckout(scope, checkout)));
   const first = loaded[0];
   const elsewhere = loaded.some((result) => !("error" in result));
@@ -183,7 +210,7 @@ type CheckoutProblem = { error: string; missing: boolean };
 /** The cards in one checkout, those whose id is `onlyId` when given (read fresh then). */
 async function loadCheckout(
   project: Pick<Project, "name">,
-  checkout: Checkout,
+  checkout: PlacedCheckout,
   onlyId?: string,
 ): Promise<CheckoutCards | CheckoutProblem> {
   const located = await decisionsDir(checkout);
@@ -257,7 +284,7 @@ function pickOne(copies: LoadedCard[]): { card: LoadedCard } | { broken: BrokenC
         project: card.project,
         fileName: card.fileName,
         id: card.id,
-        branch: card.branch,
+        branch: card.shownBranch,
         errors: [
           `id "${card.id}" is also used by a different card, ${[...new Set(others)].join(", ")}; give each card its own id. If you wrote one of them, give yours (the newer one) a new dated id (the current date plus 4 random characters, see docs/card-format.md): change its id and rename its file to match`,
         ],
@@ -268,28 +295,53 @@ function pickOne(copies: LoadedCard[]): { card: LoadedCard } | { broken: BrokenC
 
 /**
  * Which copy of a card in several checkouts the hub shows and writes to (`copies` in
- * checkout order, the registered folder first). Copies with the same content are one card:
- * the first. When they differ (the human answered one, an agent changed another), the one
- * with the latest activity in its frontmatter (a decision, a note, `applied`, a withdrawal)
- * wins, then the copy this hub wrote last (see hubWrote), then the file changed last, then
- * the first. Not `seen_at`: an agent that marks a stale, unanswered copy seen must not make
- * it beat the copy the human answered.
+ * checkout order, the registered folder first).
+ *
+ * Copies with the same content are one card, and the hub uses the one where an answer is
+ * safest: the registered folder's, else one on a named branch (not a detached HEAD, such as
+ * a throwaway reviewer's worktree), else the one this hub wrote last (see hubWrote), else the
+ * oldest file (a worktree made later has newer files), else the first. Never just the first
+ * in `git worktree list`, which sorts worktrees by path.
+ *
+ * When copies differ (the human answered one, an agent changed another), the content with
+ * the latest activity in its frontmatter (a decision, a note, `applied`, a withdrawal) wins,
+ * then the one this hub wrote last, then the one whose file changed last, then the first. Not
+ * `seen_at`: an agent that marks a stale, unanswered copy seen must not make it beat the copy
+ * the human answered.
  */
 export function pickCopy(copies: LoadedCard[]): LoadedCard {
-  const [first, ...rest] = copies;
+  const [first] = copies;
   if (!first) throw new Error("pickCopy needs a copy");
-  if (rest.every((copy) => copy.revision === first.revision)) return first;
   const wrote = hubWrote.get(copyKey(first));
   const byHub = (copy: LoadedCard) => (copy.path === wrote ? 1 : 0);
-  let best = first;
-  for (const copy of rest) {
-    const order =
-      lastActivity(copy) - lastActivity(best) ||
-      byHub(copy) - byHub(best) ||
-      copy.changedMs - best.changedMs;
-    if (order > 0) best = copy;
+  const contents = new Map<string, LoadedCard[]>();
+  for (const copy of copies) {
+    contents.set(copy.revision, [...(contents.get(copy.revision) ?? []), copy]);
   }
-  return best;
+  let best: { card: LoadedCard; hub: number; changedMs: number } | undefined;
+  for (const same of contents.values()) {
+    let card = same[0] as LoadedCard;
+    for (const copy of same.slice(1)) {
+      const order =
+        Number(copy.registered) - Number(card.registered) ||
+        Number(copy.branch !== null) - Number(card.branch !== null) ||
+        byHub(copy) - byHub(card) ||
+        card.changedMs - copy.changedMs;
+      if (order > 0) card = copy;
+    }
+    const candidate = {
+      card,
+      hub: Math.max(...same.map(byHub)),
+      changedMs: Math.max(...same.map((copy) => copy.changedMs)),
+    };
+    const order = best
+      ? lastActivity(card) - lastActivity(best.card) ||
+        candidate.hub - best.hub ||
+        candidate.changedMs - best.changedMs
+      : 1;
+    if (order > 0) best = candidate;
+  }
+  return (best as { card: LoadedCard }).card;
 }
 
 /**
@@ -367,7 +419,7 @@ function collect(
         project: project.name,
         fileName: card.fileName,
         id: card.id,
-        branch: card.branch,
+        branch: card.shownBranch,
         errors: [
           `id "${card.id}" is also used by ${others.join(", ")}; give each card its own id. If you wrote one of them, give yours (the newer one) a new dated id (the current date plus 4 random characters, see docs/card-format.md): change its id and rename its file to match`,
         ],
@@ -439,7 +491,7 @@ function pruneCache(dir: string, names: string[]): void {
 
 async function loadFile(
   project: Pick<Project, "name">,
-  checkout: Checkout,
+  checkout: PlacedCheckout,
   fileName: string,
   useCache: boolean,
 ): Promise<LoadedCard | BrokenCardDto | undefined> {
@@ -448,7 +500,7 @@ async function loadFile(
     project: project.name,
     fileName,
     id: parseCardFileName(fileName)?.id,
-    branch: checkout.branch,
+    branch: checkout.shownBranch,
     errors,
   });
   try {
@@ -468,7 +520,10 @@ async function loadFile(
     const cached = cache.get(path);
     if (useCache && cached?.stamp === stamp) {
       // The branch isn't the file's: its checkout can switch branch and keep the file.
-      return { ...cached.result, project: project.name, branch: checkout.branch };
+      if ("errors" in cached.result) {
+        return { ...cached.result, project: project.name, branch: checkout.shownBranch };
+      }
+      return { ...cached.result, project: project.name, ...placeOf(checkout) };
     }
 
     const text = await readFile(path, "utf8");
@@ -483,10 +538,10 @@ async function loadFile(
           project: project.name,
           path,
           revision: revisionOf(text),
-          branch: checkout.branch,
+          ...placeOf(checkout),
           changedMs,
         }
-      : { project: project.name, ...parsed.problem, branch: checkout.branch };
+      : { project: project.name, ...parsed.problem, branch: checkout.shownBranch };
     // Like git's "racily clean" rule: file times are coarse (a few ms), so a file changed in
     // the last couple of seconds could change again without its stamp moving. Only files
     // that have settled are cached; any later write moves ctime past the cached stamp.
@@ -501,6 +556,17 @@ async function loadFile(
   }
 }
 
+/** A card's fields that come from its checkout, not its file. */
+function placeOf(
+  checkout: PlacedCheckout,
+): Pick<LoadedCard, "branch" | "shownBranch" | "registered"> {
+  return {
+    branch: checkout.branch,
+    shownBranch: checkout.shownBranch,
+    registered: checkout.registered,
+  };
+}
+
 export type FindCardResult = { ok: true; card: LoadedCard } | { ok: false; broken: BrokenCardDto };
 
 /**
@@ -512,7 +578,7 @@ export type FindCardResult = { ok: true; card: LoadedCard } | { ok: false; broke
 export async function findCard(project: CardScope, id: string): Promise<FindCardResult> {
   if (!CARD_ID_PATTERN.test(id)) throw new UserError(`"${id}" is not a valid card id`);
   const found = await Promise.all(
-    checkoutsIn(project).map((checkout) => loadCheckout(project, checkout, id)),
+    placedCheckouts(project).map((checkout) => loadCheckout(project, checkout, id)),
   );
   const cards: LoadedCard[] = [];
   let problem: BrokenCardDto | undefined;
@@ -618,7 +684,7 @@ export async function actOnCard(
       } as const;
       throw new UserError(result.error, failure[result.reason]);
     }
-    const original = await readFile(card.path, "utf8");
+    const original = await readCardFile(card);
     if (revisionOf(original) !== card.revision) {
       throw conflict("the card changed on disk while saving; try again");
     }
@@ -702,7 +768,7 @@ export async function rewriteCard(
     if (card.revision !== read.revision) {
       throw conflict("the card changed while the agent was writing them");
     }
-    const original = await readFile(card.path, "utf8");
+    const original = await readCardFile(card);
     if (revisionOf(original) !== card.revision) {
       throw conflict("the card changed while saving");
     }
@@ -772,6 +838,26 @@ function changedSince(action: CardActionType | undefined): string {
   }
 }
 
+/** The card was found in a checkout that has lost it since (a worktree removed). */
+const movedConflict = () => conflict("the card moved or was removed; review it again");
+
+/** The card's file as it is now; {@link movedConflict} when it is gone. */
+async function readCardFile(card: LoadedCard): Promise<string> {
+  try {
+    return await readFile(card.path, "utf8");
+  } catch (error) {
+    if (isNotFound(error)) throw movedConflict();
+    throw error;
+  }
+}
+
+async function isFile(path: string): Promise<boolean> {
+  return lstat(path).then(
+    (info) => info.isFile(),
+    () => false,
+  );
+}
+
 async function writeChecked(
   project: Pick<Project, "name">,
   card: LoadedCard,
@@ -782,7 +868,15 @@ async function writeChecked(
   if (!reparsed.ok) {
     throw new Error(`refusing to write an invalid card: ${reparsed.problem.errors.join("; ")}`);
   }
-  await writeFileAtomic(card.path, text);
+  // The card's checkout may have gone since it was found (a worktree removed): refuse rather
+  // than write a card back into a folder that has lost it.
+  if (!(await isFile(card.path))) throw movedConflict();
+  try {
+    await writeFileAtomic(card.path, text);
+  } catch (error) {
+    if (isNotFound(error)) throw movedConflict();
+    throw error;
+  }
   const key = copyKey({ project: project.name, id: card.id });
   hubWrote.delete(key);
   hubWrote.set(key, card.path);
@@ -793,6 +887,8 @@ async function writeChecked(
     path: card.path,
     revision: revisionOf(text),
     branch: card.branch,
+    shownBranch: card.shownBranch,
+    registered: card.registered,
     changedMs: Date.now(),
   };
 }
@@ -804,7 +900,7 @@ export function toCardDto(card: LoadedCard): CardDto {
     fileName: card.fileName,
     revision: card.revision,
     frontmatter: card.frontmatter,
-    branch: card.branch,
+    branch: card.shownBranch,
   };
 }
 

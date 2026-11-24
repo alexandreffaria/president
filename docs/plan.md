@@ -124,10 +124,10 @@ answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.m
 ### 8. Cards on the working branch (decided 2026-11-16)
 
 - [x] The hub reads cards from every checkout of a project (the folder and its git worktrees),
-  shows each card's branch, shows a card in several checkouts once, and writes answers into
-  the checkout that holds it. `preside` works in the checkout it runs in, without the worktree
-  warning; the skill, `CLAUDE.md`, README and foundations say agents commit cards on their
-  branch. (#56)
+  shows each card's branch (when it isn't the folder's own), shows a card in several checkouts
+  once, and writes answers into the checkout that holds it. `preside` works in the checkout it
+  runs in, without the worktree warning; the skill, `CLAUDE.md`, README and foundations say
+  agents commit cards on their branch. (#56)
 - [ ] Answering from another machine (20261116notj) and what Sync becomes (20261116d34o): once
   their cards are answered. With Sync: the top bar's "answers not synced" still counts a
   feature branch's committed card changes in the registered folder, which travel with that

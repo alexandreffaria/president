@@ -435,7 +435,7 @@ export class ChatService {
           message,
           forked: resume ? entry?.forked === true : author !== undefined,
           // Not on a fork, where Claude Code ignores it (forkIntro carries the instructions).
-          appendSystemPrompt: resume || author ? undefined : sessionInstructions(card),
+          appendSystemPrompt: resume || author ? undefined : sessionInstructions(project, card),
           jsonSchema: turn.jsonSchema,
           signal: turn.signal,
         },

@@ -220,10 +220,10 @@ both want port 4747 (the icon then turns grey and says "port 4747 in use by anot
 2. Work with your agent as usual. When it hits a decision for you, it writes
    `decisions/20261112k7q2-some-question.md` in its own checkout (the project folder, or a git
    worktree of it) and commits it on the branch it works on. The card shows up in the queue
-   right away, no reload needed, with the branch it is on ("on feat-login"). Your answer is
-   written into that card file, the agent commits it with its work, and the branch's pull
-   request takes the card to main (a card in the project folder on main travels with Sync,
-   step 5). The hub reads every checkout of a registered project: the folder and each
+   right away, no reload needed, with the branch it is on ("on feat-login") when that isn't
+   the project folder's own branch. Your answer is written into that card file, the agent
+   commits it with its work, and the branch's pull request takes the card to main (a card in
+   the project folder on main travels with Sync, step 5). The hub reads every checkout of a registered project: the folder and each
    `git worktree list` entry, looked up again every few seconds.
 
 3. Go through the **Queue**. On a card:
@@ -476,8 +476,9 @@ How it fits together:
   `decisions/` folder of each of the project's checkouts (the registered folder and its git
   worktrees), so the API can't be pointed at other paths. Symlinked cards, and a `decisions/`
   folder that points outside its checkout, are refused. The same card in several checkouts is
-  shown once: identical copies are one card (the first checkout's: the registered folder, then
-  `git worktree list` order), and when copies differ the one with the latest activity in its
+  shown once: identical copies are one card (the registered folder's, else one on a named
+  branch rather than a detached HEAD, else the one the hub wrote last, else the oldest file),
+  and when copies differ the one with the latest activity in its
   frontmatter (a decision, a note, applied; not an agent's seen) is shown and written to. The
   server refuses requests whose Host isn't localhost (DNS rebinding), and writes and live-event
   WebSockets whose Origin isn't the hub itself (scripts and curl must send

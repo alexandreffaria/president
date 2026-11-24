@@ -7,7 +7,7 @@
 
 import { execFile } from "node:child_process";
 import type { Stats } from "node:fs";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { connect, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -232,6 +232,28 @@ describe("HubWatcher", () => {
       GIT_WAIT,
     );
     await untilNewCardSeen(log, "demo", join(wt, "decisions"), [], GIT_WAIT);
+  }, 40_000);
+
+  // On Windows a watch holds a handle on its folder: it must not stop git removing a worktree.
+  it("lets git remove a worktree whose decisions/ folder it watches", async () => {
+    const { demo, log } = await watched(async (registry) => {
+      const [project] = await registry.list();
+      if (!project) throw new Error("no project");
+      await git(project.path, "init", "-q", "-b", "main");
+      await git(project.path, "add", ".");
+      await git(project.path, "commit", "-qm", "cards");
+    }, GIT_WATCH);
+    const wt = join(dirname(demo), "demo-gone");
+    await git(demo, "worktree", "add", "-q", "-b", "gone", wt);
+    await untilNewCardSeen(log, "demo", join(wt, "decisions"), [], GIT_WAIT);
+    await git(demo, "worktree", "remove", "--force", wt);
+    expect(
+      await lstat(wt).then(
+        () => "still there",
+        () => "gone",
+      ),
+    ).toBe("gone");
+    expect((await git(demo, "worktree", "list", "--porcelain")).stdout).not.toContain("demo-gone");
   }, 40_000);
 
   it("reports a project's cards when one of its checkouts switches branch", async () => {

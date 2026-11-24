@@ -3,6 +3,7 @@
  * registered folder and each `git worktree list` entry.
  */
 import { execFile } from "node:child_process";
+import { existsSync, rmSync } from "node:fs";
 import { mkdir, readFile, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -12,6 +13,7 @@ import {
   findCard,
   loadProjectCards,
   pickCopy,
+  toCardDto,
   undoLastAction,
 } from "../src/server/cards.ts";
 import {
@@ -176,14 +178,23 @@ describe("cards in every checkout", () => {
     const { cards, error } = await loadProjectCards(hub);
     expect(error).toBeUndefined();
     const card = cards.find((c) => c.id === "20261116abcd");
-    expect(card).toMatchObject({ branch: "feat", path: join(wt, "decisions", file) });
-    // The demo's cards are in both checkouts, the same: each is shown once, from the folder.
+    expect(card).toMatchObject({
+      branch: "feat",
+      shownBranch: "feat",
+      path: join(wt, "decisions", file),
+    });
+    // The demo's cards are in both checkouts, the same: each is shown once, from the folder,
+    // with no branch shown (the registered folder's own).
     expect(cards.filter((c) => c.id === "0001")).toEqual([
       expect.objectContaining({
         branch: "main",
+        shownBranch: null,
         path: join(main, "decisions", "0001-offline-storage.md"),
       }),
     ]);
+    expect(card && toCardDto(card).branch).toBe("feat");
+    const folderCard = cards.find((c) => c.id === "0001");
+    expect(folderCard && toCardDto(folderCard).branch).toBeNull();
     expect(cards.map((c) => c.fileName)).toEqual([...cards.map((c) => c.fileName)].sort());
 
     const found = await findCard(hub, "20261116abcd");
@@ -201,6 +212,29 @@ describe("cards in every checkout", () => {
     // preside's own folder scope sees only its checkout.
     const alone = await loadProjectCards(project);
     expect(alone.cards.some((c) => c.id === "20261116abcd")).toBe(false);
+  });
+
+  it("refuses with a conflict an answer to a card whose worktree went meanwhile", async () => {
+    const { wt, project } = await repoWithWorktree();
+    const file = "20261124gone-question.md";
+    await writeFile(join(wt, "decisions", file), cardText({ id: '"20261124gone"' }));
+    const hub = await withCheckouts(project);
+    const found = await findCard(hub, "20261124gone");
+    if (!found.ok) throw new Error("broken");
+    // The worktree is removed after the card was found, before its file is read for the write
+    // (`now` is read in between).
+    const options = {
+      revision: found.card.revision,
+      get now() {
+        rmSync(wt, { recursive: true, force: true });
+        return new Date();
+      },
+    };
+    await expect(
+      actOnCard(hub, "20261124gone", { type: "note", note: "Hi." }, options),
+    ).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/the card moved/) });
+    // Nothing was written back: the folder stays gone.
+    expect(existsSync(join(wt, "decisions"))).toBe(false);
   });
 
   it("shows the copy with the latest activity when copies differ", async () => {
@@ -227,7 +261,7 @@ describe("cards in every checkout", () => {
     const hub = await withCheckouts(project);
     const found = await findCard(hub, "0001");
     if (!found.ok) throw new Error("broken");
-    // The answer goes to the folder's copy, the first of identical copies.
+    // The answer goes to the folder's copy, the registered folder's of identical copies.
     await actOnCard(
       hub,
       "0001",
@@ -416,8 +450,9 @@ describe("the same id on two branches", () => {
     const hub = await withCheckouts(project);
     const { cards, broken } = await loadProjectCards(hub);
     expect(cards.some((c) => c.id === "20261116dupe")).toBe(false);
+    // The registered folder's own branch isn't shown.
     expect(broken.filter((b) => b.id === "20261116dupe").map((b) => b.branch)).toEqual([
-      "main",
+      null,
       "feat",
     ]);
     expect(broken[0]?.errors[0]).toMatch(/is also used by a different card/);
@@ -478,12 +513,63 @@ describe("the same id on two branches", () => {
 });
 
 describe("pickCopy", () => {
-  it("takes the first of identical copies", async () => {
+  it("takes the registered folder's of identical copies, wherever it is in the list", async () => {
     const { project, wt } = await repoWithWorktree();
-    const a = await findCard(project, "0002");
-    const b = await findCard({ name: "trips", path: wt }, "0002");
-    if (!a.ok || !b.ok) throw new Error("broken");
-    expect(pickCopy([a.card, b.card])).toBe(a.card);
-    expect(pickCopy([b.card, a.card])).toBe(b.card);
+    const a = await findCard(await withCheckouts(project), "0002");
+    if (!a.ok) throw new Error("broken");
+    expect(a.card).toMatchObject({
+      registered: true,
+      path: join(project.path, "decisions", "0002-api-errors.md"),
+    });
+    const b = {
+      ...a.card,
+      registered: false,
+      path: join(wt, "decisions", "0002-api-errors.md"),
+      changedMs: 0,
+    };
+    expect(pickCopy([a.card, b])).toBe(a.card);
+    expect(pickCopy([b, a.card])).toBe(a.card);
+  });
+
+  it("prefers a named branch to a detached HEAD, then the oldest file, never git's path order", async () => {
+    const { main, wt: feat, project } = await repoWithWorktree();
+    // A card only on branch feat, and two more worktrees with it: a detached reviewer's,
+    // whose path sorts first, and a stacked branch's, made later.
+    const file = "20261124copy-question.md";
+    await writeFile(join(feat, "decisions", file), cardText({ id: '"20261124copy"' }));
+    await git(feat, "add", ".");
+    await git(feat, "commit", "-qm", "card");
+    const reviewer = resolve(main, "..", "trips-0-review");
+    await git(main, "worktree", "add", "-q", "--detach", reviewer, "feat");
+    const stacked = resolve(main, "..", "trips-1-stacked");
+    await git(main, "worktree", "add", "-q", "-b", "stacked", stacked, "feat");
+    const hub = await withCheckouts(project);
+    // git lists the worktrees by path: the detached one comes before feat's.
+    expect(hub.checkouts.map((c) => c.path)).toEqual([main, reviewer, stacked, feat]);
+
+    const found = await findCard(hub, "20261124copy");
+    if (!found.ok) throw new Error("broken");
+    // Not the detached copy, and of the named branches the oldest file: feat's.
+    expect(found.card.path).toBe(join(feat, "decisions", file));
+    const { cards } = await loadProjectCards(hub);
+    expect(cards.find((c) => c.id === "20261124copy")?.path).toBe(join(feat, "decisions", file));
+
+    // An answer goes there, and that copy stays the one shown.
+    await actOnCard(
+      hub,
+      "20261124copy",
+      { type: "resolve", choice: "custom", note: "Yes." },
+      { revision: found.card.revision },
+    );
+    expect(await readFile(join(feat, "decisions", file), "utf8")).toMatch(/status: resolved/);
+    expect(await readFile(join(reviewer, "decisions", file), "utf8")).not.toMatch(/resolved/);
+    const after = await findCard(hub, "20261124copy");
+    expect(after.ok && after.card.path).toBe(join(feat, "decisions", file));
+
+    // With only detached copies, the oldest file wins.
+    const one = { ...found.card, branch: null, registered: false, changedMs: 2, path: "a" };
+    const two = { ...found.card, branch: null, registered: false, changedMs: 1, path: "b" };
+    expect(pickCopy([one, two])).toBe(two);
+    expect(pickCopy([two, one])).toBe(two);
   });
 });

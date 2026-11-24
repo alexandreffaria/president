@@ -24,7 +24,7 @@ The 2026-11-14 cleanup is done ([plan.md](plan.md) section 4).
 
 Decided in chat on 2026-11-16 (see [foundations](foundations.md#settled-decisions)); real use on
 Blendeck asked for it, so the freeze doesn't hold it. The hub reading every checkout, `preside`
-working in its own checkout, and the skill and docs are built ([plan.md](plan.md) section 7).
+working in its own checkout, and the skill and docs are built ([plan.md](plan.md) section 8).
 Left, once their cards are answered:
 
 1. Answering from another machine: whether other machines' hubs show or answer a branch's cards

@@ -143,6 +143,7 @@ async function setup(options: { claudeBin?: string | undefined } = { claudeBin: 
         unsummarized?: boolean;
         revealed?: string;
         summarized?: number;
+        cardPath?: string;
       }
     >;
   const deleteTranscripts = () => rm(join(claudeDir, "projects"), { recursive: true, force: true });
@@ -1665,6 +1666,9 @@ describe("keeping the hub's copy (202611114wet)", () => {
     expect(call?.args[at + 1]).toBe(wt);
     const system = call?.args[(call?.args.indexOf("--append-system-prompt") ?? -2) + 1];
     expect(system).toContain(`The card is the file ${file}`);
+    expect(system).toContain(
+      `The card is in the checkout ${wt} (branch feat), not in your current folder: that checkout holds the work the card is about, and you can read its files too.`,
+    );
 
     // The branch is merged and the worktree goes: the resumed session is told the new place.
     const moved = join(t.demo, "decisions", "20261116wtcd-question.md");
@@ -1700,6 +1704,44 @@ describe("keeping the hub's copy (202611114wet)", () => {
     expect((await t.calls()).at(-1)?.args).not.toContain("--add-dir");
   });
 
+  it("tells a resumed summary where a card moved, once, and saves the new place", async () => {
+    const t = await setup();
+    const git = (...args: string[]) =>
+      promisify(execFile)("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+        cwd: t.demo,
+        env: {
+          ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_"))),
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_CONFIG_GLOBAL: "/dev/null",
+        },
+      });
+    await git("init", "-q", "-b", "main");
+    await git("add", ".");
+    await git("commit", "-qm", "cards");
+    const wt = join(dirname(t.demo), "demo-feat");
+    await git("worktree", "add", "-q", "-b", "feat", wt);
+    const file = join(wt, "decisions", "20261124smry-question.md");
+    await writeFile(file, cardText({ id: '"20261124smry"' }));
+    forgetCheckouts();
+    await t.send("Hello", {}, "20261124smry");
+    expect((await t.sessions())["demo/20261124smry"]?.cardPath).toBe(file);
+
+    // The branch is merged and the worktree goes; the next run is a summary, not a message.
+    const moved = join(t.demo, "decisions", "20261124smry-question.md");
+    await writeFile(moved, await readFile(file, "utf8"));
+    await git("worktree", "remove", "--force", wt);
+    forgetCheckouts();
+    expect((await t.post("/api/chats/demo/20261124smry/summary", {})).status).toBe(200);
+    const summarized = (await t.calls()).at(-1);
+    expect(summarized?.args).toContain("--resume");
+    expect(summarized?.args).not.toContain("--add-dir");
+    expect(summarized?.stdin).toContain(`The card's file is now ${moved}; read it there.`);
+    // Back in the project's own decisions/: no path kept, and the next run isn't told again.
+    expect((await t.sessions())["demo/20261124smry"]?.cardPath).toBeUndefined();
+    await t.send("Thanks", {}, "20261124smry");
+    expect((await t.calls()).at(-1)?.stdin).not.toContain("The card's file is now");
+  }, 30_000);
+
   it("forks the author's session for a card in a worktree, told where the card is", async () => {
     const t = await setup();
     // The author's transcript (authored also gives card 0002 its created_session).
@@ -1730,8 +1772,9 @@ describe("keeping the hub's copy (202611114wet)", () => {
     expect(stdin).toContain(
       `a decision card written in this session (by you or a subagent you ran), ${file}, so that`,
     );
+    expect(stdin).toContain(`read the project's files here, and in the card's checkout (below).`);
     expect(stdin).toContain(
-      `The project is now at your current folder, ${await realpath(t.demo)}, and you can also read the checkout that holds the card, ${wt}.`,
+      `The card is in the checkout ${wt} (branch feat), not in your current folder: that checkout holds the work the card is about, and you can read its files too.`,
     );
     expect(stdin).toContain(`The card is the file ${file}`);
     expect((await t.sessions())["demo/20261124wtfk"]).toMatchObject({

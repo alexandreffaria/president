@@ -119,7 +119,7 @@ export class Summaries {
         addDirs: cardCheckout(project, card),
         session: { oneOff: true },
         message: withPickLine(line, summaryFromCopy(card, messages.slice(since), since > 0)),
-        appendSystemPrompt: sessionInstructions(card),
+        appendSystemPrompt: sessionInstructions(project, card),
       });
       const summary = result.text.trim();
       if (!result.ok || !summary) {

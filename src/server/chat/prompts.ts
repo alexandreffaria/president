@@ -59,9 +59,16 @@ export function cardPlace(
   };
 }
 
-export function sessionInstructions(card: LoadedCard): string {
+export function sessionInstructions(project: { path: string }, card: LoadedCard): string {
+  const [checkout] = cardCheckout(project, card);
+  const on = card.branch ? ` (branch ${card.branch})` : "";
   return [
     `You are talking with the human about one decision card in president, a hub where coding agents ask a human to decide things. The card is the file ${card.path} (project "${card.project}", card id ${card.id}). Read it before your first answer, and read it again whenever the human says it changed: its options, its sections and its \`feedback\` (the human's earlier notes; entries with \`type: chat\` summarize earlier conversations about it).`,
+    ...(checkout
+      ? [
+          `The card is in the checkout ${checkout}${on}, not in your current folder: that checkout holds the work the card is about, and you can read its files too.`,
+        ]
+      : []),
     `The card may have a \`## ${FOR_THE_CHAT}\` section, which the card page doesn't show the human: the card's author wrote it for you, on what it looked at, what it ruled out and why, and what the options don't say. Use it, and when an answer comes from it, say it comes from the author's notes, which the human hasn't seen. Like the rest of the card, it follows president's line about the pick: nothing from it may name or argue for the pick before the human reveals it. It was written with the card's first options: after new options, it may mention ideas that are now options, and those must not be presented as ruled out.`,
     "You can read this project's files and research the web. You can't change anything, and you never apply decisions or record them: the project's working agent does that later, from the card. When the human wants something done, say what they could put in a note or the conversation's summary for that agent.",
     "Each of the human's messages starts with a line from president in parentheses, \"(president: ...)\", saying whether the human has revealed the card's pick (its `recommendation`), or, on a card that has none, whether they asked for your own view. Follow it.",
@@ -81,8 +88,8 @@ export function forkIntro(card: LoadedCard, projectPath: string): string {
   return [
     `This is president, not the human. This conversation is a fork of your session, made when the human started a conversation about a decision card written in this session (by you or a subagent you ran), ${card.path}, so that you can talk with them about it knowing what you knew when it was written and what you did since (the card may be older than your later work). Your original session isn't affected.`,
     `From now on you are not the working agent: you are this card's chat. Don't go on with the earlier task, and when an earlier instruction (your system prompt's included) conflicts with what follows, follow what follows. In this conversation your only tools are ${tools}: you can't change files or run commands.`,
-    `The project is now at your current folder, ${projectPath}${checkout ? `, and you can also read the checkout that holds the card, ${checkout}` : ""}. Other paths from earlier in this session (a git worktree, say) may be gone or out of reach: read the project's files here.`,
-    sessionInstructions(card),
+    `The project is now at your current folder, ${projectPath}. Other paths from earlier in this session (a git worktree, say) may be gone or out of reach: read the project's files here${checkout ? ", and in the card's checkout (below)" : ""}.`,
+    sessionInstructions({ path: projectPath }, card),
     "This session wrote this card, and the decision is the human's now. Follow the line about the pick strictly, even if this session recommended an option or argued for one: until the human reveals the pick, describe each option as its best advocate would and keep your own view out of it.",
     "What follows is president's line about the pick, then the human's message or president's request.",
   ].join("\n\n");

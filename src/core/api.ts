@@ -14,7 +14,9 @@ export interface CardDto {
   frontmatter: Frontmatter;
   /**
    * The branch of the checkout the card file is in (the hub reads every checkout of a
-   * project); null when its HEAD is detached or the project isn't in git.
+   * project), shown on the card; null when it is the registered folder's own branch (the
+   * folder itself, or a worktree on that branch), its HEAD is detached, or the project isn't
+   * in git.
    */
   branch: string | null;
 }
