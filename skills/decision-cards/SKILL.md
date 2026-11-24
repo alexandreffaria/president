@@ -109,11 +109,17 @@ that the review ran, so don't skip it.
      but `preside validate` refuses them ("is not a card file").
 
    Duplicate ids are rare this way; step 7 checks anyway.
-2. Get the current time for `created` (don't guess it or copy the example's):
+2. Get the current time for `created` and your Claude Code session id for
+   `created_session` (don't guess them or copy the example's):
 
    ```sh
    date -u +%Y-%m-%dT%H:%M:%SZ
+   echo "$CLAUDE_CODE_SESSION_ID"
    ```
+
+   The card's chat starts as a fork of that session, so it knows what you found. In a
+   subagent the variable holds the parent's session; record it as is (a subagent's own
+   session can't be resumed). If it prints nothing, leave `created_session` out.
 
 3. Choose the kind:
    - `ab`: two concrete alternatives to compare side by side (two code styles, wordings,
@@ -132,6 +138,7 @@ kind: choice
 priority: normal
 created: 2026-11-10T14:03:00Z
 created_by: claude-code
+created_session: ...
 tags: [copy, onboarding]
 depends_on: []
 recommendation:
@@ -155,6 +162,10 @@ options:
 ## Context
 
 ...
+
+## For the chat
+
+- ...
 ````
 
    Filled in, at a good length:
@@ -168,6 +179,7 @@ kind: choice
 priority: normal
 created: 2026-11-10T14:03:00Z
 created_by: claude-code
+created_session: 3f6c2a1e-8b4d-4c2a-9e7f-1a2b3c4d5e6f
 tags: [copy, onboarding]
 depends_on: []
 recommendation:
@@ -197,6 +209,11 @@ options:
 
 A new user's trip list is empty: one line of text and a New trip button. Which line should
 it show?
+
+## For the chat
+
+- Looked at the download page (`site/index.html`) and the onboarding screens.
+- Ruled out a two-line text: the empty state has room for one line on small phones.
 ~~~~
 
    An `open` card needs no options; the human answers in their own words:
@@ -245,12 +262,17 @@ it show?
 
 ### What makes a good card
 
-- **Short: at most about 250 words, usually fewer.** Only what would change the human's
-  choice; no history, internals or how you found out. Cut before you add: a sentence the
-  choice doesn't need goes.
+- **Short: at most about 250 words, usually fewer** (`## For the chat` aside). Only what
+  would change the human's choice; no history, internals or how you found out. Cut before
+  you add: a sentence the choice doesn't need goes.
 - **The limits.** `## Context`: at most about 3 short sentences. Each option: a title, a
   one-sentence summary, at most 2 pros and 2 cons, each a short phrase. `why`: one or two
-  sentences. No `## Sources` or other extra sections; your sources go to the reviewer.
+  sentences. No `## Sources` or other extra sections but `## For the chat`; your sources go
+  to the reviewer.
+- **`## For the chat`, last.** The human never sees it; the card's chat reads it, which
+  matters most where it can't fork your session (another machine, a month on). A few
+  bullets, at most about 150 words: what you looked at, what you ruled out and why, and
+  anything the options don't say.
 - **Neutral framing.** The title is the question in plain words, not your answer. Describe
   each option as its best advocate would.
 - **Options that are genuinely different.** 2 to 4, not straw men or variations of one idea.

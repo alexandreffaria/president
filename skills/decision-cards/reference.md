@@ -22,7 +22,8 @@ what the human added since, without any sign. Instead:
 2. Write your whole new version of it to a file next to it whose name starts with `.` (president
    ignores those), for example `<main>/decisions/.20261110q4m8-empty-state-copy.md.new`: the card as
    you read it, with your changes. Keep `status`, `resolution`, `feedback`, `seen_at`,
-   `applied_at` and `defer_until` exactly as they were.
+   `applied_at` and `defer_until` exactly as they were. Keep `created_session` too, and update
+   `## For the chat` when what you looked at or ruled out changed.
 3. Replace the card with it, then remove your file:
 
    ```sh

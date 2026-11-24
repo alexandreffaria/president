@@ -19,6 +19,7 @@ import { spawn } from "node:child_process";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
+import { SESSION_ID_PATTERN } from "../../core/schema.ts";
 import { withAbsolutePath } from "../executable.ts";
 import { isNotFound } from "../fs-utils.ts";
 import { killTree } from "../process-tree.ts";
@@ -30,12 +31,6 @@ export const SESSION_TOOLS = "Read,Grep,Glob,WebSearch,WebFetch";
 export const SESSION_ALLOWED_TOOLS = "WebSearch,WebFetch";
 /** The spending cap of one run, in US dollars (#0004). */
 export const MAX_BUDGET_USD = "1";
-/**
- * A session id president passes to `--resume` or `--session-id`: a UUID, 8-4-4-4-12 hex
- * digits. Checked again before every run (defence in depth for a hand-edited sessions.json).
- */
-export const SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /** A run still going after this long is stopped. */
 export const RUN_TIMEOUT_MS = 15 * 60 * 1000;
 const KILL_GRACE_MS = 5000;
@@ -49,6 +44,13 @@ export type SessionMode =
   | { resume: string }
   /** Start the card's session with an id chosen up front (#0021). */
   | { start: string }
+  /**
+   * Start the card's session, with an id chosen up front, as a fork of the session that wrote
+   * the card (its `created_session`): `--resume <fork> --fork-session --session-id <start>`.
+   * Claude Code finds `fork` in any of its project folders and leaves it untouched; the fork
+   * is kept under the run's cwd.
+   */
+  | { fork: string; start: string }
   /** A one-off run nobody continues (a summary written from the hub's copy, 20261111paot). */
   | { oneOff: true };
 
@@ -89,7 +91,7 @@ export interface RunResult {
   error?: string;
   /** Claude Code started the session (a stream line arrived). */
   started: boolean;
-  /** `--resume` didn't find the session. */
+  /** `--resume` didn't find the session (the card's, or the one a fork copies). */
   sessionNotFound: boolean;
   /** The `--json-schema` output, when asked for and given. */
   structured?: unknown;
@@ -100,16 +102,27 @@ export function claudeArgs(
   request: Pick<RunRequest, "session" | "appendSystemPrompt" | "jsonSchema">,
 ): string[] {
   const { session } = request;
-  const id = "resume" in session ? session.resume : "start" in session ? session.start : undefined;
-  if (id !== undefined && !SESSION_ID_PATTERN.test(id)) {
-    throw new Error(`not a session id: ${JSON.stringify(id)}`);
+  const ids =
+    "resume" in session
+      ? [session.resume]
+      : "fork" in session
+        ? [session.fork, session.start]
+        : "start" in session
+          ? [session.start]
+          : [];
+  // Every id passed to `--resume` or `--session-id` is a UUID (SESSION_ID_PATTERN), checked
+  // again before every run: defence in depth for a hand-edited sessions.json or card.
+  for (const id of ids) {
+    if (!SESSION_ID_PATTERN.test(id)) throw new Error(`not a session id: ${JSON.stringify(id)}`);
   }
   const sessionArgs =
     "resume" in session
       ? ["--resume", session.resume]
-      : "start" in session
-        ? ["--session-id", session.start]
-        : ["--no-session-persistence"];
+      : "fork" in session
+        ? ["--resume", session.fork, "--fork-session", "--session-id", session.start]
+        : "start" in session
+          ? ["--session-id", session.start]
+          : ["--no-session-persistence"];
   return [
     "-p",
     "--output-format",
@@ -242,7 +255,9 @@ export function runClaude(request: RunRequest, handlers: RunHandlers = {}): Prom
       } catch {
         return;
       }
-      if (!started) {
+      // A `result` line alone isn't a start: Claude Code also prints one when `--resume`
+      // finds no conversation (with "No conversation found" on stderr), and has no session.
+      if (!started && event.type !== "result") {
         started = true;
         handlers.onStarted?.();
       }
@@ -394,7 +409,10 @@ export function defaultClaudeDir(env: NodeJS.ProcessEnv = process.env): string {
  * Whether Claude Code still has the session's transcript on this machine
  * (`<claude dir>/projects/<project>/<session>.jsonl`, deleted after `cleanupPeriodDays`).
  * Only the file's existence is checked, in every project folder Claude Code keeps, so the
- * way it names those folders doesn't matter.
+ * way it names those folders doesn't matter. That is also how `--resume` looks: a session
+ * started in another folder (the card's author, in a git worktree that may be gone since)
+ * resumes, and forks, from the project folder. A subagent's transcript
+ * (`<session>/subagents/agent-<id>.jsonl`) isn't one of these, and `--resume` can't take it.
  */
 export async function transcriptExists(claudeDir: string, session: string): Promise<boolean> {
   if (!SESSION_ID_PATTERN.test(session)) return false;

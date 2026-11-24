@@ -849,8 +849,11 @@ describe("skills/decision-cards/SKILL.md", async () => {
       .split(/^## .*$/m)
       .slice(1)
       .map((text) => text.trim());
-    // Only Context: option sections are optional and there is no Sources list (short cards).
-    expect(sectionTexts).toEqual(["..."]);
+    // Only Context and the author's note for the chat: option sections are optional and there
+    // is no Sources list (short cards).
+    expect(sectionTexts).toEqual(["...", "- ..."]);
+    expect(card.raw.created_session).toBe("Real text");
+    expect(card.sections.forChat).toBe("- Real text");
   });
 
   // The filled-in example models a short card: valid, every option with a con, at most 2 pros

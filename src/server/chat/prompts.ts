@@ -14,20 +14,44 @@
  *   follows: a message for the conversation next to the options (202611111gpm), which never
  *   names the new pick (2026111272fu `reset`).
  * - What the panel's Teach me and More info buttons ask for (#0005, 20261111fauj).
+ * - What a session that starts as a fork of the session that wrote the card (its
+ *   `created_session`) is told in its first message (forkIntro): a fork keeps the author's
+ *   recorded system prompt, as a resume does, so `--append-system-prompt` has no effect there
+ *   and the chat's instructions go in the message.
  */
 import { createHash } from "node:crypto";
 import type { ChatAsk, ChatMessageDto } from "../../core/api.ts";
 import { CUSTOM_CHOICE, KEYED_OPTIONS, OPTION_ID_PATTERN } from "../../core/model.ts";
 import { unseenFeedback } from "../../core/pending.ts";
 import type { FeedbackEntry, Frontmatter } from "../../core/schema.ts";
+import { FOR_THE_CHAT } from "../../core/sections.ts";
 import type { LoadedCard } from "../cards.ts";
+import { SESSION_TOOLS } from "./runner.ts";
 
 export function sessionInstructions(card: LoadedCard): string {
   return [
     `You are talking with the human about one decision card in president, a hub where coding agents ask a human to decide things. The card is decisions/${card.fileName} in this project (project "${card.project}", card id ${card.id}). Read it before your first answer, and read it again whenever the human says it changed: its options, its sections and its \`feedback\` (the human's earlier notes; entries with \`type: chat\` summarize earlier conversations about it).`,
+    `The card may have a \`## ${FOR_THE_CHAT}\` section, which the card page doesn't show the human: the card's author wrote it for you, on what it looked at, what it ruled out and why, and what the options don't say. Use it, and when an answer comes from it, say it comes from the author's notes, which the human hasn't seen.`,
     "You can read this project's files and research the web. You can't change anything, and you never apply decisions or record them: the project's working agent does that later, from the card. When the human wants something done, say what they could put in a note or the conversation's summary for that agent.",
     "Each of the human's messages starts with a line from president in parentheses, \"(president: ...)\", saying whether the human has revealed the card's pick (its `recommendation`), or, on a card that has none, whether they asked for your own view. Follow it.",
     "Answer plainly and briefly, and say where in the project or on the web each claim comes from.",
+  ].join("\n\n");
+}
+
+/**
+ * What a session that starts as a fork of the session that wrote the card is told first
+ * (before the start-over note, if any, and the human's message): it is now the card's chat,
+ * not the working agent, with the chat's instructions (sessionInstructions), and, having
+ * argued for the card's pick, it follows the line about the pick all the more.
+ */
+export function forkIntro(card: LoadedCard): string {
+  const tools = SESSION_TOOLS.split(",").join(", ");
+  return [
+    `This is president, not the human. This conversation is a fork of your session, made when the human opened the chat of a decision card you wrote, decisions/${card.fileName}, so that you can talk with them about it knowing what you knew when you wrote it. Your original session isn't affected.`,
+    `From now on you are not the working agent: you are this card's chat. Don't go on with the earlier task, and when an earlier instruction (your system prompt's included) conflicts with what follows, follow what follows. In this conversation your only tools are ${tools}: you can't change files or run commands.`,
+    sessionInstructions(card),
+    "You wrote this card, and the decision is the human's now. Follow the line about the pick strictly, even if you recommended an option: until the human reveals the pick, describe each option as its best advocate would and keep your own view out of it.",
+    "The human's first message follows, after president's line about the pick.",
   ].join("\n\n");
 }
 

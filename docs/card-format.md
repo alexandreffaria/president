@@ -83,6 +83,7 @@ title: How should the API client report errors?
 | `defer_until` | no | timestamp | Set by president when the human defers the card: when it comes back to the queue (UTC; a week after deferring unless the human picked another date). Only meaningful while `status` is `deferred`: once the time passes, the queue shows the card again, marked "back from deferral", without rewriting the file; a deferred card without `defer_until` counts as already back. Resolving, rejecting ("neither") or reopening the card removes it. Agents keep it as it is. |
 | `seen_at` | no | timestamp | The `at` of the newest feedback entry an agent has read. `preside seen` and `preside applied` set it to the newest entry `preside pending` showed. Feedback newer than this is listed by `preside pending`. |
 | `withdrawn` | no | `{at, reason}` | Set by an agent that retracts an open or deferred card that no longer matters: `at` is a timestamp, `reason` says why. `status` doesn't change. See [withdrawing a card](#withdrawing-a-card). |
+| `created_session` | no | string | The Claude Code session that wrote the card: the value of `$CLAUDE_CODE_SESSION_ID` in the agent's shell, a UUID (in a subagent, that is its parent's session, since a subagent's own can't be resumed). When a card's chat starts a new session and this machine's Claude Code still has that session, the chat starts as a fork of it (`claude -p --resume <it> --fork-session`), so it knows what the author researched; the author's session is untouched. Otherwise (another machine, deleted after `cleanupPeriodDays`, or no field) the chat starts from the card alone. A value that isn't a UUID gets a warning and is ignored. Leave it out when the variable is empty. |
 | `session_id` | no | string | No longer used. It was reserved for the id of the card's Claude Code session; each machine's hub now keeps that id in its own state folder (`$XDG_STATE_HOME/president/`), never in the card (decision #0021). What travels with the card is a conversation summary in `feedback`, as a `chat` entry (#0003, #0023). Agents keep the field as it is if a card has it. |
 
 Any other field is allowed and is kept untouched when president updates the card, so agents can
@@ -220,9 +221,9 @@ withdrawn:
 
 ## Body
 
-The body is markdown. It is shown in full, so write it for a human who has not seen the code,
-and keep the whole card short: at most about 250 words, usually fewer, with only what the
-human needs to choose.
+The body is markdown. It is shown in full (except a `## For the chat` section, below), so
+write it for a human who has not seen the code, and keep the whole card short: at most about
+250 words, usually fewer, with only what the human needs to choose.
 
 - Start with `## Context`: at most about 3 short sentences on what is being decided and the
   constraint that matters. No history or internals.
@@ -236,6 +237,12 @@ human needs to choose.
   so keep the whole context under `## Context`. Cards don't need one: no `## Sources` list.
 - A `## Option <id>` heading whose id is not in `options` is an error. An option without a body
   section is fine; its summary, pros and cons are still shown.
+- Optionally, at the end, **`## For the chat`**: notes from the card's author for the card's
+  chat, which the card page doesn't show (the chat reads them in the card file). What you
+  looked at, what you ruled out and why, and anything the options don't say; at most about 150
+  words, as a few bullets. It doesn't count toward the card's 250 words, and `validate`
+  doesn't check its length. Everything up to the next level-2 heading belongs to it; the
+  heading's case doesn't matter, and it is hidden wherever it is (outside a code block).
 - Headings inside fenced code blocks are ignored, so examples can contain markdown.
 
 ## Lifecycle

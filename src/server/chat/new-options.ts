@@ -462,8 +462,9 @@ function unclosedHtmlComment(markdown: string): boolean {
  * on one line, the option count the card's kind takes, and `details` that neither end their
  * section (its level-2 headings become level 3) nor run past it (an unclosed code fence). An
  * option without details (left out or blank) gets no section, so cards stay short. The new
- * body is read back to check that: exactly the sections with details, and the context and the
- * appendix (`## Sources`, notes) as they were. Otherwise a UserError says what was wrong.
+ * body is read back to check that: exactly the sections with details, and the context, the
+ * appendix (`## Sources`, notes) and the author's `## For the chat` as they were. Otherwise
+ * a UserError says what was wrong.
  */
 function newCardContent(
   card: LoadedCard,
@@ -524,12 +525,14 @@ function newCardContent(
   const before = splitSections(card.body);
   const after = splitSections(body);
   const rest = (s: BodySections) =>
-    [s.context, s.appendix]
+    [s.context, s.appendix, s.forChat]
       .filter((t) => t !== "")
       .join("\n\n")
       .replace(/[ \t]+$/gm, "");
   const restKept =
-    (after.context === before.context && after.appendix === before.appendix) ||
+    (after.context === before.context &&
+      after.appendix === before.appendix &&
+      after.forChat === before.forChat) ||
     (sections.length === 0 && before.options.length > 0 && rest(after) === rest(before));
   const same =
     restKept &&

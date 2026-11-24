@@ -178,6 +178,22 @@ describe("the session's command line (#0004)", () => {
     ]);
     expect(claudeArgs({ session: { resume: id } }).slice(4, 6)).toEqual(["--resume", id]);
     expect(claudeArgs({ session: { oneOff: true } })).toContain("--no-session-persistence");
+    // A copy of the card author's session: the copy's id is chosen up front too.
+    const author = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+    expect(claudeArgs({ session: { fork: author, start: id } })).toEqual([
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--resume",
+      author,
+      "--fork-session",
+      "--session-id",
+      id,
+      ...READONLY_FLAGS,
+    ]);
+    expect(() => claudeArgs({ session: { fork: "--x", start: id } })).toThrow(/not a session id/);
+    expect(() => claudeArgs({ session: { fork: author, start: "" } })).toThrow(/not a session id/);
   });
 
   it("only passes a strict UUID as the session id", async () => {
@@ -632,6 +648,147 @@ describe("when Claude Code no longer has the session (#0018, #0021)", () => {
     const events = await t.send("Hello");
     expect(events[0]).toMatchObject({ type: "message", message: { from: "hub" } });
     expect((await t.calls())[0]?.stdin).toMatch(/Asked about 404s on the laptop\./);
+  });
+});
+
+describe("a chat that starts from the card's author (created_session)", () => {
+  const AUTHOR = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
+  /** The project folder Claude Code keeps the author's session in (another checkout's). */
+  const AUTHOR_FOLDER = "-elsewhere-worktrees-agent-1";
+
+  /**
+   * Gives card 0002 a `created_session`, and with `transcript`, that session's transcript in
+   * another project folder (the author wrote the card in a git worktree).
+   */
+  async function authored(t: Awaited<ReturnType<typeof setup>>, transcript = true) {
+    const path = join(t.demo, "decisions", "0002-api-errors.md");
+    const text = await readFile(path, "utf8");
+    await writeFile(path, text.replace(/^---\n/, `---\ncreated_session: ${AUTHOR}\n`));
+    const folder = join(t.root, "claude", "projects", AUTHOR_FOLDER);
+    const file = join(folder, `${AUTHOR}.jsonl`);
+    if (transcript) {
+      await mkdir(folder, { recursive: true });
+      await writeFile(file, "author\n");
+    }
+    return file;
+  }
+  const sessionOf = (call: Call | undefined) => call?.args[call.args.indexOf("--session-id") + 1];
+
+  it("starts the session as a fork of the author's, told it is the card's chat, then resumes the fork", async () => {
+    const t = await setup();
+    const authorFile = await authored(t);
+    const events = await t.send("Why not throw?");
+    expect(events.at(-1)?.type).toBe("done");
+    // No notice: nothing was lost.
+    expect(events.flatMap((e) => (e.type === "message" ? [e.message.from] : []))).toEqual(["you"]);
+
+    const [first] = await t.calls();
+    const fork = sessionOf(first);
+    expect(fork).toMatch(UUID);
+    expect(fork).not.toBe(AUTHOR);
+    expect(first?.args.slice(4, 9)).toEqual([
+      "--resume",
+      AUTHOR,
+      "--fork-session",
+      "--session-id",
+      fork,
+    ]);
+    // The read-only flags stay (#0004).
+    expect(first?.args.join(" ")).toContain(READONLY_FLAGS.join(" "));
+    expect(first?.cwd).toBe(t.demo);
+    // The chat's instructions are in the message, the pick line before the human's words.
+    const stdin = first?.stdin ?? "";
+    expect(stdin).toMatch(/^This is president, not the human\./);
+    expect(stdin).toMatch(/you are not the working agent: you are this card's chat/);
+    expect(stdin).toMatch(/decisions\/0002-api-errors\.md/);
+    expect(stdin).toMatch(/You can't change anything, and you never apply decisions/);
+    expect(stdin).toMatch(/Follow the line about the pick strictly, even if you recommended/);
+    expect(stdin).toMatch(/## For the chat/);
+    expect(stdin).toMatch(
+      /\n\n\(president: The human has not revealed the card's pick\.[^\n]*\)\n\nWhy not throw\?$/,
+    );
+
+    expect((await t.sessions())["demo/0002"]).toEqual({ session: fork, unsummarized: true });
+    expect(await t.conversation()).toMatchObject({ remembers: true });
+    // The author's session is untouched; the next message resumes the fork, as before.
+    expect(await readFile(authorFile, "utf8")).toBe("author\n");
+    await t.send("And the cost?");
+    const second = (await t.calls())[1];
+    expect(second?.args.slice(4, 6)).toEqual(["--resume", fork]);
+    expect(second?.args).not.toContain("--fork-session");
+    expect(second?.stdin).not.toMatch(/This is president/);
+  });
+
+  it("starts from the card alone when this machine doesn't have the author's session", async () => {
+    const t = await setup();
+    await authored(t, false);
+    await t.send("Hello");
+    const [call] = await t.calls();
+    expect(call?.args).not.toContain("--fork-session");
+    expect(call?.args).not.toContain("--resume");
+    expect(call?.args).toContain("--append-system-prompt");
+    expect(call?.stdin).toMatch(/^\(president: /);
+  });
+
+  it("ignores a created_session that isn't a session id", async () => {
+    const t = await setup();
+    const path = join(t.demo, "decisions", "0002-api-errors.md");
+    const text = await readFile(path, "utf8");
+    await writeFile(path, text.replace(/^---\n/, "---\ncreated_session: --fork-session\n"));
+    await t.send("Hello");
+    expect((await t.calls())[0]?.args).not.toContain("--fork-session");
+  });
+
+  it("starts from the card alone when the author's session goes just before the run", async () => {
+    const t = await setup();
+    await authored(t);
+    await t.script([
+      {
+        stderr: `No conversation found with session ID: ${AUTHOR}\n`,
+        exit: 1,
+        lines: [{ type: "result", subtype: "error_during_execution", is_error: true }],
+      },
+    ]);
+    const events = await t.send("Hello");
+    expect(events.at(-1)?.type).toBe("done");
+    // No notice either: the human lost nothing they had.
+    expect(events.flatMap((e) => (e.type === "message" ? [e.message.from] : []))).toEqual(["you"]);
+    const [failed, retried] = await t.calls();
+    expect(failed?.args).toContain("--fork-session");
+    expect(retried?.args).not.toContain("--fork-session");
+    expect(retried?.stdin).toMatch(/^\(president: /);
+    expect((await t.sessions())["demo/0002"]?.session).toBe(sessionOf(retried));
+  });
+
+  it("a new conversation, or a lost one, starts as a new fork of the author's session", async () => {
+    const t = await setup();
+    await authored(t);
+    await t.send("One");
+    const first = sessionOf((await t.calls())[0]);
+    await t.post("/api/chats/demo/0002/new-conversation", {});
+    await t.send("Two");
+    const second = (await t.calls())[1];
+    expect(second?.args.slice(4, 7)).toEqual(["--resume", AUTHOR, "--fork-session"]);
+    expect(sessionOf(second)).not.toBe(first);
+    expect(second?.stdin).toMatch(/The human started a new conversation about this card/);
+
+    // This machine lost the fork (every transcript but the author's): the notice says where
+    // the new one starts from.
+    const projects = join(t.root, "claude", "projects");
+    for (const folder of await readdir(projects)) {
+      if (folder !== AUTHOR_FOLDER) await rm(join(projects, folder), { recursive: true });
+    }
+    const events = await t.send("Three");
+    expect(events[0]).toMatchObject({
+      type: "message",
+      message: {
+        from: "hub",
+        text: expect.stringMatching(/its summaries and the session that wrote it/),
+      },
+    });
+    const third = (await t.calls())[2];
+    expect(third?.args.slice(4, 7)).toEqual(["--resume", AUTHOR, "--fork-session"]);
+    expect(third?.stdin).toMatch(/An earlier conversation about this card isn't available here/);
   });
 });
 
