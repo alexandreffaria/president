@@ -143,7 +143,7 @@ export interface ChatHost {
   run(
     request: Pick<
       RunRequest,
-      "cwd" | "session" | "message" | "appendSystemPrompt" | "jsonSchema" | "signal"
+      "cwd" | "session" | "message" | "forked" | "appendSystemPrompt" | "jsonSchema" | "signal"
     >,
     handlers?: Parameters<typeof runClaude>[1],
   ): Promise<RunResult>;
@@ -417,6 +417,7 @@ export class ChatService {
               ? { fork: author, start: session }
               : { start: session },
           message,
+          forked: resume ? entry?.forked === true : author !== undefined,
           // Not on a fork, where Claude Code ignores it (forkIntro carries the instructions).
           appendSystemPrompt: resume || author ? undefined : sessionInstructions(card),
           jsonSchema: turn.jsonSchema,
@@ -431,6 +432,8 @@ export class ChatService {
               .updateEntry(key, (e) => {
                 const next: SessionEntry = { ...e, session };
                 delete next.fresh;
+                if (author) next.forked = true;
+                else delete next.forked;
                 if (stored) next.revealed = stored;
                 else delete next.revealed;
                 return next;
@@ -519,6 +522,7 @@ export class ChatService {
         await this.store.updateEntry(key, (entry) => {
           const next: SessionEntry = { ...entry, fresh: true };
           delete next.session;
+          delete next.forked;
           delete next.revealed;
           return next;
         });
@@ -615,7 +619,7 @@ export class ChatService {
   #run(
     request: Pick<
       RunRequest,
-      "cwd" | "session" | "message" | "appendSystemPrompt" | "jsonSchema" | "signal"
+      "cwd" | "session" | "message" | "forked" | "appendSystemPrompt" | "jsonSchema" | "signal"
     >,
     handlers: Parameters<typeof runClaude>[1] = {},
   ): Promise<RunResult> {

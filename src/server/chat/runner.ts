@@ -68,6 +68,11 @@ export interface RunRequest {
   message: string;
   /** Instructions added to Claude Code's system prompt (sent on a session's first run). */
   appendSystemPrompt?: string | undefined;
+  /**
+   * The session is a fork of the card author's, made now or when it started: a run stopped at
+   * the spending cap suggests New conversation.
+   */
+  forked?: boolean | undefined;
   /** A JSON schema for structured output (`--json-schema`). */
   jsonSchema?: string | undefined;
   timeoutMs?: number | undefined;
@@ -277,7 +282,7 @@ export function runClaude(request: RunRequest, handlers: RunHandlers = {}): Prom
           ok,
           ...(typeof event.result === "string" ? { result: event.result } : {}),
           ...(event.structured_output !== undefined ? { structured: event.structured_output } : {}),
-          ...(ok ? {} : { error: resultError(event) }),
+          ...(ok ? {} : { error: resultError(event, request.forked === true) }),
         };
       }
     };
@@ -357,9 +362,11 @@ interface StreamLine {
   message?: { content?: { type?: string; text?: unknown; name?: unknown; input?: unknown }[] };
 }
 
-function resultError(event: StreamLine): string {
+function resultError(event: StreamLine, forked: boolean): string {
   if (event.subtype === "error_max_budget_usd") {
-    return `The run stopped at its spending cap ($${MAX_BUDGET_USD}).`;
+    return forked
+      ? `The run stopped at its spending cap ($${MAX_BUDGET_USD}). This conversation started from the session that wrote the card, which may be too large for the cap now; New conversation starts a smaller one.`
+      : `The run stopped at its spending cap ($${MAX_BUDGET_USD}).`;
   }
   if (event.subtype === "error_max_turns") return "The run stopped after too many turns.";
   const detail =
@@ -447,21 +454,26 @@ export async function transcriptPath(
 /**
  * The most a session may hold for a card's chat to start as a fork of it, in tokens of
  * context. A fork's first run sends all of it, written to the prompt cache at 1.25 times the
- * input price: about $0.63 for 100k tokens at the default model's $5 per million input
- * tokens. That leaves about a third of the run's $1 cap (MAX_BUDGET_USD) for the answer and a
- * few tool calls, each of which reads the cached context again at a tenth of the price
- * (about $0.05 a call). A real 184k-token fork spent its whole dollar on the cache write and
- * stopped without an answer.
+ * input price: about $0.44 for 70k tokens at the default model's $5 per million input
+ * tokens. That leaves over half of the run's $1 cap (MAX_BUDGET_USD) for the answer and a few
+ * tool calls, each of which reads the cached context again at a tenth of the price (about
+ * $0.04 a call). The rest is headroom: the limit is checked only when the fork is made, and a
+ * fork that grew writes its whole context to the cache again on a run after the cache
+ * expired. A real 184k-token fork spent its whole dollar on the cache write and stopped
+ * without an answer.
  */
-export const MAX_FORK_TOKENS = 100_000;
+export const MAX_FORK_TOKENS = 70_000;
 /** A transcript larger than this isn't read to find its size (it is far over MAX_FORK_TOKENS). */
 const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
 
 /**
  * How much context the session held at its last answer, in tokens, read from the transcript
- * at `path`: the last main-thread assistant entry's `message.usage` (input, cache writes,
- * cache reads and output). Undefined when it can't be read: no such entry, a format this
- * doesn't know, or a file too large. This is the only thing president reads in a transcript.
+ * at `path`: the last real main-thread assistant entry's `message.usage` (input, cache writes,
+ * cache reads and output). Subagents' entries (`isSidechain`) don't count, nor do the ones
+ * Claude Code writes for a failed API call (network, overload, usage limit, "Prompt is too
+ * long"): `model: "<synthetic>"`, every count 0. Undefined when it can't be read: no such
+ * entry, a format this doesn't know, or a file too large. This is the only thing president
+ * reads in a transcript.
  */
 export async function contextTokens(path: string): Promise<number | undefined> {
   try {
@@ -477,6 +489,7 @@ export async function contextTokens(path: string): Promise<number | undefined> {
         continue;
       }
       if (entry.type !== "assistant" || entry.isSidechain === true) continue;
+      if (entry.message?.model === SYNTHETIC_MODEL) continue;
       const usage = entry.message?.usage;
       if (!usage || typeof usage !== "object") continue;
       if (typeof usage.input_tokens !== "number") return undefined;
@@ -486,7 +499,12 @@ export async function contextTokens(path: string): Promise<number | undefined> {
         usage.cache_read_input_tokens,
         usage.output_tokens,
       ];
-      return parts.reduce<number>((sum, n) => sum + (typeof n === "number" && n > 0 ? n : 0), 0);
+      const total = parts.reduce<number>(
+        (sum, n) => sum + (typeof n === "number" && n > 0 ? n : 0),
+        0,
+      );
+      // No real answer has an empty context (a failed call that isn't marked synthetic).
+      if (total > 0) return total;
     }
     return undefined;
   } catch {
@@ -494,8 +512,11 @@ export async function contextTokens(path: string): Promise<number | undefined> {
   }
 }
 
+/** The `model` of the entry Claude Code writes for an API call that failed. */
+const SYNTHETIC_MODEL = "<synthetic>";
+
 interface TranscriptEntry {
   type?: unknown;
   isSidechain?: unknown;
-  message?: { usage?: Record<string, unknown> };
+  message?: { model?: unknown; usage?: Record<string, unknown> };
 }

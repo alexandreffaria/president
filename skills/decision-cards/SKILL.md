@@ -117,11 +117,8 @@ that the review ran, so don't skip it.
    echo "$CLAUDE_CODE_SESSION_ID"
    ```
 
-   The card's chat may start as a fork of that session, when it is on the human's machine and
-   small enough, so it can know what you found. In a subagent the variable holds the parent's
-   session: record it as is (a subagent's own can't be resumed), but a fork then knows only
-   what the parent knew, so put your own research in `## For the chat`. If it prints nothing,
-   leave `created_session` out.
+   If it prints nothing, leave `created_session` out. In a subagent it is the parent's
+   session: record it as is.
 
 3. Choose the kind:
    - `ab`: two concrete alternatives to compare side by side (two code styles, wordings,
@@ -272,11 +269,13 @@ it show?
   one-sentence summary, at most 2 pros and 2 cons, each a short phrase. `why`: one or two
   sentences. No `## Sources` or other extra sections but `## For the chat`; your sources go
   to the reviewer.
-- **`## For the chat`, last.** The human never sees it; the card's chat reads it, and often
-  it is all the chat has of your work (no fork: another machine, a large or old session, a
-  subagent). A few bullets, at most about 150 words: what you looked at, ideas you ruled out
-  that are not on the card and why, and anything the options don't say. No case for or
-  against the card's own options: that is `recommendation.why`.
+- **`## For the chat`, last.** The human never sees it; the card's chat reads it. The chat
+  may start as a fork of your session (`created_session`), but often this note is all it has
+  of your work: another machine, a session too large or too old, or a subagent's card (the
+  fork knows only what the parent saw, so put your own research here). A few bullets, at
+  most about 150 words: what you looked at, ideas you ruled out that are not on the card and
+  why, and anything the options don't say. No case for or against the card's own options:
+  that is `recommendation.why`.
 - **Neutral framing.** The title is the question in plain words, not your answer. Describe
   each option as its best advocate would.
 - **Options that are genuinely different.** 2 to 4, not straw men or variations of one idea.

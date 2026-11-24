@@ -134,6 +134,7 @@ async function setup(options: { claudeBin?: string | undefined } = { claudeBin: 
       {
         session?: string;
         fresh?: boolean;
+        forked?: boolean;
         unsummarized?: boolean;
         revealed?: string;
         summarized?: number;
@@ -738,7 +739,11 @@ describe("a chat that starts from the card's author (created_session)", () => {
       /\n\n\(president: The human has not revealed the card's pick\.[^\n]*\)\n\nWhy not throw\?$/,
     );
 
-    expect((await t.sessions())["demo/0002"]).toEqual({ session: fork, unsummarized: true });
+    expect((await t.sessions())["demo/0002"]).toEqual({
+      session: fork,
+      forked: true,
+      unsummarized: true,
+    });
     expect(await t.conversation()).toMatchObject({ remembers: true });
     // The author's session is untouched; the next message resumes the fork, as before.
     expect(await readFile(authorFile, "utf8")).toBe(transcript);
@@ -777,6 +782,91 @@ describe("a chat that starts from the card's author (created_session)", () => {
       if (!forks) expect(call?.args).toContain("--append-system-prompt");
     }
     expect(await contextTokens(join(await tempDir(), "missing.jsonl"))).toBeUndefined();
+  });
+
+  it("reads the size of the last real main-thread answer", async () => {
+    const dir = await tempDir();
+    const entry = (usage: object, extra: object = {}) =>
+      JSON.stringify({ type: "assistant", isSidechain: false, message: { usage }, ...extra });
+    const real = (tokens: number) =>
+      entry({
+        input_tokens: 1,
+        cache_creation_input_tokens: 100,
+        cache_read_input_tokens: tokens - 111,
+        output_tokens: 10,
+      });
+    // What Claude Code writes for a failed API call (network, usage limit, prompt too long).
+    const failed = JSON.stringify({
+      type: "assistant",
+      isSidechain: false,
+      message: {
+        model: "<synthetic>",
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      },
+    });
+    const tokens = async (lines: string[]) => {
+      const path = join(dir, `${lines.length}-${Math.random()}.jsonl`);
+      await writeFile(path, `${lines.join("\n")}\n`);
+      return contextTokens(path);
+    };
+    const user = JSON.stringify({ type: "user", message: { content: "Go on." } });
+    // The last main-thread answer, not an earlier one, nor a subagent's after it.
+    expect(
+      await tokens([
+        real(10_000),
+        user,
+        real(30_000),
+        entry({ input_tokens: 90_000 }, { isSidechain: true }),
+      ]),
+    ).toBe(30_000);
+    // A failed call after a large answer: the large answer counts, so no fork.
+    expect(await tokens([real(473_000), user, failed])).toBe(473_000);
+    // An unmarked entry with nothing in it doesn't count either.
+    expect(await tokens([real(20_000), entry({ input_tokens: 0, output_tokens: 0 })])).toBe(20_000);
+    // Only failed calls: unreadable.
+    expect(await tokens([user, failed, failed])).toBeUndefined();
+  });
+
+  it("never forks a large session whose last call failed", async () => {
+    const t = await setup();
+    const failed = JSON.stringify({
+      type: "assistant",
+      message: { model: "<synthetic>", usage: { input_tokens: 0, output_tokens: 0 } },
+    });
+    await authored(t, `${transcriptOf(MAX_FORK_TOKENS * 5)}${failed}\n`);
+    await t.send("Hello");
+    expect((await t.calls())[0]?.args).not.toContain("--fork-session");
+  });
+
+  it("suggests New conversation when a fork stops at the spending cap", async () => {
+    const t = await setup();
+    await authored(t);
+    const capped = {
+      lines: [
+        { type: "system", subtype: "init" },
+        { type: "result", subtype: "error_max_budget_usd", is_error: true },
+      ],
+    };
+    await t.script([capped, capped]);
+    const first = await t.send("One");
+    expect(first.at(-1)).toMatchObject({
+      type: "error",
+      error: expect.stringMatching(
+        /^The run stopped at its spending cap \(\$1\)\. .*New conversation starts a smaller one\.$/,
+      ),
+    });
+    // And on the fork's later runs, which resume it.
+    const second = await t.send("Two");
+    expect((await t.calls())[1]?.args).toContain("--resume");
+    expect(second.at(-1)).toMatchObject({ error: expect.stringMatching(/New conversation/) });
+    // New conversation forgets that the session was a fork.
+    await t.post("/api/chats/demo/0002/new-conversation", {});
+    expect((await t.sessions())["demo/0002"]?.forked).toBeUndefined();
   });
 
   it("ignores a created_session that isn't a session id", async () => {
