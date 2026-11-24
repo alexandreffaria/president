@@ -144,6 +144,15 @@ describe("splitSections follows CommonMark", () => {
 });
 
 describe("replaceOptionSections (#0007's new options)", () => {
+  it("keeps a ## For the chat between the old option sections when none are written", () => {
+    expect(
+      replaceOptionSections(
+        "Ctx\n\n## Option a: A\n\naa\n\n## For the chat\n\nnote\n\n## Option b: B\n\nbb\n\n## Sources\n\nlinks\n",
+        [],
+      ),
+    ).toBe("Ctx\n\n## For the chat\n\nnote\n\n## Sources\n\nlinks\n");
+  });
+
   const sections = [
     { id: "x", title: "Ex", markdown: "X is new." },
     { id: "y", title: "Why", markdown: "```\n## Option z\n```" },
