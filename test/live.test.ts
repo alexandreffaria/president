@@ -4,10 +4,13 @@
  * condition (with a generous timeout) and, where a watch may not be attached yet, keep
  * poking the file system until the event shows up.
  */
+
+import { execFile } from "node:child_process";
 import type { Stats } from "node:fs";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { connect, type Socket } from "node:net";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 import { FSWatcher } from "chokidar";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type ClientOptions, WebSocket } from "ws";
@@ -59,6 +62,19 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   return { ...fs, stat, default: { ...fs, stat } };
 });
 
+/** Runs git in `cwd` without GIT_* variables from a hook, nor system or global config. */
+function git(cwd: string, ...args: string[]) {
+  const env = {
+    ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_"))),
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+  };
+  return promisify(execFile)("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+    cwd,
+    env,
+  });
+}
+
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
   await Promise.all(closers.splice(0).map((close) => close()));
@@ -101,7 +117,13 @@ type Log = ({ event: string; path: string } | HubEvent)[];
  * reports the project's cards. A "cards" event alone can come from older changes. Each card
  * is also written into the folders `also`.
  */
-async function untilNewCardSeen(log: Log, name: string, dir: string, also: string[] = []) {
+async function untilNewCardSeen(
+  log: Log,
+  name: string,
+  dir: string,
+  also: string[] = [],
+  wait = LIVE_WAIT,
+) {
   let n = 10;
   const seen = () => {
     const added = log.findIndex(
@@ -117,11 +139,19 @@ async function untilNewCardSeen(log: Log, name: string, dir: string, also: strin
     const id = n++;
     return Promise.all([dir, ...also].map((to) => writeCard(to, id)));
   };
-  await until(seen, "the watcher to see a new card", { ...LIVE_WAIT, poke });
+  await until(seen, "the watcher to see a new card", { ...wait, poke });
 }
 
+/** How often the git tests look up the checkouts again (the default is 3 s). */
+const GIT_WATCH = { checkoutsPollMs: 200 };
+/** How long the git tests wait: git is slow to start on a busy Windows machine. */
+const GIT_WAIT = { timeoutMs: 15_000 };
+
 /** A watcher on a registry with the demo project; `setup` can change the registry first. */
-async function watched(setup?: (registry: Registry) => Promise<void>) {
+async function watched(
+  setup?: (registry: Registry) => Promise<void>,
+  options: { checkoutsPollMs?: number } = {},
+) {
   const registry = new Registry(join(await tempDir(), "config"));
   await mkdir(registry.dir, { recursive: true });
   const demo = await copyDemoProject();
@@ -138,6 +168,7 @@ async function watched(setup?: (registry: Registry) => Promise<void>) {
   const watcher = new HubWatcher(registry, bus, {
     debounceMs: 30,
     pollMs: 100,
+    ...options,
     onFileEvent: (event, path) => {
       fileEvents.push({ event, path });
       log.push({ event, path });
@@ -182,6 +213,68 @@ describe("HubWatcher", () => {
     expect(events.every((e) => e.type === "cards" && e.project === "demo")).toBe(true);
   });
 
+  // Cards live on the working branch: a worktree made after start is watched too.
+  it("watches the decisions/ folder of a git worktree of a project", async () => {
+    const { demo, log } = await watched(async (registry) => {
+      const [project] = await registry.list();
+      if (!project) throw new Error("no project");
+      await git(project.path, "init", "-q", "-b", "main");
+      await git(project.path, "add", ".");
+      await git(project.path, "commit", "-qm", "cards");
+    }, GIT_WATCH);
+    const wt = join(dirname(demo), "demo-feat");
+    const from = log.length;
+    await git(demo, "worktree", "add", "-q", "-b", "feat", wt);
+    // A new checkout alone reports the project's cards (its branch may show on them).
+    await until(
+      () => log.slice(from).some((e) => "type" in e && e.type === "cards" && e.project === "demo"),
+      "the new worktree to be noticed",
+      GIT_WAIT,
+    );
+    await untilNewCardSeen(log, "demo", join(wt, "decisions"), [], GIT_WAIT);
+  }, 40_000);
+
+  // On Windows a watch holds a handle on its folder: it must not stop git removing a worktree.
+  it("lets git remove a worktree whose decisions/ folder it watches", async () => {
+    const { demo, log } = await watched(async (registry) => {
+      const [project] = await registry.list();
+      if (!project) throw new Error("no project");
+      await git(project.path, "init", "-q", "-b", "main");
+      await git(project.path, "add", ".");
+      await git(project.path, "commit", "-qm", "cards");
+    }, GIT_WATCH);
+    const wt = join(dirname(demo), "demo-gone");
+    await git(demo, "worktree", "add", "-q", "-b", "gone", wt);
+    await untilNewCardSeen(log, "demo", join(wt, "decisions"), [], GIT_WAIT);
+    await git(demo, "worktree", "remove", "--force", wt);
+    expect(
+      await lstat(wt).then(
+        () => "still there",
+        () => "gone",
+      ),
+    ).toBe("gone");
+    expect((await git(demo, "worktree", "list", "--porcelain")).stdout).not.toContain("demo-gone");
+  }, 40_000);
+
+  it("reports a project's cards when one of its checkouts switches branch", async () => {
+    const { demo, log } = await watched(async (registry) => {
+      const [project] = await registry.list();
+      if (!project) throw new Error("no project");
+      await git(project.path, "init", "-q", "-b", "main");
+      await git(project.path, "add", ".");
+      await git(project.path, "commit", "-qm", "cards");
+    }, GIT_WATCH);
+    // start() recorded the checkouts (on main), with no event for them.
+    const from = log.length;
+    // Same files on the new branch: only the branch the cards show changes.
+    await git(demo, "checkout", "-q", "-b", "other");
+    await until(
+      () => log.slice(from).some((e) => "type" in e && e.type === "cards"),
+      "the branch switch to be noticed",
+      GIT_WAIT,
+    );
+  }, 40_000);
+
   it("ignores everything but the registry, decisions/ and card files", async () => {
     const { demo, registry, watcher } = await watched();
     const dir = join(demo, "decisions");
@@ -215,7 +308,8 @@ describe("HubWatcher", () => {
     const sentinel = join(dir, "0006-sentinel.md");
     await writeFile(sentinel, cardText({ id: '"0006"' }));
     await untilSeen(fileEvents, (e) => e.path === sentinel);
-    expect(fileEvents.map((e) => e.path)).toEqual([sentinel]);
+    // Windows may report the one write twice (add, then change): the paths are what count.
+    expect([...new Set(fileEvents.map((e) => e.path))]).toEqual([sentinel]);
   });
 
   it("follows registry changes made by another process", async () => {

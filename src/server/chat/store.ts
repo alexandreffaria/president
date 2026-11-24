@@ -62,6 +62,13 @@ export interface SessionEntry {
    */
   revealed?: string;
   /**
+   * Where the session was last told the card's file is (its absolute path). A card can move
+   * between checkouts (a worktree's branch merged, the worktree removed), and a resumed session
+   * is told the new place. None: the card is in the project's own decisions/ (an older
+   * session was told `decisions/<file>`, which is that same file).
+   */
+  cardPath?: string;
+  /**
    * The run that writes new options from the card's latest "neither" note (#0007):
    * "started" when the note is recorded, then "written" or "failed"; an Undo of the note
    * drops it (2026111459oa). Kept on disk, so a page opened after a reload or a restart can

@@ -218,7 +218,13 @@ both want port 4747 (the icon then turns grey and says "port 4747 in use by anot
    You can also add and remove projects on the **Projects** page.
 
 2. Work with your agent as usual. When it hits a decision for you, it writes
-   `decisions/20261112k7q2-some-question.md`. The card shows up in the queue right away, no reload needed.
+   `decisions/20261112k7q2-some-question.md` in its own checkout (the project folder, or a git
+   worktree of it) and commits it on the branch it works on. The card shows up in the queue
+   right away, no reload needed, with the branch it is on ("on feat-login") when that isn't
+   the project folder's own branch. Your answer is written into that card file, the agent
+   commits it with its work, and the branch's pull request takes the card to main (a card in
+   the project folder on main travels with Sync, step 5). The hub reads every checkout of a registered project: the folder and each
+   `git worktree list` entry, looked up again every few seconds.
 
 3. Go through the **Queue**. On a card:
 
@@ -322,13 +328,14 @@ both want port 4747 (the icon then turns grey and says "port 4747 in use by anot
 
 4. **Decisions** lists everything you decided, newest first, and whether an agent has applied it.
 
-5. **Sync** (the button in the top bar, or `s`) sends your answers to your other machines and
-   brings theirs here. president writes card files but never commits them on its own; the top
-   bar shows "3 answers not synced" while a project has card changes that aren't pushed, so
-   press Sync before you leave a machine. Where that doesn't fit next to the menu, the number
-   is on the Sync button instead. When the hub starts it only runs `git fetch`, which
-   changes no file and no branch, and shows "2 card changes on the remote, press Sync". A
-   fetch that fails then (the network isn't up yet, say) is retried after 5 s, 15 s, 30 s,
+5. **Sync** (the button in the top bar, or `s`) sends the answers in a project folder that
+   is on main to your other machines and brings theirs here. Cards on other branches travel
+   with their branch, not with Sync. president writes card files but never commits them on its
+   own; the top bar shows "3 answers not synced" while a project has card changes that aren't
+   pushed, so press Sync before you leave a machine. Where that doesn't fit next to the menu,
+   the number is on the Sync button instead. When the hub starts it only runs `git fetch`,
+   which changes no file and no branch, and shows "2 card changes on the remote, press Sync".
+   A fetch that fails then (the network isn't up yet, say) is retried after 5 s, 15 s, 30 s,
    1 min, 2 min and 5 min, until one works or a Sync fetches.
 
    For each project with card changes, here or on the remote, Sync runs `git fetch`, checks
@@ -432,7 +439,8 @@ listed once, under the name that sorts first, and the duplicate file is removed.
 A project is its folder's path. If you move a project, run `preside remove <name>` and then
 `preside add <new path>`: president doesn't follow the move, and a different repository later
 created at the old path would be taken for the old project. `preside list` and the Projects
-page say when a project's folder, or its `decisions/` folder, is missing.
+page say when a project's folder, or its `decisions/` folder, is missing (unless another
+checkout of it has one).
 
 ## Development
 
@@ -464,11 +472,17 @@ How it fits together:
   (comments, quoting, folded text, line endings, the body) is kept byte for byte. Writes go
   through a temp file that is flushed to disk, keeps the file's permissions, and is renamed over
   the card.
-- Cards are addressed only by project name and card id; files are found by listing the project's
-  `decisions/` folder, so the API can't be pointed at other paths. Symlinked cards, and a
-  `decisions/` folder that points outside the project, are refused. The server refuses requests
-  whose Host isn't localhost (DNS rebinding), and writes and live-event WebSockets whose Origin
-  isn't the hub itself (scripts and curl must send `Origin: http://127.0.0.1:4747`).
+- Cards are addressed only by project name and card id; files are found by listing the
+  `decisions/` folder of each of the project's checkouts (the registered folder and its git
+  worktrees), so the API can't be pointed at other paths. Symlinked cards, and a `decisions/`
+  folder that points outside its checkout, are refused. The same card in several checkouts is
+  shown once: identical copies are one card (the registered folder's, else one on a named
+  branch rather than a detached HEAD, else the one the hub wrote last, else the oldest file),
+  and when copies differ the one with the latest activity in its
+  frontmatter (a decision, a note, applied; not an agent's seen) is shown and written to. The
+  server refuses requests whose Host isn't localhost (DNS rebinding), and writes and live-event
+  WebSockets whose Origin isn't the hub itself (scripts and curl must send
+  `Origin: http://127.0.0.1:4747`).
 - Every action must send the revision (a content hash) of the card the human last read, not the
   newest one the page has loaded. If the file changed since, the action is refused and the page
   lists what changed. Undo sends the revision its action returned, and restores the file only if
@@ -478,15 +492,15 @@ How it fits together:
   own writes happened since, so a change made in another tab, even one this tab missed, is not
   blamed on an agent. That memory is kept nowhere but in the running hub: after the hub
   restarts, a change from another tab that this tab missed is reported as an agent's change.
-- A watcher on every `decisions/` folder and on the registry pushes changes to the UI over a
-  WebSocket (`/api/events`), one per tab, hidden or not. Browsers keep WebSockets out of the 6
-  connections per host that HTTP requests share, so any number of tabs and windows can be live
-  at once without holding up API calls. The indicator in the top bar shows the socket's state:
-  Live, or Offline from the moment it closes. The hub sends a `ping` message every 25 s, and a
-  page that hears nothing for 62.5 s (a hub that hangs without closing the socket: stopped, or
-  stuck on a slow disk) closes the socket and shows Offline too. The page reconnects with
-  backoff (0.5 s doubling to 3 s) and refetches everything when it is back. The handshake passes the same Host and
-  Origin checks as writes, so another site can't open one.
+- A watcher on every checkout's `decisions/` folder and on the registry pushes changes to the UI
+  over a WebSocket (`/api/events`), one per tab, hidden or not. Browsers keep WebSockets out of
+  the 6 connections per host that HTTP requests share, so any number of tabs and windows can be
+  live at once without holding up API calls. The indicator in the top bar shows the socket's
+  state: Live, or Offline from the moment it closes. The hub sends a `ping` message every 25 s,
+  and a page that hears nothing for 62.5 s (a hub that hangs without closing the socket: stopped,
+  or stuck on a slow disk) closes the socket and shows Offline too. The page reconnects with
+  backoff (0.5 s doubling to 3 s) and refetches everything when it is back. The handshake passes
+  the same Host and Origin checks as writes, so another site can't open one.
 - Sync (`src/server/sync/`) runs the steps in [card #0001](decisions/0001-sync-across-machines.md)
   ("How Sync works in git"), one project after another and never two at once in the same
   project. Each step is a spawned `git` with an argument list (no shell), run in the

@@ -23,6 +23,7 @@ import {
   toCardDto,
   undoLastAction,
 } from "../cards.ts";
+import { allWithCheckouts } from "../checkouts.ts";
 import { UserError } from "../errors.ts";
 import { parseBody, type RouteDeps, readJson, requireProject } from "./http.ts";
 
@@ -49,8 +50,9 @@ export function registerCardRoutes(
 ): void {
   api.get("/cards", async (c) => {
     const query = parseBody(ListQuerySchema, c.req.query());
-    const registered = await registry.list();
-    // Also catches projects removed by the CLI, or by deleting their file in projects/.
+    const registered = await allWithCheckouts(await registry.list());
+    // Also catches projects removed by the CLI, or by deleting their file in projects/, and
+    // worktrees that went.
     forgetUnregisteredCards(registered);
     const projects = registered.filter((p) => !query.project || p.name === query.project);
     if (query.project && projects.length === 0) {
@@ -76,7 +78,7 @@ export function registerCardRoutes(
   // The number on the tray icon (Windows and Linux): the Queue's "All" count, worked out by
   // the same buildQueue the page uses, so the two can't disagree.
   api.get("/queue-count", async (c) => {
-    const registered = await registry.list();
+    const registered = await allWithCheckouts(await registry.list());
     forgetUnregisteredCards(registered);
     const loaded = await Promise.all(registered.map(loadProjectCards));
     const cards = loaded.flatMap((result) => result.cards.map(toCardDto));

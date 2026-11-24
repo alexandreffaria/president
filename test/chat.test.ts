@@ -4,8 +4,11 @@
  * #0019, #0020, 20261111paot). Claude Code is the stand-in test/fake-claude.mjs; the real
  * `claude` is never run.
  */
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join, resolve as resolvePath } from "node:path";
+
+import { execFile } from "node:child_process";
+import { mkdir, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { dirname, join, resolve as resolvePath } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   CardActionResponse,
@@ -29,9 +32,10 @@ import {
 } from "../src/server/chat/runner.ts";
 import { ChatService, KEEP_MISSING_MS } from "../src/server/chat/service.ts";
 import { defaultStateDir } from "../src/server/chat/store.ts";
+import { forgetCheckouts } from "../src/server/checkouts.ts";
 import { Registry } from "../src/server/registry.ts";
 import { EventBus } from "../src/server/watcher.ts";
-import { copyDemoProject, tempDir } from "./helpers.ts";
+import { cardText, copyDemoProject, tempDir } from "./helpers.ts";
 
 const FAKE = join(import.meta.dirname, "fake-claude.mjs");
 const ORIGIN = "http://127.0.0.1:4747";
@@ -139,6 +143,7 @@ async function setup(options: { claudeBin?: string | undefined } = { claudeBin: 
         unsummarized?: boolean;
         revealed?: string;
         summarized?: number;
+        cardPath?: string;
       }
     >;
   const deleteTranscripts = () => rm(join(claudeDir, "projects"), { recursive: true, force: true });
@@ -321,7 +326,8 @@ describe("a conversation", () => {
     const session = call?.args[call.args.indexOf("--session-id") + 1];
     expect(session).toMatch(UUID);
     expect(call?.args).toContain("--append-system-prompt");
-    expect(call?.args.join(" ")).toMatch(/decisions\/0002-api-errors\.md/);
+    // The card by its absolute path: a card in a worktree isn't under the run's cwd.
+    expect(call?.args.join(" ")).toContain(join(t.demo, "decisions", "0002-api-errors.md"));
     expect((await t.sessions())["demo/0002"]).toEqual({ session, unsummarized: true });
 
     const chat = await t.conversation();
@@ -732,7 +738,8 @@ describe("a chat that starts from the card's author (created_session)", () => {
     expect(stdin).toMatch(/^This is president, not the human\./);
     expect(stdin).toMatch(/you are not the working agent: you are this card's chat/);
     expect(stdin).toContain(`The project is now at your current folder, ${t.demo}.`);
-    expect(stdin).toMatch(/decisions\/0002-api-errors\.md/);
+    // The card by its absolute path (a card in a worktree isn't under the run's cwd).
+    expect(stdin).toMatch(/[\\/]decisions[\\/]0002-api-errors\.md, so that/);
     expect(stdin).toMatch(/You can't change anything, and you never apply decisions/);
     expect(stdin).toMatch(
       /Follow the line about the pick strictly, even if this session recommended/,
@@ -1631,6 +1638,173 @@ describe("keeping the hub's copy (202611114wet)", () => {
     await t.chat.cleanup();
     expect(JSON.parse(await readFile(join(t.root, "state", "missing.json"), "utf8"))).toEqual({});
   });
+
+  it("lets a conversation about a card in a worktree read that worktree", async () => {
+    const t = await setup();
+    const git = (...args: string[]) =>
+      promisify(execFile)("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+        cwd: t.demo,
+        env: {
+          ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_"))),
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_CONFIG_GLOBAL: "/dev/null",
+        },
+      });
+    await git("init", "-q", "-b", "main");
+    await git("add", ".");
+    await git("commit", "-qm", "cards");
+    const wt = join(dirname(t.demo), "demo-feat");
+    await git("worktree", "add", "-q", "-b", "feat", wt);
+    const file = join(wt, "decisions", "20261116wtcd-question.md");
+    await writeFile(file, cardText({ id: '"20261116wtcd"' }));
+    forgetCheckouts();
+    await t.send("Hello", {}, "20261116wtcd");
+    const call = (await t.calls()).at(-1);
+    // Still run in the project's folder, with the worktree added and the card's own path.
+    expect(call?.cwd).toBe(await realpath(t.demo));
+    const at = call?.args.indexOf("--add-dir") ?? -1;
+    expect(call?.args[at + 1]).toBe(wt);
+    const system = call?.args[(call?.args.indexOf("--append-system-prompt") ?? -2) + 1];
+    expect(system).toContain(`The card is the file ${file}`);
+    expect(system).toContain(
+      `The card is in the checkout ${wt} (branch feat), not in your current folder: that checkout holds the work the card is about, and you can read its files too.`,
+    );
+
+    // The branch is merged and the worktree goes: the resumed session is told the new place.
+    const moved = join(t.demo, "decisions", "20261116wtcd-question.md");
+    await writeFile(moved, await readFile(file, "utf8"));
+    await git("worktree", "remove", "--force", wt);
+    forgetCheckouts();
+    await t.send("Still there?", {}, "20261116wtcd");
+    const next = (await t.calls()).at(-1);
+    expect(next?.args).toContain("--resume");
+    expect(next?.args).not.toContain("--add-dir");
+    expect(next?.stdin).toContain(`The card's file is now ${moved}; read it there.`);
+    // Told once: the turn after doesn't repeat it.
+    await t.send("Thanks", {}, "20261116wtcd");
+    expect((await t.calls()).at(-1)?.stdin).not.toContain("The card's file is now");
+
+    // A resumed summary is told too, when the card moved again since (into a new worktree).
+    const wt2 = join(dirname(t.demo), "demo-next");
+    await git("worktree", "add", "-q", "-b", "next", wt2);
+    const again = join(wt2, "decisions", "20261116wtcd-question.md");
+    await writeFile(again, await readFile(moved, "utf8"));
+    await rm(moved);
+    forgetCheckouts();
+    const summary = await t.post("/api/chats/demo/20261116wtcd/summary", {});
+    expect(summary.status).toBe(200);
+    const summarized = (await t.calls()).at(-1);
+    expect(summarized?.args).toContain("--resume");
+    expect(summarized?.stdin).toContain(`The card's file is now ${again}; read it there.`);
+  }, 30_000);
+
+  it("passes no --add-dir for a card in the project's folder", async () => {
+    const t = await setup();
+    await t.send("Hello");
+    expect((await t.calls()).at(-1)?.args).not.toContain("--add-dir");
+  });
+
+  it("tells a resumed summary where a card moved, once, and saves the new place", async () => {
+    const t = await setup();
+    const git = (...args: string[]) =>
+      promisify(execFile)("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+        cwd: t.demo,
+        env: {
+          ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_"))),
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_CONFIG_GLOBAL: "/dev/null",
+        },
+      });
+    await git("init", "-q", "-b", "main");
+    await git("add", ".");
+    await git("commit", "-qm", "cards");
+    const wt = join(dirname(t.demo), "demo-feat");
+    await git("worktree", "add", "-q", "-b", "feat", wt);
+    const file = join(wt, "decisions", "20261124smry-question.md");
+    await writeFile(file, cardText({ id: '"20261124smry"' }));
+    forgetCheckouts();
+    await t.send("Hello", {}, "20261124smry");
+    expect((await t.sessions())["demo/20261124smry"]?.cardPath).toBe(file);
+
+    // The branch is merged and the worktree goes; the next run is a summary, not a message.
+    const moved = join(t.demo, "decisions", "20261124smry-question.md");
+    await writeFile(moved, await readFile(file, "utf8"));
+    await git("worktree", "remove", "--force", wt);
+    forgetCheckouts();
+    expect((await t.post("/api/chats/demo/20261124smry/summary", {})).status).toBe(200);
+    const summarized = (await t.calls()).at(-1);
+    expect(summarized?.args).toContain("--resume");
+    expect(summarized?.args).not.toContain("--add-dir");
+    expect(summarized?.stdin).toContain(`The card's file is now ${moved}; read it there.`);
+    // Back in the project's own decisions/: no path kept, and the next run isn't told again.
+    expect((await t.sessions())["demo/20261124smry"]?.cardPath).toBeUndefined();
+    await t.send("Thanks", {}, "20261124smry");
+    expect((await t.calls()).at(-1)?.stdin).not.toContain("The card's file is now");
+  }, 30_000);
+
+  it("forks the author's session for a card in a worktree, told where the card is", async () => {
+    const t = await setup();
+    // The author's transcript (authored also gives card 0002 its created_session).
+    await authored(t);
+    const git = (...args: string[]) =>
+      promisify(execFile)("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+        cwd: t.demo,
+        env: {
+          ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_"))),
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_CONFIG_GLOBAL: "/dev/null",
+        },
+      });
+    await git("init", "-q", "-b", "main");
+    await git("add", ".");
+    await git("commit", "-qm", "cards");
+    const wt = join(dirname(t.demo), "demo-feat");
+    await git("worktree", "add", "-q", "-b", "feat", wt);
+    const file = join(wt, "decisions", "20261124wtfk-question.md");
+    await writeFile(file, cardText({ id: '"20261124wtfk"', created_session: AUTHOR }));
+    forgetCheckouts();
+    await t.send("Hello", {}, "20261124wtfk");
+    const call = (await t.calls()).at(-1);
+    expect(call?.cwd).toBe(await realpath(t.demo));
+    expect(call?.args.slice(4, 7)).toEqual(["--resume", AUTHOR, "--fork-session"]);
+    expect(call?.args[(call?.args.indexOf("--add-dir") ?? -2) + 1]).toBe(wt);
+    const stdin = call?.stdin ?? "";
+    expect(stdin).toContain(
+      `a decision card written in this session (by you or a subagent you ran), ${file}, so that`,
+    );
+    expect(stdin).toContain(`read the project's files here, and in the card's checkout (below).`);
+    expect(stdin).toContain(
+      `The card is in the checkout ${wt} (branch feat), not in your current folder: that checkout holds the work the card is about, and you can read its files too.`,
+    );
+    expect(stdin).toContain(`The card is the file ${file}`);
+    expect((await t.sessions())["demo/20261124wtfk"]).toMatchObject({
+      forked: true,
+      cardPath: file,
+    });
+  }, 30_000);
+
+  it("keeps a copy whose card is only in a git worktree of the project", async () => {
+    const t = await setup();
+    await t.send("One");
+    const git = (...args: string[]) =>
+      promisify(execFile)("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+        cwd: t.demo,
+        env: {
+          ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_"))),
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_CONFIG_GLOBAL: "/dev/null",
+        },
+      });
+    await git("init", "-q", "-b", "main");
+    await git("add", ".");
+    await git("commit", "-qm", "cards");
+    await git("worktree", "add", "-q", "-b", "feat", join(dirname(t.demo), "demo-feat"));
+    await rm(join(t.demo, "decisions", "0002-api-errors.md"));
+    forgetCheckouts();
+    await t.chat.cleanup();
+    const missing = await readFile(join(t.root, "state", "missing.json"), "utf8").catch(() => "{}");
+    expect(JSON.parse(missing)).toEqual({});
+  }, 30_000);
 
   it("counts an unregistered project's cards as gone", async () => {
     const t = await setup();

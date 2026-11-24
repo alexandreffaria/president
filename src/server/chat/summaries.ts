@@ -12,9 +12,11 @@ import {
   type ChatSummaryResponse,
   isNewConversation,
 } from "../../core/api.ts";
+import type { HubProject } from "../checkouts.ts";
 import { UserError } from "../errors.ts";
-import type { Project } from "../registry.ts";
 import {
+  cardCheckout,
+  cardPlace,
   pickLine,
   revealOf,
   sessionInstructions,
@@ -51,7 +53,7 @@ export class Summaries {
    * it for the human to edit. Nothing is saved.
    */
   async summarize(
-    project: Project,
+    project: HubProject,
     id: string,
     input: Omit<SendInput, "text">,
   ): Promise<ChatSummaryResponse> {
@@ -87,12 +89,26 @@ export class Summaries {
         (await transcriptExists(this.#host.claudeDir, entry.session))
       ) {
         fromCopy = false;
+        // Told where the card is now if it moved, as a conversation's resumed turn is.
+        const place = cardPlace(project, card, entry.cardPath);
         result = await this.#host.run({
           cwd: project.path,
+          addDirs: cardCheckout(project, card),
           session: { resume: entry.session },
-          message: withPickLine(line, summaryRequest(since > 0, entry.forked === true)),
+          message: withPickLine(
+            line + place.moved,
+            summaryRequest(since > 0, entry.forked === true),
+          ),
           forked: entry.forked === true,
         });
+        if (result.ok && place.moved) {
+          await this.#host.store.updateEntry(key, (e) => {
+            const next: SessionEntry = { ...e };
+            if (place.cardPath) next.cardPath = place.cardPath;
+            else delete next.cardPath;
+            return next;
+          });
+        }
         if (!result.ok && result.sessionNotFound) {
           fromCopy = true;
           result = undefined;
@@ -100,9 +116,10 @@ export class Summaries {
       }
       result ??= await this.#host.run({
         cwd: project.path,
+        addDirs: cardCheckout(project, card),
         session: { oneOff: true },
         message: withPickLine(line, summaryFromCopy(card, messages.slice(since), since > 0)),
-        appendSystemPrompt: sessionInstructions(card),
+        appendSystemPrompt: sessionInstructions(project, card),
       });
       const summary = result.text.trim();
       if (!result.ok || !summary) {
@@ -133,7 +150,7 @@ export class Summaries {
    * Without it, the close is undone with `reopen` and the returned `closed`.
    */
   async closeWithoutSummary(
-    project: Project,
+    project: HubProject,
     id: string,
     options: { decision?: string } = {},
   ): Promise<ChatCloseResponse> {
@@ -165,7 +182,7 @@ export class Summaries {
    * Undoes `closeWithoutSummary` (its notice's Undo): the conversation is "not summarized"
    * again, and the next summary covers what it covered before the close.
    */
-  async reopen(project: Project, id: string, closed: string): Promise<ChatDto> {
+  async reopen(project: HubProject, id: string, closed: string): Promise<ChatDto> {
     const card = await this.#host.card(project, id);
     const write = this.#summaryWrites.get(closed);
     if (!write?.close || write.key.project !== project.name || write.key.id !== card.id) {
@@ -183,7 +200,7 @@ export class Summaries {
    * wrote `revision`: the conversation counts as summarized up to the messages that summary
    * was written from.
    */
-  async summarySaved(project: Project, id: string, revision: string): Promise<void> {
+  async summarySaved(project: HubProject, id: string, revision: string): Promise<void> {
     const key = { project: project.name, id };
     const offered = this.#offered.get(keyName(key));
     this.#offered.delete(keyName(key));

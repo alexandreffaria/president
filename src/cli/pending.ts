@@ -4,17 +4,17 @@
  * other projects parse both and run the `done:` lines, so their wording is an interface.
  */
 
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { agentToken, earlierDecision, needsApplying, unseenFeedback } from "../core/pending.ts";
 import { continued } from "../core/rewrite.ts";
 import { CUSTOM_CHOICE, withdrawalOf } from "../core/schema.ts";
 import { type LoadedCard, loadProjectCards } from "../server/cards.ts";
+import { registeredCheckout } from "../server/checkouts.ts";
 import { UserError } from "../server/errors.ts";
-import type { Project } from "../server/registry.ts";
-
+import { DECISIONS_DIR, type Project, Registry } from "../server/registry.ts";
 import type { Output } from "./main.ts";
-import { projectAt, warnIfWorktree } from "./shared.ts";
+import { isDirectory, lstatIfThere, projectAt, sameFolder } from "./shared.ts";
 import { shellQuote } from "./shell.ts";
 
 /** A project's cards that need an agent, as `pending` lists them. */
@@ -32,16 +32,35 @@ export async function pending(args: string[], out: Output): Promise<number> {
     allowPositionals: true,
     options: { json: { type: "boolean" } },
   });
-  // Before projectAt's "not registered" note, which would suggest registering the worktree.
-  await warnIfWorktree(resolve(positionals[0] ?? "."), out);
-  const project = await projectAt(positionals[0] ?? ".", out);
-  const found = await collectPending(project);
+  const dir = resolve(positionals[0] ?? ".");
+  // A worktree of a registered folder whose branch has no cards yet (git doesn't keep an
+  // empty decisions/): nothing waits on this branch, which isn't an error.
+  const empty = (await noCardsYet(dir))
+    ? { toApply: [], needOptions: [], withNotes: [], broken: [], warnings: [] }
+    : undefined;
+  if (empty) {
+    out.error(
+      `preside: note: ${dir} has no ${DECISIONS_DIR}/ folder yet: no card is on this branch. Create it when you write the first card.`,
+    );
+  }
+  const found = empty ?? (await collectPending(await projectAt(dir, out)));
   if (values.json) {
     out.log(pendingJson(found));
     return 0;
   }
   pendingText(found, (line) => out.log(line));
   return 0;
+}
+
+/**
+ * `dir` is a checkout of a registered project, other than the registered one, with no
+ * decisions/.
+ */
+async function noCardsYet(dir: string): Promise<boolean> {
+  if (!(await isDirectory(dir))) return false;
+  if ((await lstatIfThere(join(dir, DECISIONS_DIR))) !== undefined) return false;
+  const other = await registeredCheckout(dir, await new Registry().list().catch(() => []));
+  return other !== undefined && !(await sameFolder(other.at, dir));
 }
 
 export async function collectPending(project: Project): Promise<Pending> {
