@@ -13,6 +13,7 @@ import {
   findCard,
   loadProjectCards,
   pickCopy,
+  rewriteCard,
   toCardDto,
   undoLastAction,
 } from "../src/server/cards.ts";
@@ -46,6 +47,19 @@ async function repoWithWorktree() {
   await git(main, "worktree", "add", "-q", "-b", "feat", wt);
   return { main, wt, project: { name: "trips", path: main } };
 }
+
+/** Runs right before the hub's atomic write of a card, when set (a folder going mid-write). */
+const writeHook = vi.hoisted(() => ({ before: undefined as (() => void) | undefined }));
+vi.mock("../src/server/fs-utils.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/server/fs-utils.ts")>();
+  return {
+    ...actual,
+    writeFileAtomic: (path: string, content: string) => {
+      writeHook.before?.();
+      return actual.writeFileAtomic(path, content);
+    },
+  };
+});
 
 // Each test runs several git commands, slow to start on a busy Windows machine.
 vi.setConfig({ testTimeout: 30_000 });
@@ -235,6 +249,49 @@ describe("cards in every checkout", () => {
     ).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/the card moved/) });
     // Nothing was written back: the folder stays gone.
     expect(existsSync(join(wt, "decisions"))).toBe(false);
+  });
+
+  it("refuses with a conflict a write to a card file deleted after it was read", async () => {
+    const project = { name: "demo", path: await copyDemoProject() };
+    const path = join(project.path, "decisions", "0002-api-errors.md");
+    const found = await findCard(project, "0002");
+    if (!found.ok) throw new Error("broken");
+    // rewriteCard reads `raw` after reading the file: the file goes in between, so the check
+    // before the write sees it gone.
+    const next = {
+      get raw() {
+        rmSync(path);
+        return found.card.raw;
+      },
+      body: found.card.body,
+    };
+    await expect(rewriteCard(project, "0002", found.card, next)).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringMatching(/the card moved/),
+    });
+    expect(existsSync(path)).toBe(false);
+  });
+
+  it("refuses with a conflict a write whose decisions/ goes during the write itself", async () => {
+    const project = { name: "demo", path: await copyDemoProject() };
+    const dir = join(project.path, "decisions");
+    const found = await findCard(project, "0002");
+    if (!found.ok) throw new Error("broken");
+    // The folder goes after the check that the file is there, as the atomic write starts.
+    writeHook.before = () => rmSync(dir, { recursive: true, force: true });
+    try {
+      await expect(
+        actOnCard(
+          project,
+          "0002",
+          { type: "note", note: "Hi." },
+          { revision: found.card.revision },
+        ),
+      ).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/the card moved/) });
+    } finally {
+      writeHook.before = undefined;
+    }
+    expect(existsSync(dir)).toBe(false);
   });
 
   it("shows the copy with the latest activity when copies differ", async () => {
