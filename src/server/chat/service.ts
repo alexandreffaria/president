@@ -43,7 +43,6 @@ import {
   type StartNewOptionsResponse,
 } from "../../core/api.ts";
 import { parseCardFileName } from "../../core/card-file.ts";
-import { isSessionId } from "../../core/schema.ts";
 import { findCard, isIgnoredFile, type LoadedCard } from "../cards.ts";
 import { UserError } from "../errors.ts";
 import { isNotFound } from "../fs-utils.ts";
@@ -647,9 +646,9 @@ export class ChatService {
    */
   async #authorSession(card: LoadedCard): Promise<string | undefined> {
     const author = card.frontmatter.created_session;
-    if (!author || !isSessionId(author)) return undefined;
-    const path = await transcriptPath(this.#claudeDir, author);
-    if (path === undefined) return undefined;
+    // transcriptPath finds nothing for an id that isn't a UUID.
+    const path = author && (await transcriptPath(this.#claudeDir, author));
+    if (!author || !path) return undefined;
     // Too large to fork within the run's cap, or of unknown size: the card alone (its
     // `## For the chat` note says what the author found).
     const tokens = await contextTokens(path);

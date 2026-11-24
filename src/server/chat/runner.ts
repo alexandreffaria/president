@@ -108,26 +108,21 @@ export function claudeArgs(
   request: Pick<RunRequest, "session" | "appendSystemPrompt" | "jsonSchema">,
 ): string[] {
   const { session } = request;
-  const ids =
-    "resume" in session
-      ? [session.resume]
-      : "fork" in session
-        ? [session.fork, session.start]
-        : "start" in session
-          ? [session.start]
-          : [];
   // Every id passed to `--resume` or `--session-id` is a UUID (SESSION_ID_PATTERN), checked
   // again before every run: defence in depth for a hand-edited sessions.json or card.
-  for (const id of ids) {
-    if (!SESSION_ID_PATTERN.test(id)) throw new Error(`not a session id: ${JSON.stringify(id)}`);
-  }
+  const id = (value: string) => {
+    if (!SESSION_ID_PATTERN.test(value)) {
+      throw new Error(`not a session id: ${JSON.stringify(value)}`);
+    }
+    return value;
+  };
   const sessionArgs =
     "resume" in session
-      ? ["--resume", session.resume]
+      ? ["--resume", id(session.resume)]
       : "fork" in session
-        ? ["--resume", session.fork, "--fork-session", "--session-id", session.start]
+        ? ["--resume", id(session.fork), "--fork-session", "--session-id", id(session.start)]
         : "start" in session
-          ? ["--session-id", session.start]
+          ? ["--session-id", id(session.start)]
           : ["--no-session-persistence"];
   return [
     "-p",
@@ -463,8 +458,11 @@ export async function transcriptPath(
  * without an answer.
  */
 export const MAX_FORK_TOKENS = 70_000;
-/** A transcript larger than this isn't read to find its size (it is far over MAX_FORK_TOKENS). */
-const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
+/**
+ * A transcript larger than this isn't read to find its size (contextTokens runs before the
+ * human's message is saved): it counts as unreadable, so no fork.
+ */
+export const MAX_TRANSCRIPT_BYTES = 8 * 1024 * 1024;
 
 /**
  * How much context the session held at its last answer, in tokens, read from the transcript
@@ -472,7 +470,7 @@ const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
  * cache reads and output). Subagents' entries (`isSidechain`) don't count, nor do the ones
  * Claude Code writes for a failed API call (network, overload, usage limit, "Prompt is too
  * long"): `model: "<synthetic>"`, every count 0. Undefined when it can't be read: no such
- * entry, a format this doesn't know, or a file too large. This is the only thing president
+ * entry, a format this doesn't know, or a file over MAX_TRANSCRIPT_BYTES. This is the only thing president
  * reads in a transcript.
  */
 export async function contextTokens(path: string): Promise<number | undefined> {

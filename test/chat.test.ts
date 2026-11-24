@@ -23,6 +23,7 @@ import {
   contextTokens,
   describeTool,
   MAX_FORK_TOKENS,
+  MAX_TRANSCRIPT_BYTES,
   runClaude,
   transcriptExists,
 } from "../src/server/chat/runner.ts";
@@ -830,6 +831,12 @@ describe("a chat that starts from the card's author (created_session)", () => {
     expect(await tokens([real(20_000), entry({ input_tokens: 0, output_tokens: 0 })])).toBe(20_000);
     // Only failed calls: unreadable.
     expect(await tokens([user, failed, failed])).toBeUndefined();
+    // A transcript too large to read before the message is saved: unreadable.
+    const padding = JSON.stringify({
+      type: "user",
+      message: { content: "x".repeat(MAX_TRANSCRIPT_BYTES) },
+    });
+    expect(await tokens([padding, real(20_000)])).toBeUndefined();
   });
 
   it("never forks a large session whose last call failed", async () => {
@@ -944,6 +951,10 @@ describe("a chat that starts from the card's author (created_session)", () => {
     expect(call?.args.slice(4, 6)).toEqual(["--resume", fork]);
     expect(call?.args).not.toContain("--fork-session");
     expect(call?.stdin).not.toMatch(/This is president/);
+    // A fork holds the author's own work too: the summary is only of the chat.
+    expect(call?.stdin).toMatch(
+      /Cover only the conversation with the human, from president's message that made you this card's chat; not your earlier work\./,
+    );
   });
 });
 
@@ -1168,6 +1179,7 @@ describe("summaries (#0003, #0019, #0020, #0024, 20261111paot)", () => {
     const call = (await t.calls())[1];
     expect(call?.args).toContain("--resume");
     expect(call?.stdin).toMatch(/what the human concluded and what they asked for/);
+    expect(call?.stdin).not.toMatch(/not your earlier work/);
     expect((await t.card()).revision).toBe(before.revision);
     expect((await t.conversation()).unsummarized).toBe(true);
     // The summary request isn't a message of the conversation.

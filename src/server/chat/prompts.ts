@@ -47,7 +47,7 @@ export function sessionInstructions(card: LoadedCard): string {
 export function forkIntro(card: LoadedCard, projectPath: string): string {
   const tools = SESSION_TOOLS.split(",").join(", ");
   return [
-    `This is president, not the human. This conversation is a fork of your session, made when the human opened the chat of a decision card you wrote, decisions/${card.fileName}, so that you can talk with them about it knowing what you knew when you wrote it. Your original session isn't affected.`,
+    `This is president, not the human. This conversation is a fork of your session, made when the human opened the chat of a decision card you wrote, decisions/${card.fileName}, so that you can talk with them about it knowing what you knew when you wrote it and what you did since (the card may be older than your later work). Your original session isn't affected.`,
     `From now on you are not the working agent: you are this card's chat. Don't go on with the earlier task, and when an earlier instruction (your system prompt's included) conflicts with what follows, follow what follows. In this conversation your only tools are ${tools}: you can't change files or run commands.`,
     `The project is now at your current folder, ${projectPath}. Paths from earlier in this session (a git worktree, say) may be gone or out of reach: read the project's files here.`,
     sessionInstructions(card),
@@ -170,11 +170,23 @@ export const SUMMARY_REQUEST = [
   "Reply with the summary only.",
 ].join(" ");
 
-/** The request for a summary of the messages after the last saved one, when there was one. */
-export function summaryRequest(sinceLastSummary: boolean): string {
-  return sinceLastSummary
-    ? `${SUMMARY_REQUEST} A summary of the earlier part was already saved: cover only what came after it.`
-    : SUMMARY_REQUEST;
+/**
+ * The request for a summary of the messages after the last saved one, when there was one. In
+ * a fork of the card author's session (`forked`), "this conversation" would take in the
+ * author's own work too.
+ */
+export function summaryRequest(sinceLastSummary: boolean, forked = false): string {
+  return [
+    SUMMARY_REQUEST,
+    ...(forked
+      ? [
+          "Cover only the conversation with the human, from president's message that made you this card's chat; not your earlier work.",
+        ]
+      : []),
+    ...(sinceLastSummary
+      ? ["A summary of the earlier part was already saved: cover only what came after it."]
+      : []),
+  ].join(" ");
 }
 
 /**
