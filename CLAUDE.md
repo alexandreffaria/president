@@ -47,7 +47,7 @@ git fetch
 git symbolic-ref --short HEAD          # must print main
 git rev-parse --abbrev-ref @{u}        # must print origin/main
 git log --oneline @{u}..               # must print nothing
-git merge --ff-only @{u}               # catches up if behind; no-op if level
+git merge --ff-only --no-autostash @{u}  # catches up if behind; no-op if level
 git commit -m "decisions: answers to <ids>" -- decisions/<file>...
 git push origin main:main
 ```
