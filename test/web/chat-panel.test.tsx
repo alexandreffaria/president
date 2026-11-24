@@ -219,7 +219,8 @@ describe("a card without a pick, more (20261112irpn r-asks)", () => {
 });
 
 describe("New conversation (20261112lvbu choose)", () => {
-  const DIVIDER = "── New conversation. It starts from the card and its summaries. ──";
+  const DIVIDER =
+    "── New conversation. It starts again from the card, without the messages above. ──";
 
   it("isn't offered before there is a conversation", async () => {
     await open("/card/demo/0002");

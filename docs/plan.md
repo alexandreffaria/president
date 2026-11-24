@@ -118,5 +118,5 @@ answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.m
 
 - [x] The card's chat knows what the card's author knew (decided in conversation,
   2026-11-24): it starts as a fork of the author's Claude Code session (`created_session`)
-  when this machine has it, and reads the author's `## For the chat` note, which the card
-  page hides. (#57)
+  when this machine has it and it holds at most 100k tokens (the $1 cap), and reads the
+  author's `## For the chat` note, which the card page hides. (#57)

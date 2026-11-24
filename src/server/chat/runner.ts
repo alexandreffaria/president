@@ -11,12 +11,13 @@
  *   --permission-mode dontAsk --permission-prompts none --max-budget-usd 1
  *
  * The message is never a command-line argument: one starting with `-` would be read as an
- * option, and one after a list flag as a tool name. president never reads Claude Code's own
- * transcript files (their format is internal); it only checks whether one still exists
- * (transcriptExists), to know whether `--resume` can work.
+ * option, and one after a list flag as a tool name. president doesn't read Claude Code's own
+ * transcript files (their format is internal): it checks whether one still exists
+ * (transcriptExists), to know whether `--resume` can work, and reads one number from the card
+ * author's, its size (contextTokens), to know whether forking it fits the run's cap.
  */
 import { spawn } from "node:child_process";
-import { readdir, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 import { SESSION_ID_PATTERN } from "../../core/schema.ts";
@@ -415,21 +416,86 @@ export function defaultClaudeDir(env: NodeJS.ProcessEnv = process.env): string {
  * (`<session>/subagents/agent-<id>.jsonl`) isn't one of these, and `--resume` can't take it.
  */
 export async function transcriptExists(claudeDir: string, session: string): Promise<boolean> {
-  if (!SESSION_ID_PATTERN.test(session)) return false;
+  return (await transcriptPath(claudeDir, session)) !== undefined;
+}
+
+/** The session's transcript file (see transcriptExists), or undefined. */
+export async function transcriptPath(
+  claudeDir: string,
+  session: string,
+): Promise<string | undefined> {
+  if (!SESSION_ID_PATTERN.test(session)) return undefined;
   const projects = join(claudeDir, "projects");
   let folders: string[];
   try {
     folders = await readdir(projects);
   } catch (error) {
-    if (isNotFound(error)) return false;
+    if (isNotFound(error)) return undefined;
     throw error;
   }
   for (const folder of folders) {
-    const found = await stat(join(projects, folder, `${session}.jsonl`)).then(
+    const path = join(projects, folder, `${session}.jsonl`);
+    const found = await stat(path).then(
       (info) => info.isFile(),
       () => false,
     );
-    if (found) return true;
+    if (found) return path;
   }
-  return false;
+  return undefined;
+}
+
+/**
+ * The most a session may hold for a card's chat to start as a fork of it, in tokens of
+ * context. A fork's first run sends all of it, written to the prompt cache at 1.25 times the
+ * input price: about $0.63 for 100k tokens at the default model's $5 per million input
+ * tokens. That leaves about a third of the run's $1 cap (MAX_BUDGET_USD) for the answer and a
+ * few tool calls, each of which reads the cached context again at a tenth of the price
+ * (about $0.05 a call). A real 184k-token fork spent its whole dollar on the cache write and
+ * stopped without an answer.
+ */
+export const MAX_FORK_TOKENS = 100_000;
+/** A transcript larger than this isn't read to find its size (it is far over MAX_FORK_TOKENS). */
+const MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
+
+/**
+ * How much context the session held at its last answer, in tokens, read from the transcript
+ * at `path`: the last main-thread assistant entry's `message.usage` (input, cache writes,
+ * cache reads and output). Undefined when it can't be read: no such entry, a format this
+ * doesn't know, or a file too large. This is the only thing president reads in a transcript.
+ */
+export async function contextTokens(path: string): Promise<number | undefined> {
+  try {
+    if ((await stat(path)).size > MAX_TRANSCRIPT_BYTES) return undefined;
+    const lines = (await readFile(path, "utf8")).split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i];
+      if (!line?.includes('"assistant"')) continue;
+      let entry: TranscriptEntry;
+      try {
+        entry = JSON.parse(line) as TranscriptEntry;
+      } catch {
+        continue;
+      }
+      if (entry.type !== "assistant" || entry.isSidechain === true) continue;
+      const usage = entry.message?.usage;
+      if (!usage || typeof usage !== "object") continue;
+      if (typeof usage.input_tokens !== "number") return undefined;
+      const parts = [
+        usage.input_tokens,
+        usage.cache_creation_input_tokens,
+        usage.cache_read_input_tokens,
+        usage.output_tokens,
+      ];
+      return parts.reduce<number>((sum, n) => sum + (typeof n === "number" && n > 0 ? n : 0), 0);
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+interface TranscriptEntry {
+  type?: unknown;
+  isSidechain?: unknown;
+  message?: { usage?: Record<string, unknown> };
 }

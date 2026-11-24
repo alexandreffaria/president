@@ -8,7 +8,8 @@
  *   the card file.
  * - A new session starts as a fork of the session that wrote the card (`created_session`,
  *   `--resume <it> --fork-session --session-id <new id>`) when this machine's Claude Code
- *   still has it, so the chat knows what the author researched and ruled out; the author's
+ *   still has it and it held at most MAX_FORK_TOKENS (runner.ts: a fork must fit the run's $1
+ *   cap), so the chat knows what the author researched and ruled out; the author's
  *   session is untouched. Its first message carries the chat's instructions (forkIntro),
  *   since a fork keeps the author's system prompt. Otherwise, or when the author's session
  *   goes just before the run, it starts from the card alone, as it always did.
@@ -62,11 +63,14 @@ import {
   withPickLine,
 } from "./prompts.ts";
 import {
+  contextTokens,
   defaultClaudeDir,
+  MAX_FORK_TOKENS,
   type RunRequest,
   type RunResult,
   runClaude,
   transcriptExists,
+  transcriptPath,
 } from "./runner.ts";
 import { CardRuns, ChatRun, keyName } from "./runs.ts";
 import { type CardKey, ChatStore, defaultStateDir, type SessionEntry } from "./store.ts";
@@ -365,7 +369,7 @@ export class ChatService {
     // A new session starts as a fork of the one that wrote the card, when this machine has it
     // (a new conversation too: the author's session is as it was, untouched by earlier copies).
     let author = resume ? undefined : await this.#authorSession(card);
-    if (startOver && !fresh) await turn.notice(this.#startOverNotice(author !== undefined));
+    if (startOver && !fresh) await turn.notice(this.#startOverNotice());
     await turn.first();
 
     let revealed = resume ? (turn.revealedNow ?? entry?.revealed) : turn.revealedNow;
@@ -391,10 +395,12 @@ export class ChatService {
       const stored = asksNow ? (resume ? entry?.revealed : undefined) : revealed;
       const withLine = withPickLine(
         pickLine(card, revealed, asksNow),
-        startOver ? `${startOverNote(card, fresh)}\n\n${turn.text}` : turn.text,
+        startOver
+          ? `${startOverNote(card, fresh, author !== undefined)}\n\n${turn.text}`
+          : turn.text,
       );
       // A fork keeps the author's system prompt: the chat's instructions go in the message.
-      const message = author ? `${forkIntro(card)}\n\n${withLine}` : withLine;
+      const message = author ? `${forkIntro(card, project.path)}\n\n${withLine}` : withLine;
       if (resume) {
         await this.store.updateEntry(key, (e) => ({
           ...e,
@@ -411,8 +417,8 @@ export class ChatService {
               ? { fork: author, start: session }
               : { start: session },
           message,
-          // Also on a fork: where Claude Code doesn't record system prompts, it applies there.
-          appendSystemPrompt: resume ? undefined : sessionInstructions(card),
+          // Not on a fork, where Claude Code ignores it (forkIntro carries the instructions).
+          appendSystemPrompt: resume || author ? undefined : sessionInstructions(card),
           jsonSchema: turn.jsonSchema,
           signal: turn.signal,
         },
@@ -444,7 +450,7 @@ export class ChatService {
       revealed = turn.revealedNow;
       startOver = true;
       author = await this.#authorSession(card);
-      await turn.notice(this.#startOverNotice(author !== undefined));
+      await turn.notice(this.#startOverNotice());
       result = await attempt();
     }
     if (!result.ok && author && result.sessionNotFound) {
@@ -632,18 +638,28 @@ export class ChatService {
 
   /**
    * The session that wrote the card (`created_session`), when this machine's Claude Code still
-   * has it: a new session on the card starts as a fork of it (`--fork-session`).
+   * has it and it is small enough to fork within the run's cap: a new session on the card
+   * starts as a fork of it (`--fork-session`).
    */
   async #authorSession(card: LoadedCard): Promise<string | undefined> {
     const author = card.frontmatter.created_session;
     if (!author || !isSessionId(author)) return undefined;
-    return (await transcriptExists(this.#claudeDir, author)) ? author : undefined;
+    const path = await transcriptPath(this.#claudeDir, author);
+    if (path === undefined) return undefined;
+    // Too large to fork within the run's cap, or of unknown size: the card alone (its
+    // `## For the chat` note says what the author found).
+    const tokens = await contextTokens(path);
+    return tokens !== undefined && tokens <= MAX_FORK_TOKENS ? author : undefined;
   }
 
-  #startOverNotice(fromAuthor: boolean): ChatMessageDto {
+  /**
+   * Said before the human's message, so before it is known whether a fork of the author's
+   * session works: it doesn't say where the new conversation starts from beyond the card.
+   */
+  #startOverNotice(): ChatMessageDto {
     return this.#message(
       "hub",
-      `The earlier conversation on this card isn't available on this machine; this one starts from the card${fromAuthor ? ", its summaries and the session that wrote it" : " and its summaries"}.`,
+      "The earlier conversation on this card isn't available on this machine; this one starts again from the card.",
     );
   }
 

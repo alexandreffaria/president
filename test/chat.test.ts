@@ -20,7 +20,9 @@ import { newOptionsFailure } from "../src/core/new-options.ts";
 import { createApp } from "../src/server/app.ts";
 import {
   claudeArgs,
+  contextTokens,
   describeTool,
+  MAX_FORK_TOKENS,
   runClaude,
   transcriptExists,
 } from "../src/server/chat/runner.ts";
@@ -651,32 +653,58 @@ describe("when Claude Code no longer has the session (#0018, #0021)", () => {
   });
 });
 
-describe("a chat that starts from the card's author (created_session)", () => {
-  const AUTHOR = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
-  /** The project folder Claude Code keeps the author's session in (another checkout's). */
-  const AUTHOR_FOLDER = "-elsewhere-worktrees-agent-1";
+const AUTHOR = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
+/** The project folder Claude Code keeps the author's session in (another checkout's). */
+const AUTHOR_FOLDER = "-elsewhere-worktrees-agent-1";
 
-  /**
-   * Gives card 0002 a `created_session`, and with `transcript`, that session's transcript in
-   * another project folder (the author wrote the card in a git worktree).
-   */
-  async function authored(t: Awaited<ReturnType<typeof setup>>, transcript = true) {
-    const path = join(t.demo, "decisions", "0002-api-errors.md");
-    const text = await readFile(path, "utf8");
-    await writeFile(path, text.replace(/^---\n/, `---\ncreated_session: ${AUTHOR}\n`));
-    const folder = join(t.root, "claude", "projects", AUTHOR_FOLDER);
-    const file = join(folder, `${AUTHOR}.jsonl`);
-    if (transcript) {
-      await mkdir(folder, { recursive: true });
-      await writeFile(file, "author\n");
-    }
-    return file;
+/**
+ * A transcript whose last answer held `tokens` of context, in the shape Claude Code writes:
+ * a subagent's (sidechain) entry after it, which doesn't count.
+ */
+function transcriptOf(tokens: number): string {
+  const assistant = (usage: object, sidechain = false) =>
+    JSON.stringify({ type: "assistant", isSidechain: sidechain, message: { usage } });
+  return [
+    JSON.stringify({ type: "user", message: { content: "Write the card." } }),
+    assistant({ input_tokens: 5, cache_creation_input_tokens: 10, output_tokens: 1 }),
+    assistant({
+      input_tokens: 2,
+      cache_creation_input_tokens: 1000,
+      cache_read_input_tokens: tokens - 1102,
+      output_tokens: 100,
+    }),
+    assistant({ input_tokens: 999_999 }, true),
+    "",
+  ].join("\n");
+}
+
+/**
+ * Gives card 0002 a `created_session`, and that session's transcript (`transcript`: its text,
+ * or none) in another project folder: the author wrote the card in a git worktree.
+ */
+async function authored(
+  t: Awaited<ReturnType<typeof setup>>,
+  transcript: string | false = transcriptOf(20_000),
+) {
+  const path = join(t.demo, "decisions", "0002-api-errors.md");
+  const text = await readFile(path, "utf8");
+  await writeFile(path, text.replace(/^---\n/, `---\ncreated_session: ${AUTHOR}\n`));
+  const folder = join(t.root, "claude", "projects", AUTHOR_FOLDER);
+  const file = join(folder, `${AUTHOR}.jsonl`);
+  if (transcript !== false) {
+    await mkdir(folder, { recursive: true });
+    await writeFile(file, transcript);
   }
+  return file;
+}
+
+describe("a chat that starts from the card's author (created_session)", () => {
   const sessionOf = (call: Call | undefined) => call?.args[call.args.indexOf("--session-id") + 1];
 
   it("starts the session as a fork of the author's, told it is the card's chat, then resumes the fork", async () => {
     const t = await setup();
     const authorFile = await authored(t);
+    const transcript = await readFile(authorFile, "utf8");
     const events = await t.send("Why not throw?");
     expect(events.at(-1)?.type).toBe("done");
     // No notice: nothing was lost.
@@ -693,13 +721,15 @@ describe("a chat that starts from the card's author (created_session)", () => {
       "--session-id",
       fork,
     ]);
-    // The read-only flags stay (#0004).
+    // The read-only flags stay (#0004); a fork ignores --append-system-prompt, so none.
     expect(first?.args.join(" ")).toContain(READONLY_FLAGS.join(" "));
+    expect(first?.args).not.toContain("--append-system-prompt");
     expect(first?.cwd).toBe(t.demo);
     // The chat's instructions are in the message, the pick line before the human's words.
     const stdin = first?.stdin ?? "";
     expect(stdin).toMatch(/^This is president, not the human\./);
     expect(stdin).toMatch(/you are not the working agent: you are this card's chat/);
+    expect(stdin).toContain(`The project is now at your current folder, ${t.demo}.`);
     expect(stdin).toMatch(/decisions\/0002-api-errors\.md/);
     expect(stdin).toMatch(/You can't change anything, and you never apply decisions/);
     expect(stdin).toMatch(/Follow the line about the pick strictly, even if you recommended/);
@@ -711,7 +741,7 @@ describe("a chat that starts from the card's author (created_session)", () => {
     expect((await t.sessions())["demo/0002"]).toEqual({ session: fork, unsummarized: true });
     expect(await t.conversation()).toMatchObject({ remembers: true });
     // The author's session is untouched; the next message resumes the fork, as before.
-    expect(await readFile(authorFile, "utf8")).toBe("author\n");
+    expect(await readFile(authorFile, "utf8")).toBe(transcript);
     await t.send("And the cost?");
     const second = (await t.calls())[1];
     expect(second?.args.slice(4, 6)).toEqual(["--resume", fork]);
@@ -728,6 +758,25 @@ describe("a chat that starts from the card's author (created_session)", () => {
     expect(call?.args).not.toContain("--resume");
     expect(call?.args).toContain("--append-system-prompt");
     expect(call?.stdin).toMatch(/^\(president: /);
+  });
+
+  // A fork's first run sends all of the author's context, which must fit the run's $1 cap.
+  it("forks only an author's session of at most MAX_FORK_TOKENS, and of a size it can read", async () => {
+    for (const [transcript, forks] of [
+      [transcriptOf(MAX_FORK_TOKENS), true],
+      [transcriptOf(MAX_FORK_TOKENS + 1), false],
+      ["not json\n", false],
+      [`${JSON.stringify({ type: "assistant", message: { usage: { tokens: 5 } } })}\n`, false],
+      ["", false],
+    ] as const) {
+      const t = await setup();
+      await authored(t, transcript);
+      await t.send("Hello");
+      const [call] = await t.calls();
+      expect(call?.args.includes("--fork-session"), transcript.slice(0, 60)).toBe(forks);
+      if (!forks) expect(call?.args).toContain("--append-system-prompt");
+    }
+    expect(await contextTokens(join(await tempDir(), "missing.jsonl"))).toBeUndefined();
   });
 
   it("ignores a created_session that isn't a session id", async () => {
@@ -757,6 +806,7 @@ describe("a chat that starts from the card's author (created_session)", () => {
     expect(failed?.args).toContain("--fork-session");
     expect(retried?.args).not.toContain("--fork-session");
     expect(retried?.stdin).toMatch(/^\(president: /);
+    expect(retried?.args).toContain("--append-system-prompt");
     expect((await t.sessions())["demo/0002"]?.session).toBe(sessionOf(retried));
   });
 
@@ -772,8 +822,7 @@ describe("a chat that starts from the card's author (created_session)", () => {
     expect(sessionOf(second)).not.toBe(first);
     expect(second?.stdin).toMatch(/The human started a new conversation about this card/);
 
-    // This machine lost the fork (every transcript but the author's): the notice says where
-    // the new one starts from.
+    // This machine lost the fork (every transcript but the author's).
     const projects = join(t.root, "claude", "projects");
     for (const folder of await readdir(projects)) {
       if (folder !== AUTHOR_FOLDER) await rm(join(projects, folder), { recursive: true });
@@ -781,19 +830,35 @@ describe("a chat that starts from the card's author (created_session)", () => {
     const events = await t.send("Three");
     expect(events[0]).toMatchObject({
       type: "message",
-      message: {
-        from: "hub",
-        text: expect.stringMatching(/its summaries and the session that wrote it/),
-      },
+      message: { from: "hub", text: expect.stringMatching(/isn't available on this machine/) },
     });
     const third = (await t.calls())[2];
     expect(third?.args.slice(4, 7)).toEqual(["--resume", AUTHOR, "--fork-session"]);
-    expect(third?.stdin).toMatch(/An earlier conversation about this card isn't available here/);
+    expect(third?.stdin).toMatch(
+      /An earlier conversation about this card isn't available here; this one starts from the card, its summaries and what you knew when you wrote the card\./,
+    );
+  });
+
+  it("writes a summary from the fork, resumed like any session", async () => {
+    const t = await setup();
+    await authored(t);
+    await t.send("One");
+    const fork = sessionOf((await t.calls())[0]);
+    await t.script([{ text: "Discussed with the card's agent." }]);
+    const response = await t.post("/api/chats/demo/0002/summary", {});
+    expect(await response.json()).toEqual({
+      summary: "Discussed with the card's agent.",
+      fromCopy: false,
+    });
+    const call = (await t.calls())[1];
+    expect(call?.args.slice(4, 6)).toEqual(["--resume", fork]);
+    expect(call?.args).not.toContain("--fork-session");
+    expect(call?.stdin).not.toMatch(/This is president/);
   });
 });
 
 describe("New conversation (20261112lvbu choose)", () => {
-  const DIVIDER = "New conversation. It starts from the card and its summaries.";
+  const DIVIDER = "New conversation. It starts again from the card, without the messages above.";
 
   it("ends the session: the next message starts a new one from the card, below a divider", async () => {
     const t = await setup();
@@ -1654,6 +1719,24 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
     expect(call?.args).toContain("--append-system-prompt");
     expect(call?.stdin).toMatch(/^\(president: The human has not revealed the card's pick\./);
     expect((await t.sessions())["demo/0002"]?.session).toMatch(UUID);
+  });
+
+  it("on a card whose author's session is here, starts the run as a fork of it", async () => {
+    const t = await setup();
+    await authored(t);
+    await t.script([{ structured: ANSWER }]);
+    await neither(t);
+    expect((await settled(t)).newOptions).toMatchObject({ state: "written" });
+    const [call] = await t.calls();
+    expect(call?.args.slice(4, 7)).toEqual(["--resume", AUTHOR, "--fork-session"]);
+    expect(call?.args).toContain("--json-schema");
+    expect(call?.args).not.toContain("--append-system-prompt");
+    expect(call?.stdin).toMatch(/^This is president, not the human\./);
+    expect(call?.stdin).toMatch(/\(president: The human has not revealed the card's pick\./);
+    expect(call?.stdin).toMatch(/Neither: the human rejected every option/);
+    expect((await t.sessions())["demo/0002"]?.session).toBe(
+      call?.args[call.args.indexOf("--session-id") + 1],
+    );
   });
 
   it("refuses a New conversation while the options are written (20261112lvbu)", async () => {
