@@ -203,7 +203,8 @@ export function replaceOptionSections(body: string, sections: NewOptionSection[]
   if (sections.length === 0) {
     if (!first || !last) return body;
     const before = lines.slice(0, first.line - 1);
-    const after = lines.slice(sectionEnd(lines, last.line - 1));
+    const end = sectionEnd(lines, last.line - 1);
+    const after = [...forChatBetween(lines, first.line - 1, end), ...lines.slice(end)];
     while (before.length > 0 && before.at(-1)?.trim() === "") before.pop();
     return [...before, ...(after.length > 0 ? ["", ...after] : [""])].join(newline);
   }
@@ -222,7 +223,8 @@ export function replaceOptionSections(body: string, sections: NewOptionSection[]
   // isn't one (splitSections ends a section there); fences are skipped the same way.
   const appendixAt = sectionEnd(lines, last.line - 1);
   const before = lines.slice(0, first.line - 1);
-  const after = lines.slice(appendixAt);
+  // A `## For the chat` between the old option sections stays, right after the new ones.
+  const after = [...forChatBetween(lines, first.line - 1, appendixAt), ...lines.slice(appendixAt)];
   while (before.length > 0 && before.at(-1)?.trim() === "") before.pop();
   return [
     ...before,
@@ -230,6 +232,26 @@ export function replaceOptionSections(body: string, sections: NewOptionSection[]
     ...written,
     ...(after.length > 0 ? ["", ...after] : [""]),
   ].join(newline);
+}
+
+/**
+ * The `## For the chat` sections among `lines[from..to)`, each from its heading to the next
+ * level-2 heading, as they are, each followed by a blank line.
+ */
+function forChatBetween(lines: string[], from: number, to: number): string[] {
+  const kept: string[] = [];
+  // `from` is a level-2 heading, and sectionEnd skips code fences, so each step is one.
+  for (let i = from; i < to; ) {
+    const end = Math.min(sectionEnd(lines, i), to);
+    const heading = H2.exec(lines[i] as string);
+    if (heading && FOR_THE_CHAT_HEADING.test(heading[1]?.trim() ?? "")) {
+      const section = lines.slice(i, end);
+      while (section.length > 0 && section.at(-1)?.trim() === "") section.pop();
+      kept.push(...section, "");
+    }
+    i = end;
+  }
+  return kept;
 }
 
 /** The index of the line after the section whose heading is at `headingIndex`. */

@@ -2197,6 +2197,29 @@ describe("Neither: new options right away (#0007, 202611111gpm, 2026111272fu, 20
       expect(card.sections.context).toBe(before.sections.context);
       expect(card.sections.appendix).toBe(before.sections.appendix);
     });
+
+    // The author's note for the chat stays word for word, wherever it was.
+    for (const [where, heading] of [
+      ["after the last option section", "## Sources"],
+      ["between option sections", "## Option result"],
+    ] as const) {
+      it(`keeps a ## For the chat ${where}`, async () => {
+        const t = await setup();
+        const note = "## For the chat\n\n- Looked at src/http.ts.\n- Ruled out retries.";
+        const text = await readFile(cardPath(t), "utf8");
+        expect(text).toContain(heading);
+        await writeFile(cardPath(t), text.replace(heading, `${note}\n\n${heading}`));
+        const before = await t.card();
+        await t.script([{ structured: ANSWER }]);
+        await neither(t);
+        expect((await settled(t)).newOptions?.state).toBe("written");
+        const card = await t.card();
+        expect(card.sections.options.map((o) => o.id)).toEqual(["indexeddb", "files"]);
+        expect(card.sections.forChat).toBe("- Looked at src/http.ts.\n- Ruled out retries.");
+        expect(await readFile(cardPath(t), "utf8")).toContain(note);
+        expect(card.sections.appendix).toBe(before.sections.appendix);
+      });
+    }
   });
 
   it("offers Try again for a run president was shut down during", async () => {
