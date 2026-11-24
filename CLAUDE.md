@@ -35,6 +35,13 @@ On Windows it also installs the tray helper and runs its self-test.
 Never branch or edit in the main checkout, the one registered with the hub: the hub runs
 from it, and Sync pulls main into it. Work in a git worktree.
 
+One exception, for the orchestrating session only: Sync never commits, so an answer to a
+card that is already on main sits uncommitted in the main checkout, and Sync says "Not now"
+once a merged PR changes that card. Before applying such answers, the orchestrating session
+commits them straight on main there and pushes: only `decisions/` card files whose change is
+the human's answer or feedback from the hub, by path, with a message like "decisions:
+answers to <ids>". Never edit or commit any other file there.
+
 ## Cards and docs
 
 - A card lives on the branch whose work it unblocks: write it in your worktree's

@@ -87,6 +87,7 @@ first five were settled before president had cards. Work not built yet is in
 | 2026-11-24 | A card's chat starts as a fork of the session that wrote the card, when this machine has it and it fits the chat's cost cap; the author also leaves the chat a short note on the card, which the card page doesn't show. | |
 | 2026-11-24 | Each hub shows only its own checkouts' cards: a branch's card is answered on the machine that has the branch. | [20261116notj](../decisions/20261116notj-answering-from-another-machine.md) |
 | 2026-11-24 | Sync only pulls main, to bring in merged cards and answers; it never commits or pushes. An answer to a card already on main stays uncommitted until an agent commits it. | [20261116d34o](../decisions/20261116d34o-what-sync-becomes.md) |
+| 2026-11-24 | For president, the orchestrating session commits answers to cards already on main straight on main in the main checkout, and pushes them, before applying them; it edits nothing else there. Decided in chat. | |
 
 ## Card interactions (must have)
 

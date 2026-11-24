@@ -353,7 +353,9 @@ both want port 4747 (the icon then turns grey and says "port 4747 in use by anot
    - main has commits that aren't on the remote (an agent's, not pushed yet): Sync only
      fast-forwards;
    - a file the pull would change has uncommitted changes here: an agent's edit, or your
-     answer to a card that changed on the remote too.
+     answer to a card that changed on the remote too. Such an answer makes every Sync of the
+     project say "Not now" until it is committed; in president itself, the orchestrating
+     session commits those on main (see `CLAUDE.md`).
 
    An untracked file where the pull would write is left to git, which refuses to overwrite
    it: Sync then says a file git doesn't track is in the way, with git's error naming it, and

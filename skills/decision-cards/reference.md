@@ -163,8 +163,9 @@ files in git** in `SKILL.md`), and the pull request takes them to main. The hub'
 only pulls main into the registered folder, to bring in merged cards and answers; it never
 commits or pushes (card 20261116d34o). So a card change in the registered folder on main (an
 answer to a card that was merged before it was answered) stays uncommitted there until an
-agent commits it: the agent working on main in that folder commits it with its work, and
-otherwise you commit and push it on main only when the human asks. Until then Sync says "Not
+agent commits it: the agent working in the registered folder commits it with its work, and
+otherwise you commit and push it on main only when the human or the project's instructions
+(its `CLAUDE.md`, say) ask you to. Until then Sync says "Not
 now" if the remote changes that same card. Each machine's hub shows only its own checkouts'
 cards (card 20261116notj): a card on your branch is answered on your machine. Sync skips a
 project whose folder isn't the top folder of its git repository or whose repository has
