@@ -44,8 +44,10 @@ human's answer into the card file where it is.
   answers and notes (they show as changes under `decisions/` in `git status`), and your
   `applied`, `seen` and `update` changes. The pull request carries them, and merging puts
   them on main. Commit them by path (`git add <project>/decisions/<file>`), not with
-  `git add -A`. The one exception: in the registered folder with main checked out, leave
-  card changes uncommitted; the hub's Sync carries them (see **Sync** in `reference.md`).
+  `git add -A`. In the registered folder with main checked out, commit card changes only
+  if you work in that folder, or the human or the project's instructions ask you to, and
+  push main too, or Sync can't pull there (it only pulls, and only fast-forwards; see
+  **Sync** in `reference.md`).
 - Commit card changes before you switch branch or remove a worktree: an answer the hub just
   wrote is an uncommitted change, and git would carry it to the other branch or delete it.
   Push your branch with its cards, so they aren't lost with the checkout.
@@ -261,9 +263,7 @@ it show?
    fails its last check** in `reference.md`.
 
    Then delete the draft and the scratch folder, and commit the card on your branch
-   (`git add <project>/decisions/<file>`; in the registered folder on main, leave it
-   uncommitted, see **Your checkout, and card files in git**). The card is in the human's
-   queue now.
+   (`git add <project>/decisions/<file>`). The card is in the human's queue now.
 
 ### What makes a good card
 
@@ -325,8 +325,7 @@ folder), so skip it rather than apply it on every branch.
 4. Run the card's `done:` line (`preside applied <file> --token <token>`; it sets
    `applied_at` and `seen_at`). Don't change `status` or `resolution` yourself. Commit the
    card file (the human's answer and your "applied") on your branch with the docs and code:
-   the pull request carries the decision with the work it decided. In the registered folder
-   on main, leave it uncommitted (see **Your checkout, and card files in git**).
+   the pull request carries the decision with the work it decided.
 
    If it refuses because the decision you acted on is gone (the human took it back with
    Undo, or reopened the card before you finished), revert the docs entry and the work for

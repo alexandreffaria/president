@@ -59,11 +59,11 @@ first five were settled before president had cards. Work not built yet is in
 | 2026-11-12 | A revealed pick stays shown until you leave the card. | [20261111nsaj](../decisions/20261111nsaj-revealed-pick-duration.md) |
 | 2026-11-12 | Sync works only on projects that are their own repository. | [2026111209dq](../decisions/2026111209dq-sync-inside-bigger-repo.md) |
 | 2026-11-12 | The change notice says when Sync brought the newer card. | [20261112xp4s](../decisions/20261112xp4s-notice-after-sync.md) |
-| 2026-11-12 | Unsynced answers in a project Sync skips get their own line. | [20261112l9vh](../decisions/20261112l9vh-unsynced-count-skipped-projects.md) |
+| 2026-11-12 | ~~Unsynced answers in a project Sync skips get their own line.~~ Gone: Sync only pulls (2026-11-24, 20261116d34o). | [20261112l9vh](../decisions/20261112l9vh-unsynced-count-skipped-projects.md) |
 | 2026-11-12 | The new pick after "Neither" is hidden again, in the run's message and the chat. | [2026111272fu](../decisions/2026111272fu-new-pick-and-neutral-chat.md) |
 | 2026-11-12 | ~~The "Neither" message is sent only once Undo is gone.~~ Undone by 59oa. | [20261112160s](../decisions/20261112160s-undo-new-options-turn.md) |
 | 2026-11-12 | ~~A second tab can start the waiting run, and Undo is then refused.~~ Undone by 59oa. | [20261112dfik](../decisions/20261112dfik-second-tab-during-wait.md) |
-| 2026-11-12 | No always-on server: a hub on each machine; Sync moves the cards between them. | [2026111276n0](../decisions/2026111276n0-hub-on-your-server.md) |
+| 2026-11-12 | No always-on server: a hub on each machine; ~~Sync moves the cards between them~~ cards reach the other machines through pull requests and Sync's pull (2026-11-24, 20261116d34o). | [2026111276n0](../decisions/2026111276n0-hub-on-your-server.md) |
 | 2026-11-12 | The Windows tray icon shows how many cards are waiting. | [20261112vzn8](../decisions/20261112vzn8-tray-icon-on-windows.md) |
 | 2026-11-12 | A withdrawn card can't be deferred. | [20261112tiuq](../decisions/20261112tiuq-defer-withdrawn-card.md) |
 | 2026-11-12 | A decided card an agent had withdrawn shows the reason in a quiet line. | [20261112jdyg](../decisions/20261112jdyg-decided-withdrawn-page.md) |
@@ -83,8 +83,11 @@ first five were settled before president had cards. Work not built yet is in
 | 2026-11-14 | A PR's review loop runs until every finding, nits included, is fixed and reviewed again. | [20261114zuct](../decisions/20261114zuct-review-loop-stopping-rule.md) |
 | 2026-11-14 | One line per decision here, reasons in the card; the old roadmap is archived. | [20261114r0w8](../decisions/20261114r0w8-where-decisions-are-recorded.md) |
 | 2026-11-14 | Only for the owner: public repo, no npm release, Windows only on the owner's workstation. | [2026111411fs](../decisions/2026111411fs-who-is-president-for.md) |
-| 2026-11-16 | Cards live on the working branch with the work they unblock, are committed there and reach main through its PR. Decided in chat; built in [plan.md](plan.md) section 8, the rest is in the [roadmap](roadmap.md#cards-on-the-working-branch). | [202611167ux1](../decisions/202611167ux1-where-cards-live.md) (withdrawn) |
+| 2026-11-16 | Cards live on the working branch with the work they unblock, are committed there and reach main through its PR. Decided in chat; built in [plan.md](plan.md) section 8, with the two cards it left (20261116notj, 20261116d34o, 2026-11-24 below). | [202611167ux1](../decisions/202611167ux1-where-cards-live.md) (withdrawn) |
 | 2026-11-24 | A card's chat starts as a fork of the session that wrote the card, when this machine has it and it fits the chat's cost cap; the author also leaves the chat a short note on the card, which the card page doesn't show. | |
+| 2026-11-24 | Each hub shows only its own checkouts' cards: a branch's card is answered on the machine that has the branch. | [20261116notj](../decisions/20261116notj-answering-from-another-machine.md) |
+| 2026-11-24 | Sync only pulls main, to bring in merged cards and answers; it never commits or pushes. An answer to a card already on main stays uncommitted until an agent commits it. | [20261116d34o](../decisions/20261116d34o-what-sync-becomes.md) |
+| 2026-11-24 | For president, the orchestrating session commits and pushes answers to cards already on main in the main checkout, following the exact steps in [CLAUDE.md](../CLAUDE.md#where-to-work). Decided in chat. | |
 
 ## Card interactions (must have)
 
@@ -108,8 +111,8 @@ Nobody reads the plumbing by hand, so review is the quality gate.
 
 Decision cards live on the branch whose work they unblock (decided 2026-11-16): the agent commits a card,
 the human's answer and its own "applied" on its branch, and that branch's PR carries them with the docs and
-code they decided (in the registered folder with main checked out, Sync still carries them until card
-20261116d34o is decided). A new card is reviewed before it reaches the human: it is drafted in a scratch folder
+code they decided (Sync only pulls, [20261116d34o](../decisions/20261116d34o-what-sync-becomes.md), so an
+answer to a card already on main waits in the registered folder until an agent commits it). A new card is reviewed before it reaches the human: it is drafted in a scratch folder
 outside every checkout (the hub reads them all), a fresh session reviews the draft, and the loop repeats
 until nothing should-fix is left; then the agent copies it into its checkout's `decisions/` and commits it
 (`skills/decision-cards/SKILL.md`, *Writing a card*).

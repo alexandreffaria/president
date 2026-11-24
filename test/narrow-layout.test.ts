@@ -8,14 +8,14 @@
  * the bar takes its compact layout.
  *
  * Measured in headless Chrome over CDP (the built UI with a stub API, so "Connecting"
- * shows) at 27 widths from 320 to 1280 px, in both themes, with "16 answers not synced · 3
- * card changes on the remote" plus a skipped project's line, with "1 answer not synced",
- * and with three-digit counts: no sideways scroll and nothing overlapping at any width, ?
- * 12-20 px from the edge, and wherever the summary shows, the end group stays on the nav's
- * line. "1 answer not synced" shows from 480 px up; the usual counts at 768 px (where the
- * brand is hidden) and from about 1080 px; below that the count is on the button. The bar
- * is one line (50-56 px) except at about 360 px and below, where it wraps onto two (85
- * px); a skipped project's line adds 24 px.
+ * shows) at 27 widths from 320 to 1280 px, in both themes, with the longer two-count
+ * summary Sync had before it became pull-only ("16 answers not synced · 3 card changes on
+ * the remote") and with three-digit counts: no sideways scroll and nothing overlapping at
+ * any width, ? 12-20 px from the edge, and wherever the summary shows, the end group stays
+ * on the nav's line. Two counts showed at 768 px (where the brand is hidden) and from
+ * about 1080 px; below that the count is on the button. The bar is one line (50-56 px)
+ * except at about 360 px and below, where it wraps onto two (85 px). Today's single count
+ * is shorter, so it fits wherever those did.
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -60,10 +60,6 @@ describe("the top bar (S-11, S2-3)", () => {
     expect(rule(".sync-button .sync-count").display).toBe("none");
     // Measured, not a fixed breakpoint.
     expect(css).not.toContain("66rem");
-  });
-
-  it("puts a skipped project's answers on a line of their own (B2)", () => {
-    expect(rule(".sync-skipped")["flex-basis"]).toBe("100%");
   });
 
   it("keeps ? off the screen's edge in its compact layout below 48rem", () => {

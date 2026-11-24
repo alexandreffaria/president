@@ -3,21 +3,18 @@
  * and what it reads from them.
  */
 import { existsSync } from "node:fs";
-import { lstat, readFile, realpath } from "node:fs/promises";
+import { lstat, realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { type GitOptions, type GitResult, runGit, splitZ } from "../git.ts";
 import { DECISIONS_DIR } from "../registry.ts";
 
-export interface SyncOptions extends GitOptions {
-  /** The machine's name in commit messages ("decisions from laptop: ..."). */
-  hostname?: string;
-}
+export type SyncOptions = GitOptions;
 
 export const CARDS = `${DECISIONS_DIR}/`;
 const MAX_GIT_ERROR = 1200;
 const SUBMODULES = "it has git submodules, which Sync doesn't handle";
 const TOO_MANY_HERE =
-  "This project has more changed files than Sync can check. Commit and push the work there by hand, or put it away, then press Sync again.";
+  "This project has more changed files than Sync can check. Commit the work there or put it away, then press Sync again.";
 
 /** A git command that failed where the sequence can't go on. */
 export class GitFailed extends Error {
@@ -77,8 +74,7 @@ export class Repo {
    */
   async unavailable(): Promise<string | undefined> {
     // The top folder of a work tree always holds .git (a folder, or a file in a worktree).
-    // Checked first, so this costs no git process in such a folder (the top bar's count of
-    // a skipped project's answers, skippedCardChanges, runs one there).
+    // Checked first, so this costs no git process in any other folder.
     if (!(await lstat(join(this.dir, ".git")).then(Boolean, () => false))) {
       return "it isn't the top folder of a git repository";
     }
@@ -109,30 +105,10 @@ export class Repo {
   }
 
   /**
-   * For a project Sync skips, its card changes all the same (20261112l9vh, count-apart):
-   * inside a bigger repository they are counted against that repository's upstream (the
-   * pathspec is relative to the project folder, so only this project's cards count). 0 for a
-   * folder outside git, which keeps no record of what was sent, or one git can't read.
-   */
-  async skippedCardChanges(): Promise<number> {
-    if ((await this.run(["rev-parse", "--show-toplevel"])).code !== 0) return 0;
-    try {
-      const { upstream } = await this.branch();
-      return (await this.localCardChanges(upstream !== undefined)).length;
-    } catch (error) {
-      // Output cut at the limit, or a timeout, gives 0 too, and the line goes. The pathspec
-      // keeps the lists to decisions/, so that would take tens of thousands of changed cards.
-      if (error instanceof GitFailed) return 0;
-      throw error;
-    }
-  }
-
-  /**
    * A rebase, merge, cherry-pick, revert, sequence of those, or bisect that someone started
-   * and hasn't finished. For a rebase, also the autostash it holds (the commit with the
-   * uncommitted changes it set aside), if any.
+   * and hasn't finished.
    */
-  async inProgress(): Promise<InProgress | undefined> {
+  async inProgress(): Promise<InProgressKind | undefined> {
     const lines = (
       await this.out(["rev-parse", ...IN_PROGRESS.flatMap(({ path }) => ["--git-path", path])])
     )
@@ -141,14 +117,7 @@ export class Repo {
     for (const [i, { path, kind }] of IN_PROGRESS.entries()) {
       const found = lines[i];
       if (found === undefined) throw new Error(`git rev-parse --git-path ${path} printed nothing`);
-      const full = resolve(this.dir, found);
-      if (!existsSync(full)) continue;
-      if (kind !== "rebase") return { kind };
-      const autostash = await readFile(join(full, "autostash"), "utf8").then(
-        (text) => (/^[0-9a-f]{40,64}$/.test(text.trim()) ? text.trim() : undefined),
-        () => undefined,
-      );
-      return autostash ? { kind, autostash } : { kind };
+      if (existsSync(resolve(this.dir, found))) return kind;
     }
     return undefined;
   }
@@ -160,43 +129,6 @@ export class Repo {
         entry.slice(entry.indexOf("\t") + 1),
       ),
     );
-  }
-
-  /** The files whose uncommitted changes the stash commit `sha` holds. */
-  async stashedFiles(sha: string): Promise<string[]> {
-    const result = await this.run(["diff", "--name-only", "-z", "--no-renames", `${sha}^1`, sha]);
-    return result.code === 0 ? unique(splitZ(result.stdout)) : [];
-  }
-
-  /**
-   * Whether the commits in `range` include one that changes something outside decisions/,
-   * or one that changes nothing at all (an empty commit: Sync's own commits always have
-   * cards in them). Check 2.
-   */
-  async hasCodeCommits(range: string): Promise<boolean> {
-    // Each commit is "\x01<sha>", then its paths, all NUL-separated.
-    const output = await this.out([
-      "log",
-      "--format=%x01%H",
-      "--name-only",
-      "-z",
-      "--no-renames",
-      "--diff-merges=first-parent",
-      range,
-    ]);
-    let paths: number | undefined;
-    for (const token of output.split("\0")) {
-      if (token.startsWith("\x01")) {
-        if (paths === 0) return true;
-        paths = 0;
-        continue;
-      }
-      const path = token.replace(/^\n+/, "");
-      if (!path) continue;
-      if (paths === undefined || !isCardPath(path)) return true;
-      paths++;
-    }
-    return paths === 0;
   }
 
   /** The checked-out branch (undefined when HEAD is detached) and what it tracks. */
@@ -228,54 +160,35 @@ export class Repo {
     return { error: gitErrorText(asked) };
   }
 
-  /** Changed and new files under decisions/, plus those changed by unpushed commits. */
-  async localCardChanges(hasUpstream: boolean): Promise<string[]> {
-    const status = splitZ(
-      await this.out([
-        "status",
-        "--porcelain=v1",
-        "-z",
-        "--no-renames",
-        "--untracked-files=all",
-        "--",
-        CARDS,
-      ]),
-    ).map((entry) => entry.slice(3));
-    const committed = hasUpstream
-      ? await this.paths(["diff", "--name-only", "-z", "--no-renames", "@{u}...HEAD", "--", CARDS])
-      : [];
-    return unique([...status, ...committed]);
+  /** Whether the repository has any remote at all. */
+  async hasRemote(): Promise<boolean> {
+    return (await this.out(["remote"])).trim() !== "";
   }
 
-  /** Cards the remote changed since this checkout's last common commit with it. */
-  remoteCardChanges(): Promise<string[]> {
-    return this.paths(["diff", "--name-only", "-z", "--no-renames", "HEAD...@{u}", "--", CARDS]);
+  /**
+   * Cards the right side of `range` ("a...b") changed since its last common commit with the
+   * left: by default, the upstream's since HEAD's.
+   */
+  remoteCardChanges(range = "HEAD...@{u}", tooLarge?: string): Promise<string[]> {
+    return this.paths(["diff", "--name-only", "-z", "--no-renames", range, "--", CARDS], tooLarge);
   }
 
-  /** `git stash list`: each entry's commit, its name now (stash@{n}) and its subject. */
-  async stashEntries(): Promise<StashEntry[]> {
-    // The stash is shared by every worktree of the repository, and agents use it too.
-    return (await this.out(["stash", "list", "--format=%H%x00%gd%x00%gs"]))
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => {
-        const [sha = "", ref = "", subject = ""] = line.split("\0");
-        return { sha, ref, subject };
-      });
+  /** The commit `rev` names. */
+  async commit(rev: string): Promise<string> {
+    return (await this.out(["rev-parse", "--verify", `${rev}^{commit}`])).trim();
   }
 
-  conflicted(): Promise<string[]> {
-    return this.paths(["diff", "--name-only", "-z", "--diff-filter=U"]);
+  /** Whether the commit `ancestor` is `descendant` or one of its ancestors. */
+  async isAncestor(ancestor: string, descendant: string): Promise<boolean> {
+    const args = ["merge-base", "--is-ancestor", ancestor, descendant];
+    const result = await this.run(args);
+    if (result.code === 0) return true;
+    if (result.code === 1) return false;
+    throw new GitFailed(args, result);
   }
 }
 
 export type InProgressKind = "rebase" | "merge" | "cherry-pick" | "revert" | "sequence" | "bisect";
-
-export interface InProgress {
-  kind: InProgressKind;
-  /** A rebase's autostash: the commit holding the uncommitted changes it set aside. */
-  autostash?: string;
-}
 
 /** What each kind of unfinished git operation leaves in the git folder, checked in order. */
 const IN_PROGRESS: { path: string; kind: InProgressKind }[] = [
@@ -287,13 +200,6 @@ const IN_PROGRESS: { path: string; kind: InProgressKind }[] = [
   { path: "sequencer", kind: "sequence" },
   { path: "BISECT_LOG", kind: "bisect" },
 ];
-
-export interface StashEntry {
-  sha: string;
-  /** Its name when it was listed ("stash@{2}"); it changes as entries come and go. */
-  ref: string;
-  subject: string;
-}
 
 export function unique(list: string[]): string[] {
   return [...new Set(list)].sort();

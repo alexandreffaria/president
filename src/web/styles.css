@@ -277,18 +277,6 @@ kbd {
   display: inline-block;
 }
 
-/* A project Sync skips with answers not synced (20261112l9vh): a line of its own under the
-   bar's first line, which pressing Sync never clears. */
-.sync-skipped {
-  flex-basis: 100%;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  text-align: right;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-}
-
 .notice.sync-report {
   max-width: 50rem;
   margin: 1rem auto 0;

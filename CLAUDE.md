@@ -33,7 +33,27 @@ On Windows it also installs the tray helper and runs its self-test.
 ## Where to work
 
 Never branch or edit in the main checkout, the one registered with the hub: the hub runs
-and syncs from it. Work in a git worktree.
+from it, and Sync pulls main into it. Work in a git worktree.
+
+One exception, for the orchestrating session only: Sync never commits, so an answer to a
+card that is already on main sits uncommitted in the main checkout, and Sync says "Not now"
+once a merged PR changes that card. Before applying such answers, the orchestrating session
+commits and pushes them on main there: only the `decisions/` card files the hub changed (the
+human's answers and feedback), and it never edits anything else there. Exactly this, in the
+main checkout:
+
+```
+git fetch
+git symbolic-ref --short HEAD          # must print main
+git rev-parse --abbrev-ref @{u}        # must print origin/main
+git log --oneline @{u}..               # must print nothing
+git merge --ff-only --no-autostash @{u}  # catches up if behind; no-op if level
+git commit -m "decisions: answers to <ids>" -- decisions/<file>...
+git push origin main:main
+```
+
+If a check fails or a command refuses: stop, change nothing else there, and tell the human.
+Never rebase, reset or merge any other way there.
 
 ## Cards and docs
 

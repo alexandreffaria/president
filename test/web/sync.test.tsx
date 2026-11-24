@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 /**
- * The Sync control in the top bar: the counts in the card's wording, the button and its
- * `s` key, "Syncing…" while one runs, and the report of each project's result. The API is
- * a stub here; test/sync.test.ts and test/sync-api.test.ts cover the git side.
+ * The Sync control in the top bar: the count of card changes on the remote, the button
+ * (which says it pulls) and its `s` key, "Pulling…" while one runs, and the report of each
+ * project's result. The API is a stub here; test/sync.test.ts and test/sync-api.test.ts
+ * cover the git side.
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -14,7 +15,7 @@ import type {
   SyncStatusResponse,
 } from "../../src/core/api.ts";
 import { App } from "../../src/web/App.tsx";
-import { remoteText, skippedText, unsyncedText } from "../../src/web/components/Sync.tsx";
+import { remoteText, SYNC_TITLE } from "../../src/web/components/Sync.tsx";
 import { FakeWebSocket, press, setWaitMs, until } from "./harness.ts";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -33,7 +34,6 @@ let finishSync: ((results: SyncResultDto[]) => void) | undefined;
 function project(overrides: Partial<ProjectSyncStatus> = {}): ProjectSyncStatus {
   return {
     project: "shop",
-    unsynced: 0,
     remoteChanges: 0,
     fetchRetrying: false,
     running: false,
@@ -44,10 +44,9 @@ function project(overrides: Partial<ProjectSyncStatus> = {}): ProjectSyncStatus 
 function result(overrides: Partial<SyncResultDto> = {}): SyncResultDto {
   return {
     project: "shop",
-    outcome: "synced",
-    message: "Synced: sent 0001",
-    sent: ["0001"],
-    received: [],
+    outcome: "pulled",
+    message: "Pulled 0001",
+    pulled: ["0001"],
     at: new Date().toISOString(),
     ...overrides,
   };
@@ -105,56 +104,59 @@ async function syncEvent() {
 }
 
 describe("the Sync control", () => {
-  it("uses the card's wording for the counts", () => {
-    expect(unsyncedText(3)).toBe("3 answers not synced");
-    expect(unsyncedText(1)).toBe("1 answer not synced");
-    expect(remoteText(3)).toBe("3 card changes on the remote, press Sync");
-    expect(remoteText(1)).toBe("1 card change on the remote, press Sync");
+  it("says it pulls: the count's wording and the button's tooltip (20261116d34o)", async () => {
+    expect(remoteText(3)).toBe("3 card changes on the remote, press Sync to pull them");
+    expect(remoteText(1)).toBe("1 card change on the remote, press Sync to pull it");
+    await render();
+    expect(syncButton().title).toBe(SYNC_TITLE);
+    expect(SYNC_TITLE).toBe(
+      "Pull main into each project folder, to bring in merged cards and answers. Sync never commits or pushes.",
+    );
   });
 
-  it("shows how many answers aren't synced and what waits on the remote", async () => {
-    projects = [project({ unsynced: 2, remoteChanges: 1 }), project({ project: "b", unsynced: 1 })];
+  it("shows what waits on the remote, on the button too", async () => {
+    projects = [project({ remoteChanges: 2 }), project({ project: "b", remoteChanges: 1 })];
     await render();
-    // The wording is pinned once, in "uses the card's wording for the counts".
-    await until(() => text().includes(unsyncedText(3)), "the count");
-    expect(text()).toContain(remoteText(1));
+    // The wording is pinned once, in "says it pulls".
+    await until(() => text().includes(remoteText(3)), "the count");
+    expect(syncButton().querySelector(".sync-count")?.textContent).toBe("3");
     expect(syncButton().getAttribute("aria-describedby")).toBe("sync-summary");
     expect(syncButton().getAttribute("aria-keyshortcuts")).toBe("s");
+    // Nothing on this machine is counted: Sync doesn't send answers.
+    expect(text()).not.toContain("not synced");
 
     projects = [project()];
     await syncEvent();
-    await until(() => !text().includes("not synced"), "the count to go");
+    await until(() => !text().includes("on the remote"), "the count to go");
     expect(host.querySelector("#sync-summary")).toBeNull();
+    expect(syncButton().querySelector(".sync-count")).toBeNull();
   });
 
-  it("syncs with the s key, says Syncing… meanwhile, and reports each project", async () => {
-    projects = [project({ unsynced: 1 })];
+  it("pulls with the s key, says Pulling… meanwhile, and reports each project", async () => {
+    projects = [project({ remoteChanges: 1 })];
     await render();
     await press("s");
     await until(() => syncButton().disabled, "the button to be busy");
     expect(syncPosts).toBe(1);
-    expect(syncButton().textContent).toContain("Syncing…");
+    expect(syncButton().textContent).toContain("Pulling…");
     expect(syncButton().getAttribute("aria-busy")).toBe("true");
     await press("s"); // no second Sync while one runs
     expect(syncPosts).toBe(1);
 
     const results = [
-      result({
-        project: "shop",
-        outcome: "not-synced",
-        message: "Not synced: 0001 changed on both machines",
-        action: "Fixing the conflict is a manual git step; pressing Sync again retries.",
-      }),
+      result({ project: "shop" }),
       result({
         project: "app",
         outcome: "not-now",
-        message: "Not now: an agent in app has commits it hasn't pushed",
+        message: "Not now: app has the branch feat/x checked out, not main",
+        pulled: [],
       }),
       result({
         project: "web",
-        outcome: "not-pushed",
-        message: "Not pushed: git push failed in web",
-        gitError: "! [rejected] main -> main (fetch first)",
+        outcome: "failed",
+        message: "Not pulled: couldn't fetch from the remote of web",
+        gitError: "fatal: Could not read from remote repository.",
+        pulled: [],
       }),
     ];
     projects = results.map((r) => project({ project: r.project, last: r }));
@@ -164,30 +166,29 @@ describe("the Sync control", () => {
     const report = host.querySelector(".sync-report") ?? expect.fail("no report");
     expect(report.closest("[role=status]")).not.toBeNull();
     expect(report.className).toContain("notice-warn");
+    expect(report.textContent).toContain("shop Pulled 0001.");
     expect(report.textContent).toContain(
-      "shop Not synced: 0001 changed on both machines. Fixing the conflict",
-    );
-    expect(report.textContent).toContain(
-      "app Not now: an agent in app has commits it hasn't pushed.",
+      "app Not now: app has the branch feat/x checked out, not main.",
     );
     expect(report.querySelector(".sync-git-error")?.textContent).toContain(
-      "Git said: ! [rejected] main -> main (fetch first)",
+      "Git said: fatal: Could not read from remote repository.",
     );
+    expect(report.querySelector(".sync-result-done")?.textContent).toContain("Pulled 0001");
 
     const dismiss = [...report.querySelectorAll("button")].find((b) => b.textContent === "Dismiss");
     await act(async () => dismiss?.click());
     expect(host.querySelector(".sync-report")).toBeNull();
   });
 
-  it("says when there was nothing to sync", async () => {
+  it("says when there was nothing to pull", async () => {
     await render();
     await act(async () => syncButton().click());
     await until(() => finishSync !== undefined, "the request");
     await act(async () =>
-      finishSync?.([result({ outcome: "nothing", message: "Nothing to sync" })]),
+      finishSync?.([result({ outcome: "nothing", message: "Nothing to pull", pulled: [] })]),
     );
     await until(
-      () => text().includes("Nothing to sync: no card changes here or on the remote."),
+      () => text().includes("Nothing to pull: no card changes on the remote."),
       "the toast",
     );
     expect(host.querySelector(".sync-report")).toBeNull();
@@ -214,23 +215,6 @@ describe("the Sync control", () => {
     expect(text()).not.toContain("Press Sync to fetch again.");
   });
 
-  it("shows a rebase left in progress when the hub starts, and how to get the files back (S-8)", async () => {
-    projects = [
-      project({
-        rebase: {
-          message:
-            "A rebase is in progress in shop, and Sync waits until it is finished or aborted",
-          action:
-            "The rebase has set aside the uncommitted changes to lib.js: until it is finished or aborted, that file shows its last committed content. If no agent is running this rebase (a Sync cut short by the hub stopping leaves one behind), git rebase --abort in /work/shop puts everything back as it was.",
-        },
-      }),
-    ];
-    await render();
-    await until(() => text().includes("A rebase is in progress in shop"), "the notice");
-    expect(text()).toContain("set aside the uncommitted changes to lib.js");
-    expect(text()).toContain("git rebase --abort in /work/shop");
-  });
-
   it("is busy while another tab's Sync runs", async () => {
     await render();
     projects = [project({ running: true })];
@@ -238,38 +222,6 @@ describe("the Sync control", () => {
     await until(() => syncButton().disabled, "the button to be busy");
     await press("s");
     expect(syncPosts).toBe(0);
-  });
-
-  it("counts a skipped project's answers on a line of their own, never on the button (B2)", async () => {
-    expect(skippedText("web", 2)).toBe("web: 2 answers not synced (Sync skips it)");
-    expect(skippedText("web", 1)).toBe("web: 1 answer not synced (Sync skips it)");
-    const skipped = (n: number) =>
-      project({
-        project: "web",
-        unavailable: "it isn't the top folder of a git repository",
-        skippedUnsynced: n,
-      });
-    projects = [
-      project({ unsynced: 1 }),
-      skipped(2),
-      project({ project: "plain", unavailable: "it isn't …", skippedUnsynced: 0 }),
-    ];
-    await render();
-    await until(() => text().includes(skippedText("web", 2)), "the line");
-    expect(host.querySelector("#sync-summary")?.textContent).toBe(unsyncedText(1));
-    expect(syncButton().querySelector(".sync-count")?.textContent).toBe("1");
-    expect(host.querySelectorAll(".sync-skipped li")).toHaveLength(1);
-
-    // Sync moved shop's answer; the skipped project's line stays.
-    projects = [project(), skipped(2), projects[2] as ProjectSyncStatus];
-    await syncEvent();
-    await until(() => host.querySelector("#sync-summary") === null, "the summary to go");
-    expect(syncButton().querySelector(".sync-count")).toBeNull();
-    expect(text()).toContain(skippedText("web", 2));
-
-    projects = [project(), skipped(0)];
-    await syncEvent();
-    await until(() => host.querySelector(".sync-skipped") === null, "the line to go");
   });
 
   it("shows the summary only where it fits next to the nav, measured (S4-6)", async () => {
@@ -298,9 +250,9 @@ describe("the Sync control", () => {
       return box(0);
     });
     const squeezed = () => host.querySelector(".sync")?.hasAttribute("data-squeezed");
-    projects = [project({ unsynced: 2 })];
+    projects = [project({ remoteChanges: 2 })];
     await render();
-    await until(() => text().includes(unsyncedText(2)), "the count");
+    await until(() => text().includes(remoteText(2)), "the count");
     expect(squeezed()).toBe(false);
     // The bar, the end group and the nav: each can change size alone.
     for (const selector of [".topbar", ".topbar-end", ".nav"]) {
@@ -327,11 +279,11 @@ describe("the Sync control", () => {
     });
     expect(squeezed()).toBe(false);
 
-    // A longer summary no longer fits.
+    // A new summary no longer fits.
     narrow = true;
-    projects = [project({ unsynced: 2, remoteChanges: 3 })];
+    projects = [project({ remoteChanges: 13 })];
     await syncEvent();
-    await until(() => text().includes("3 card changes"), "the new count");
+    await until(() => text().includes("13 card changes"), "the new count");
     expect(squeezed()).toBe(true);
   });
 

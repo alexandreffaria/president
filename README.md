@@ -170,8 +170,8 @@ and `CLAUDE_CONFIG_DIR` you ran `install` with, so it finds `claude` and `git`),
 `president-tray.service` runs the icon. The hub's unit starts the icon, but a hub that crashes
 and restarts leaves the icon running (grey meanwhile); `install` restarts both, and Quit and
 `uninstall` stop both; stopping the icon never closes a browser it opened. Stopping the hub
-waits for a Sync in progress to finish (systemd gives it up to 5 minutes, room for a Sync whose
-fetch, pull and push each run to git's 60-second network timeout). Don't also run `npm start`:
+waits for a Sync in progress to finish (systemd gives it up to 4½ minutes, room for a Sync whose
+fetch and merge each run to git's 60-second timeout). Don't also run `npm start`:
 both want port 4747 (the icon then turns grey and says "port 4747 in use by another program").
 
 - **Serve another build:** run `install` with another checkout's `preside.js`, a pull request's
@@ -222,9 +222,12 @@ both want port 4747 (the icon then turns grey and says "port 4747 in use by anot
    worktree of it) and commits it on the branch it works on. The card shows up in the queue
    right away, no reload needed, with the branch it is on ("on feat-login") when that isn't
    the project folder's own branch. Your answer is written into that card file, the agent
-   commits it with its work, and the branch's pull request takes the card to main (a card in
-   the project folder on main travels with Sync, step 5). The hub reads every checkout of a registered project: the folder and each
-   `git worktree list` entry, looked up again every few seconds.
+   commits it with its work, and the branch's pull request takes the card to main. An answer
+   to a card that is already on main, in the project folder, stays uncommitted there until an
+   agent commits it (Sync only pulls, step 5). The hub reads every checkout of a registered
+   project: the folder and each `git worktree list` entry, looked up again every few seconds.
+   Each machine's hub shows only the cards in its own checkouts: a card waiting on a branch
+   that is checked out on your other machine is answered on that machine.
 
 3. Go through the **Queue**. On a card:
 
@@ -328,65 +331,51 @@ both want port 4747 (the icon then turns grey and says "port 4747 in use by anot
 
 4. **Decisions** lists everything you decided, newest first, and whether an agent has applied it.
 
-5. **Sync** (the button in the top bar, or `s`) sends the answers in a project folder that
-   is on main to your other machines and brings theirs here. Cards on other branches travel
-   with their branch, not with Sync. president writes card files but never commits them on its
-   own; the top bar shows "3 answers not synced" while a project has card changes that aren't
-   pushed, so press Sync before you leave a machine. Where that doesn't fit next to the menu,
-   the number is on the Sync button instead. When the hub starts it only runs `git fetch`,
-   which changes no file and no branch, and shows "2 card changes on the remote, press Sync".
-   A fetch that fails then (the network isn't up yet, say) is retried after 5 s, 15 s, 30 s,
-   1 min, 2 min and 5 min, until one works or a Sync fetches.
+5. **Sync** (the button in the top bar, or `s`) pulls main into each project folder, to bring
+   in the cards and answers merged on the remote, from any machine's pull requests. It never
+   commits or pushes (card 20261116d34o). Cards travel with their branch's
+   pull request, and an answer you give to a card that is already on main stays an
+   uncommitted change in the project folder until an agent commits it. When the hub starts it
+   only runs `git fetch`, which changes no file and no branch, and the top bar shows "2 card
+   changes on the remote, press Sync to pull them" (where that doesn't fit next to the menu,
+   the number is on the Sync button instead). A fetch that fails then (the network isn't up
+   yet, say) is retried after 5 s, 15 s, 30 s, 1 min, 2 min and 5 min, until one works or a
+   Sync fetches.
 
-   For each project with card changes, here or on the remote, Sync runs `git fetch`, checks
-   that it is safe to touch the checkout, commits everything in `decisions/` in one commit
-   ("decisions from laptop: 0003, 0005"), then `git pull --rebase --autostash` and `git push`.
-   The top bar then lists what happened in each project. It says "Not now" and changes
-   nothing when:
+   For each project, Sync runs `git fetch`, and when the remote changed a card, checks that
+   it is safe to touch the checkout and fast-forwards main to the remote's (`git merge
+   --ff-only`). The top bar then lists what happened in each project ("Pulled 0003, 0005").
+   It says "Not now" and changes nothing when:
 
    - the checkout isn't on the remote's main branch (an agent's feature branch, say), a rebase,
      merge, cherry-pick, revert or bisect is in progress, a file has unresolved conflicts, or
      the branch has no upstream;
-   - there are commits that aren't pushed and change files outside `decisions/`, or change
-     nothing at all (an agent's work: the pull would rebase it and the push would publish it);
-   - a file outside `decisions/` that changed on the remote has uncommitted edits here.
+   - main has commits that aren't on the remote (an agent's, not pushed yet): Sync only
+     fast-forwards;
+   - a file the pull would change has uncommitted changes here: an agent's edit, or your
+     answer to a card that changed on the remote too. Such an answer makes every Sync of the
+     project say "Not now" until it is committed; in president itself, the orchestrating
+     session commits those on main (see `CLAUDE.md`).
 
    An untracked file where the pull would write is left to git, which refuses to overwrite
-   it: Sync then says a file git doesn't track is in the way, with git's error naming it,
-   nothing is lost, and your answers stay in a local commit; move or commit that file, then
-   press Sync again. Ignored files are expendable, as in any `git pull`:
-   if the online copy adds a tracked file at the exact path of a file you ignore here, git
-   replaces your file (and it removes ignored files in a folder the online copy turns into
-   a file).
+   it: Sync then says a file git doesn't track is in the way, with git's error naming it, and
+   nothing is changed; move or commit that file, then press Sync again. Ignored files are
+   expendable, as in any `git pull`: if the online copy adds a tracked file at the exact path
+   of a file you ignore here, git replaces your file (and it removes ignored files in a folder
+   the online copy turns into a file).
 
-   If the same card changed on both machines, Sync puts everything back as it was, keeps your
-   answers in a local commit and says "Not synced: 0001 changed on both machines"; fixing that
-   is a manual git step, and pressing Sync again retries. If the pull or the push fails
-   (offline, authentication), it shows git's error; your answers stay in the local commit for
-   the next Sync. If an agent saves a file during the few seconds the pull takes, Sync stops
-   before pushing and says so: git keeps the older copy in its stash entry named `autostash`,
-   which Sync names exactly (the stash is shared with agents, so a bare `git stash drop` could
-   remove theirs). After the pull Sync checks again, and if an agent committed or switched
-   branches meanwhile, it doesn't push. A rebase left in progress (say the hub stopped during
-   a pull) is shown in the top bar, with the files it set aside and `git rebase --abort` to
-   get them back. Sync is the only time president changes a checkout (otherwise it
-   only reads git's state, and fetches at start), and while it runs in a project, card
-   actions there are refused (an Undo refused that way stays on offer, to try again). git never asks
-   for a password or passphrase (a remote that needs one fails instead, so use a credential
-   helper or an ssh agent), and each git command is stopped after a timeout. Sync only works
-   on a project whose folder is the top folder of its git repository, and it skips a project
-   with git submodules (a `.gitmodules` file or a submodule in the index), or whose file
-   list is too long to check for them: commit and push `decisions/` there by hand. The top bar
-   counts such a project's answers on a line of their own, "web: 2 answers not synced (Sync
-   skips it)", which stays until they are committed and pushed (until committed, where the
-   repository's branch tracks nothing or HEAD is detached) and never adds to the Sync
-   button's number (a folder outside git shows no count). If git prints more than Sync reads
-   (4 MiB) anywhere else, Sync stops with "git output too large". For every list it reads
-   before its first change (the `git add` of the cards), that means it changed nothing; the
-   lists it reads later are bounded by earlier ones, so they can't realistically be cut. A
-   very large change on the online copy matters only when an agent has uncommitted edits
-   here: then Sync can't compare the two, and you press Sync again once those edits are
-   committed and pushed, or put away.
+   If the fetch or the pull fails (offline, authentication), Sync shows git's error. Sync is
+   the only time president changes a checkout (otherwise it only reads git's state, and
+   fetches at start), and while it runs in a project, card actions there are refused (an Undo
+   refused that way stays on offer, to try again). git never asks for a password or
+   passphrase (a remote that needs one fails instead, so use a credential helper or an ssh
+   agent), and each git command is stopped after a timeout. Sync only works on a project
+   whose folder is the top folder of its git repository, and it skips a project with git
+   submodules (a `.gitmodules` file or a submodule in the index), or whose file list is too
+   long to check for them: pull there by hand. If git prints more than Sync reads (4 MiB),
+   Sync stops with "git output too large" and changes nothing. A very large change on the
+   online copy matters only when there are uncommitted changes here: then Sync can't compare
+   the two, and you press Sync again once those changes are committed or put away.
 
 To try it with sample cards:
 
@@ -501,16 +490,16 @@ How it fits together:
   or stuck on a slow disk) closes the socket and shows Offline too. The page reconnects with
   backoff (0.5 s doubling to 3 s) and refetches everything when it is back. The handshake passes
   the same Host and Origin checks as writes, so another site can't open one.
-- Sync (`src/server/sync/`) runs the steps in [card #0001](decisions/0001-sync-across-machines.md)
-  ("How Sync works in git"), one project after another and never two at once in the same
-  project. Each step is a spawned `git` with an argument list (no shell), run in the
-  registered project folder without the inherited variables that point git at another
-  repository (the ones `git rev-parse --local-env-vars` lists, such as `GIT_DIR`; your own
-  `GIT_SSH_COMMAND` or `GIT_CONFIG_GLOBAL` are kept), `GIT_TERMINAL_PROMPT=0`, no askpass
-  program and no terminal, and a timeout (60 s for fetch, pull and push, 30 s for the rest)
-  after which git and whatever it started are stopped. It pushes exactly the commit it
-  checked, to the branch `main` tracks (`git push <remote> <commit>:refs/heads/main`), never
-  with a bare `git push`.
+- Sync (`src/server/sync/`, the steps listed in `sequence.ts`) fetches and fast-forwards
+  main ([card 20261116d34o](decisions/20261116d34o-what-sync-becomes.md)), one project after
+  another and never two at once in the same project. Each step is a spawned `git` with an
+  argument list (no shell), run in the registered project folder without the inherited
+  variables that point git at another repository (the ones `git rev-parse --local-env-vars`
+  lists, such as `GIT_DIR`; your own `GIT_SSH_COMMAND` or `GIT_CONFIG_GLOBAL` are kept),
+  `GIT_TERMINAL_PROMPT=0`, no askpass program and no terminal, and a timeout (60 s for
+  fetch and the merge, 30 s for the rest) after which git and whatever it started are stopped. It merges
+  exactly the commit it checked (`git merge --ff-only <commit>`), never with a bare
+  `git pull`.
   `POST /api/sync` passes the same Host and Origin checks as every write. While a project's
   Sync runs, card actions there are refused (409 `syncing`), and a Sync waits for a card
   write already under way.

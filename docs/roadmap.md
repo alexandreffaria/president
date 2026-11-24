@@ -22,14 +22,11 @@ The 2026-11-14 cleanup is done ([plan.md](plan.md) section 4).
 
 ## Cards on the working branch
 
-Decided in chat on 2026-11-16 (see [foundations](foundations.md#settled-decisions)); real use on
-Blendeck asked for it, so the freeze doesn't hold it. The hub reading every checkout, `preside`
-working in its own checkout, and the skill and docs are built ([plan.md](plan.md) section 8).
-Left, once their cards are answered:
-
-1. Answering from another machine: whether other machines' hubs show or answer a branch's cards
-   (card 20261116notj, in the owner's queue).
-2. What Sync becomes (card 20261116d34o).
+Done ([plan.md](plan.md) section 8), with the two cards it left: each hub shows only its own
+checkouts' cards, so a branch's card is answered on the machine that has the branch
+([20261116notj](../decisions/20261116notj-answering-from-another-machine.md)), and Sync only
+pulls main, never committing or pushing
+([20261116d34o](../decisions/20261116d34o-what-sync-becomes.md)).
 
 ## Not built, held by the freeze
 

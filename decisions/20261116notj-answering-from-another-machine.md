@@ -43,6 +43,7 @@ options:
 resolution:
   choice: here-only
   resolved_at: 2026-11-16T04:12:48Z
+applied_at: 2026-11-24T20:39:31Z
 ---
 
 ## Context

@@ -128,7 +128,7 @@ answered on 2026-11-14. The unbuilt work, in short, is in [roadmap.md](roadmap.m
   once, and writes answers into the checkout that holds it. `preside` works in the checkout it
   runs in, without the worktree warning; the skill, `CLAUDE.md`, README and foundations say
   agents commit cards on their branch. (#56)
-- [ ] Answering from another machine (20261116notj) and what Sync becomes (20261116d34o): once
-  their cards are answered. With Sync: the top bar's "answers not synced" still counts a
-  feature branch's committed card changes in the registered folder, which travel with that
-  branch's pull request.
+- [x] Answering from another machine (20261116notj, `here-only`): each hub shows only its own
+  checkouts' cards, which needs nothing new. What Sync becomes (20261116d34o, `pull-only`):
+  Sync only fast-forwards main and never commits or pushes; the "answers not synced" counts,
+  including a skipped project's line, are gone. (#58)
